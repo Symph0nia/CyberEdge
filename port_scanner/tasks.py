@@ -1,37 +1,44 @@
 from django.utils import timezone
 from celery import shared_task
-import nmap
+import subprocess
+import re
 from .models import ScanJob, Port  # 确保导入模型
 
-@shared_task(bind=True)  # 添加bind=True以访问self.request.id
+@shared_task(bind=True)
 def scan_ports(self, target, ports):
-    scanner = nmap.PortScanner()
     # 首先创建一个新的ScanJob实例，初始化状态为'R'（Running），并立即保存
     scan_job = ScanJob.objects.create(target=target, status='R', task_id=self.request.id)
 
     try:
-        scanner.scan(target, ports)
-        scan_result = scanner[target].get('scan', {})
-        if not scan_result:
+        # 构建nmap命令
+        cmd = f"nmap -sS {target} -p {ports}"
+        # 执行命令
+        process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        stdout, stderr = process.communicate()
+
+        if stderr or process.returncode != 0:
             scan_job.status = 'E'  # 更新状态为错误
-            scan_job.error_message = f'没有扫描结果 {target}。目标可能无法到达或不在线。'
+            scan_job.error_message = f'Nmap 扫描失败: {stderr.decode()}'
         else:
-            # 迭代扫描结果，为每个开放的端口创建Port实例
-            for port, port_data in scan_result.get('tcp', {}).items():
-                Port.objects.create(
-                    scan_job=scan_job,
-                    port_number=port,
-                    service_name=port_data.get('name', ''),
-                    protocol='tcp',
-                    state=port_data.get('state', '')
-                )
-            scan_job.status = 'C'  # 更新状态为完成
-    except nmap.PortScannerError as e:
+            output = stdout.decode()
+            # 使用正则表达式查找开放的端口
+            open_ports = re.findall(r'(\d+)/tcp\s+open\s+(\S+)', output)
+            if not open_ports:
+                scan_job.status = 'E'
+                scan_job.error_message = f'没有找到开放的端口 {target}。'
+            else:
+                for port, service in open_ports:
+                    Port.objects.create(
+                        scan_job=scan_job,
+                        port_number=int(port),
+                        service_name=service,
+                        protocol='tcp',
+                        state='open'
+                    )
+                scan_job.status = 'C'  # 更新状态为完成
+    except Exception as e:
         scan_job.status = 'E'  # 更新状态为错误
-        scan_job.error_message = f'Nmap 扫描失败: {str(e)}'
-    except KeyError:
-        scan_job.status = 'E'  # 更新状态为错误
-        scan_job.error_message = f'键错误: 扫描结果不包含 {target} 的预期结构。'
+        scan_job.error_message = f'扫描过程中发生异常: {str(e)}'
     finally:
         scan_job.end_time = timezone.now()  # 记录结束时间
         scan_job.save()  # 明确保存ScanJob实例的更改
@@ -39,4 +46,3 @@ def scan_ports(self, target, ports):
         if scan_job.status == 'E':
             return {'error': scan_job.error_message}
         return {'message': f'扫描完成: {target}'}
-
