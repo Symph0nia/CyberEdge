@@ -1,3 +1,5 @@
 /venv/
 /.idea/
 *.pyc
+*/migrations/
+db.sqlite3
