@@ -12,7 +12,6 @@ Django==5.0.3
 kombu==5.3.6
 prompt-toolkit==3.0.43
 python-dateutil==2.9.0.post0
-python-nmap==0.7.1
 redis==5.0.3
 six==1.16.0
 sqlparse==0.4.4
