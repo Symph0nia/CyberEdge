@@ -37,7 +37,8 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    "port_scanner"
+    "port_scanner",
+    "path_scanner"
 ]
 
 MIDDLEWARE = [
