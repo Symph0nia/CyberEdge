@@ -2,7 +2,6 @@ from django.utils import timezone
 from celery import shared_task
 import subprocess
 import re
-import uuid
 from .models import ScanJob, Port  # 确保导入模型
 
 @shared_task(bind=True)
