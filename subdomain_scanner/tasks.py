@@ -24,25 +24,21 @@ def scan_subdomains(self, target):
         with open(output_file_path, 'r') as file:
             results = json.load(file)
             for result in results:
-                # 解析额外信息，假设result['additional_info']是一个JSON字符串
-                additional_info = json.loads(result.get('additional_info', '{}'))
-
                 # 创建Subdomain实例
                 Subdomain.objects.create(
                     scan_job=scan_job,
                     subdomain=result['subdomain'],
                     ip_address=result.get('ip', ''),
                     status=result.get('status', ''),
-                    cname=additional_info.get('cname', ''),
-                    port=additional_info.get('port', None),
-                    title=additional_info.get('title', ''),
-                    banner=additional_info.get('banner', ''),
-                    asn=additional_info.get('asn', ''),
-                    org=additional_info.get('org', ''),
-                    addr=additional_info.get('addr', ''),
-                    isp=additional_info.get('isp', ''),
-                    source=additional_info.get('source', ''),
-                    additional_info=json.dumps(additional_info)  # 可选，如果需要存储整个additional_info作为JSON字符串
+                    cname=result.get('cname', ''),
+                    port=result.get('port', None),
+                    title=result.get('title', ''),
+                    banner=result.get('banner', ''),
+                    asn=result.get('asn', ''),
+                    org=result.get('org', ''),
+                    addr=result.get('addr', ''),
+                    isp=result.get('isp', ''),
+                    source=result.get('source', ''),
                 )
             scan_job.status = 'C'  # 标记为完成
     except subprocess.CalledProcessError as e:
