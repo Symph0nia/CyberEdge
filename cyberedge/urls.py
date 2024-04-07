@@ -20,5 +20,6 @@ from django.urls import include, path
 urlpatterns = [
     path("admin/", admin.site.urls),
     path('port_scanner/', include('port_scanner.urls')),
-    path('path_scanner/', include('path_scanner.urls'))
+    path('path_scanner/', include('path_scanner.urls')),
+    path('subdomain_scanner/', include('subdomain_scanner.urls'))
 ]
