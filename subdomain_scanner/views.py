@@ -61,3 +61,13 @@ def subdomain_task_status_view(request):
         }
 
     return JsonResponse(response_data)
+
+@csrf_exempt
+@require_http_methods(["GET"])  # 修改为接受GET请求
+def get_all_tasks_view(request):
+    # 获取所有ScanJob实例的概要信息
+    tasks = SubdomainScanJob.objects.all().values('task_id', 'target', 'status', 'start_time', 'end_time')
+    tasks_list = list(tasks)
+
+    # 返回响应
+    return JsonResponse({'tasks': tasks_list}, safe=False)  # safe=False允许非字典对象被序列化为JSON

@@ -1,7 +1,8 @@
 from django.urls import path
-from .views import scan_ports_view, task_status_view
+from .views import scan_ports_view, task_status_view, get_all_tasks_view
 
 urlpatterns = [
     path('scan', scan_ports_view, name='scan_ports'),
     path('task_status', task_status_view, name='task_status'),
+    path('all_tasks', get_all_tasks_view, name='all_tasks')
 ]
