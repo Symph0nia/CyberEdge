@@ -54,7 +54,7 @@ def path_task_status_view(request):
 
     if path_scan_job.status in ['C', 'E']:  # 如果任务已完成或遇到错误
         response_data['task_result'] = {
-            'results': list(path_scan_job.results.values('url', 'content_type', 'status', 'length')),
+            'results': list(path_scan_job.results.values('id', 'url', 'content_type', 'status', 'length')),
             'error_message': path_scan_job.error_message
         }
 

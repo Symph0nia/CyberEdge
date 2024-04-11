@@ -4,7 +4,7 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
-from .models import SubdomainScanJob
+from .models import SubdomainScanJob, Subdomain
 from .tasks import scan_subdomains  # 确保从你的Celery任务模块导入scan_subdomains函数
 
 
@@ -55,7 +55,7 @@ def subdomain_task_status_view(request):
 
     if subdomain_scan_job.status in ['C', 'E']:  # 如果任务已完成或遇到错误
         response_data['task_result'] = {
-            'subdomains': list(subdomain_scan_job.subdomains.values('subdomain', 'ip_address', 'status', 'cname', 'port', 'title',
+            'subdomains': list(subdomain_scan_job.subdomains.values('id', 'subdomain', 'ip_address', 'status', 'cname', 'port', 'title',
                     'banner', 'asn', 'org', 'addr', 'isp', 'source')),
             'error_message': subdomain_scan_job.error_message
         }
@@ -71,3 +71,35 @@ def get_all_tasks_view(request):
 
     # 返回响应
     return JsonResponse({'tasks': tasks_list}, safe=False)  # safe=False允许非字典对象被序列化为JSON
+
+@csrf_exempt
+@require_http_methods(["DELETE"])
+def delete_task_view(request, task_id):
+    try:
+        # 尝试根据提供的task_id找到对应的任务记录
+        task = SubdomainScanJob.objects.get(task_id=task_id)
+        # 删除找到的任务记录
+        task.delete()
+        return JsonResponse({'message': '任务删除成功'}, status=200)
+    except SubdomainScanJob.DoesNotExist:
+        # 如果没有找到对应的任务记录，则返回错误信息
+        return JsonResponse({'error': '任务ID不存在，无法删除'}, status=404)
+    except Exception as e:
+        # 捕获并处理其他可能的错误
+        return JsonResponse({'error': f'删除任务时发生错误: {str(e)}'}, status=500)
+
+@csrf_exempt
+@require_http_methods(["DELETE"])
+def delete_domain_view(request, id):
+    try:
+        # 尝试根据提供的task_id找到对应的任务记录
+        task = Subdomain.objects.get(id=id)
+        # 删除找到的任务记录
+        task.delete()
+        return JsonResponse({'message': '子域名删除成功'}, status=200)
+    except Subdomain.DoesNotExist:
+        # 如果没有找到对应的任务记录，则返回错误信息
+        return JsonResponse({'error': '子域名ID不存在，无法删除'}, status=404)
+    except Exception as e:
+        # 捕获并处理其他可能的错误
+        return JsonResponse({'error': f'删除子域名时发生错误: {str(e)}'}, status=500)
