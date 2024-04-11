@@ -90,7 +90,7 @@ def delete_task_view(request, task_id):
 
 @csrf_exempt
 @require_http_methods(["DELETE"])
-def delete_domain_view(request, id):
+def delete_subdomain_view(request, id):
     try:
         # 尝试根据提供的task_id找到对应的任务记录
         task = Subdomain.objects.get(id=id)

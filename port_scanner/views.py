@@ -1,7 +1,7 @@
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
-from .models import ScanJob
+from .models import ScanJob, Port
 import json
 from .tasks import scan_ports
 
@@ -67,3 +67,35 @@ def get_all_tasks_view(request):
 
     # 返回响应
     return JsonResponse({'tasks': tasks_list}, safe=False)  # safe=False允许非字典对象被序列化为JSON
+
+@csrf_exempt
+@require_http_methods(["DELETE"])
+def delete_task_view(request, task_id):
+    try:
+        # 尝试根据提供的task_id找到对应的任务记录
+        task = ScanJob.objects.get(task_id=task_id)
+        # 删除找到的任务记录
+        task.delete()
+        return JsonResponse({'message': '任务删除成功'}, status=200)
+    except ScanJob.DoesNotExist:
+        # 如果没有找到对应的任务记录，则返回错误信息
+        return JsonResponse({'error': '任务ID不存在，无法删除'}, status=404)
+    except Exception as e:
+        # 捕获并处理其他可能的错误
+        return JsonResponse({'error': f'删除任务时发生错误: {str(e)}'}, status=500)
+
+@csrf_exempt
+@require_http_methods(["DELETE"])
+def delete_port_view(request, id):
+    try:
+        # 尝试根据提供的task_id找到对应的任务记录
+        task = Port.objects.get(id=id)
+        # 删除找到的任务记录
+        task.delete()
+        return JsonResponse({'message': '端口删除成功'}, status=200)
+    except Port.DoesNotExist:
+        # 如果没有找到对应的任务记录，则返回错误信息
+        return JsonResponse({'error': '端口ID不存在，无法删除'}, status=404)
+    except Exception as e:
+        # 捕获并处理其他可能的错误
+        return JsonResponse({'error': f'删除端口时发生错误: {str(e)}'}, status=500)
