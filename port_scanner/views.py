@@ -5,25 +5,37 @@ from .models import ScanJob, Port
 import json
 from .tasks import scan_ports
 
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_http_methods
+import json
+from .tasks import scan_ports  # 确保正确导入异步任务
+
 @csrf_exempt  # 允许跨站请求
 @require_http_methods(["POST"])  # 限制只接受POST请求
 def scan_ports_view(request):
     try:
         # 解析请求体中的JSON
         data = json.loads(request.body.decode('utf-8'))
-        target = data.get('target')
-        ports = data.get('ports')
+        targets = data.get('target', '')
+        ports = data.get('ports', '1-65535')  # 如果未指定，设置默认端口范围
     except json.JSONDecodeError:
         return JsonResponse({'error': '无效的JSON格式'}, status=400)
 
-    if not target or not ports:
-        return JsonResponse({'error': '缺少必要的target或ports参数'}, status=400)
+    # 分割逗号分隔的IP地址，并移除空字符串
+    targets_list = [ip.strip() for ip in targets.split(',') if ip.strip()]
 
-    # 异步执行扫描任务
-    task = scan_ports.delay(target, ports)
+    if not targets_list:
+        return JsonResponse({'error': '缺少必要的target参数或格式错误'}, status=400)
+
+    task_ids = []
+    # 对每个IP启动一个任务
+    for target in targets_list:
+        task = scan_ports.delay(target, ports)
+        task_ids.append(task.id)
 
     # 返回响应
-    return JsonResponse({'message': '扫描任务已启动', 'task_id': task.id})
+    return JsonResponse({'message': f'共启动{len(task_ids)}个扫描任务', 'task_ids': task_ids})
 
 @csrf_exempt
 @require_http_methods(["POST"])
