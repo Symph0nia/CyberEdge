@@ -39,7 +39,8 @@ def scan_ports(self, target, ports):
                         port_number=int(port),
                         service_name=service,
                         protocol='tcp',
-                        state='open'
+                        state='open',
+                        ip_address=target  # 添加IP地址
                     )
                 scan_job.status = 'C'  # 更新状态为完成
     except Exception as e:
