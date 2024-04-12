@@ -14,19 +14,24 @@ def scan_subdomains_view(request):
     try:
         # 解析请求体中的JSON
         data = json.loads(request.body.decode('utf-8'))
-        target = data.get('target')  # 获取要扫描的目标域名
+        targets = data.get('target', '')  # 从请求中获取目标域名字符串
     except json.JSONDecodeError:
         return JsonResponse({'error': '无效的JSON格式'}, status=400)
 
-    if not target:
-        return JsonResponse({'error': '缺少必要的target参数'}, status=400)
+    # 分割逗号分隔的目标域名字符串，并移除空字符串
+    targets_list = [target.strip() for target in targets.split(',') if target.strip()]
 
-    # 异步执行OneForAll子域名扫描任务
-    task = scan_subdomains.delay(target)
+    if not targets_list:
+        return JsonResponse({'error': '缺少必要的target参数或格式错误'}, status=400)
+
+    task_ids = []
+    # 对每个目标域名启动一个子域名扫描任务
+    for target in targets_list:
+        task = scan_subdomains.delay(target)
+        task_ids.append(task.id)
 
     # 返回响应
-    return JsonResponse({'message': '子域名扫描任务已启动', 'task_id': task.id})
-
+    return JsonResponse({'message': f'共启动{len(task_ids)}个子域名扫描任务', 'task_ids': task_ids})
 
 @csrf_exempt
 @require_http_methods(["POST"])

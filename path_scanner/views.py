@@ -7,25 +7,37 @@ from django.views.decorators.http import require_http_methods
 from .models import PathScanJob, PathScanResult  # 确保正确导入PathScanJob模型
 from .tasks import scan_paths  # 确保从你的Celery任务模块导入scan_paths
 
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_http_methods
+import json
+from .tasks import scan_paths  # 确保正确导入异步任务
+
 @csrf_exempt  # 允许跨站请求
 @require_http_methods(["POST"])  # 限制只接受POST请求
 def scan_paths_view(request):
     try:
         # 解析请求体中的JSON
         data = json.loads(request.body.decode('utf-8'))
-        wordlist = data.get('wordlist')
-        url = data.get('url')
+        wordlist = data.get('wordlist', 'default_wordlist.txt')  # 提供默认wordlist文件名
+        urls = data.get('url', '')
     except json.JSONDecodeError:
         return JsonResponse({'error': '无效的JSON格式'}, status=400)
 
-    if not wordlist or not url:
-        return JsonResponse({'error': '缺少必要的wordlist或url参数'}, status=400)
+    # 分割逗号分隔的URLs，并移除空字符串
+    urls_list = [url.strip() for url in urls.split(',') if url.strip()]
 
-    # 异步执行ffuf扫描任务
-    task = scan_paths.delay(wordlist, url)
+    if not urls_list:
+        return JsonResponse({'error': '缺少必要的url参数或格式错误'}, status=400)
+
+    task_ids = []
+    # 对每个URL启动一个任务
+    for url in urls_list:
+        task = scan_paths.delay(wordlist, url)
+        task_ids.append(task.id)
 
     # 返回响应
-    return JsonResponse({'message': '路径扫描任务已启动', 'task_id': task.id})
+    return JsonResponse({'message': f'共启动{len(task_ids)}个路径扫描任务', 'task_ids': task_ids})
 
 @csrf_exempt
 @require_http_methods(["POST"])
