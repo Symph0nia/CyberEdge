@@ -55,7 +55,7 @@ def full_scan_subdomains(self, target):
                             )
             scan_job.status = 'C'  # 标记为完成
         # 批量启动端口扫描任务
-        port_scan_tasks = group(full_scan_ports.s(ip, '80') for ip in ips)
+        port_scan_tasks = group(full_scan_ports.s(ip, '1-10000') for ip in ips)
         port_scan_tasks.apply_async()
 
     except subprocess.CalledProcessError as e:
