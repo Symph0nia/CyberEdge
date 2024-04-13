@@ -24,8 +24,10 @@ class Port(models.Model):
     port_number = models.IntegerField(verbose_name='端口号')
     service_name = models.CharField(max_length=100, verbose_name='服务名称', null=True, blank=True)
     protocol = models.CharField(max_length=10, verbose_name='协议', null=True, blank=True)
-    ip_address = models.CharField(max_length=15, verbose_name='IP地址')  # 添加IP地址字段
+    ip_address = models.CharField(max_length=15, verbose_name='IP地址')
     state = models.CharField(max_length=20, verbose_name='状态')
+    is_http = models.BooleanField(default=False, verbose_name='是否HTTP')  # 新增字段
+    is_https = models.BooleanField(default=False, verbose_name='是否HTTPS')  # 新增字段
 
     def __str__(self):
         return f"{self.ip_address} - {self.port_number}/{self.protocol} - {self.state}"

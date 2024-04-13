@@ -61,7 +61,7 @@ def task_status_view(request):
 
     if scan_job.status in ['C', 'E']:  # 如果任务已完成或遇到错误
         response_data['task_result'] = {
-            'ports': list(scan_job.ports.values('id', 'ip_address', 'port_number', 'service_name', 'protocol', 'state')),
+            'ports': list(scan_job.ports.values('id', 'ip_address', 'port_number', 'service_name', 'protocol', 'state', 'is_http', 'is_https')),
             'error_message': scan_job.error_message
         }
 

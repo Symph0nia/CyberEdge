@@ -1,8 +1,10 @@
+import requests
 from django.utils import timezone
 from celery import shared_task
+from .models import ScanJob, Port
 import subprocess
 import re
-from .models import ScanJob, Port  # 确保导入模型
+import os
 
 @shared_task(bind=True)
 def scan_ports(self, target, ports):
@@ -34,7 +36,8 @@ def scan_ports(self, target, ports):
                 scan_job.error_message = f'没有找到开放的端口 {target}。'
             else:
                 for port, service in open_ports:
-                    Port.objects.create(
+                    # 创建Port对象
+                    new_port = Port.objects.create(
                         scan_job=scan_job,
                         port_number=int(port),
                         service_name=service,
@@ -42,6 +45,14 @@ def scan_ports(self, target, ports):
                         state='open',
                         ip_address=target  # 添加IP地址
                     )
+                    # 测试HTTP
+                    if check_protocol(target, port, 'http'):
+                        new_port.is_http = True
+                    # 测试HTTPS
+                    if check_protocol(target, port, 'https'):
+                        new_port.is_https = True
+                    new_port.save()
+
                 scan_job.status = 'C'  # 更新状态为完成
     except Exception as e:
         scan_job.status = 'E'  # 更新状态为错误
@@ -49,9 +60,25 @@ def scan_ports(self, target, ports):
     finally:
         scan_job.end_time = timezone.now()  # 记录结束时间
         scan_job.save()  # 明确保存ScanJob实例的更改
-
-        # 可以考虑在此处或在适当的时候删除临时文件，或保留以便审查
+        # 清理临时文件
+        os.remove(temp_file_path)
 
         if scan_job.status == 'E':
             return {'error': scan_job.error_message}
         return {'message': f'扫描完成: {target}'}
+
+def check_protocol(ip, port, protocol):
+    url = f"{protocol}://{ip}:{port}"
+    try:
+        response = requests.get(url, timeout=1, verify=False)  # 禁用SSL证书验证
+        # 只要请求没有引发异常，我们就认为端口支持HTTP/HTTPS
+        return True
+    except requests.exceptions.ConnectionError:
+        # 连接错误意味着无法建立TCP连接
+        return False
+    except requests.exceptions.Timeout:
+        # 超时意味着服务器没有在预定时间内响应
+        return False
+    except requests.exceptions.RequestException:
+        # 处理其他所有请求相关的异常
+        return False
