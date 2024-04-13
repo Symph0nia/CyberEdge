@@ -15,16 +15,17 @@ def scan_paths_view(request):
     try:
         # 解析请求体中的JSON
         data = json.loads(request.body.decode('utf-8'))
-        wordlist = data.get('wordlist', 'default_wordlist.txt')  # 提供默认wordlist文件名
-        urls = data.get('url', '')
+        wordlist = data.get('wordlist', './wordlist/default_wordlist.txt')  # 提供默认wordlist文件名
+        urls = data.get('urls', [])  # 直接获取数组格式的URLs
     except json.JSONDecodeError:
         return JsonResponse({'error': '无效的JSON格式'}, status=400)
 
-    # 分割逗号分隔的URLs，并移除空字符串
-    urls_list = [url.strip() for url in urls.split(',') if url.strip()]
+    # 确保urls是列表类型
+    if not isinstance(urls, list) or not urls:
+        return JsonResponse({'error': '缺少必要的urls参数或格式错误'}, status=400)
 
-    if not urls_list:
-        return JsonResponse({'error': '缺少必要的url参数或格式错误'}, status=400)
+    # 过滤空字符串URL
+    urls_list = [url.strip() for url in urls if url.strip()]
 
     task_ids = []
     # 对每个URL启动一个任务
