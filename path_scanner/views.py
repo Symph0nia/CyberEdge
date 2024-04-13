@@ -1,17 +1,13 @@
 import json
+import os
 
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from .models import PathScanJob, PathScanResult  # 确保正确导入PathScanJob模型
-from .tasks import scan_paths  # 确保从你的Celery任务模块导入scan_paths
-
-from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_http_methods
-import json
 from .tasks import scan_paths  # 确保正确导入异步任务
+
 
 @csrf_exempt  # 允许跨站请求
 @require_http_methods(["POST"])  # 限制只接受POST请求
@@ -113,3 +109,24 @@ def delete_path_view(request, id):
     except Exception as e:
         # 捕获并处理其他可能的错误
         return JsonResponse({'error': f'删除端口时发生错误: {str(e)}'}, status=500)
+
+@csrf_exempt
+@require_http_methods(["GET"])  # 限制此视图只接受GET请求
+def list_wordlists(request):
+    wordlist_dir = './wordlist'  # 设置wordlist目录的路径
+    try:
+        # 获取wordlist目录下的所有文件
+        files = []
+        for filename in os.listdir(wordlist_dir):
+            filepath = os.path.join(wordlist_dir, filename)
+            if os.path.isfile(filepath):  # 确保是文件
+                files.append({
+                    'name': filename,
+                    'path': filepath
+                })
+
+        # 返回文件列表
+        return JsonResponse({'files': files}, status=200)
+    except Exception as e:
+        # 如果发生错误，返回错误信息
+        return JsonResponse({'error': str(e)}, status=500)
