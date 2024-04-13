@@ -8,7 +8,6 @@ from django.views.decorators.http import require_http_methods
 from .models import PathScanJob, PathScanResult  # 确保正确导入PathScanJob模型
 from .tasks import scan_paths  # 确保正确导入异步任务
 
-
 @csrf_exempt  # 允许跨站请求
 @require_http_methods(["POST"])  # 限制只接受POST请求
 def scan_paths_view(request):

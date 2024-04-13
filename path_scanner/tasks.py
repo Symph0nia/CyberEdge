@@ -2,7 +2,6 @@ from django.utils import timezone
 from celery import shared_task
 import subprocess
 import json
-import uuid
 from .models import PathScanJob, PathScanResult  # 确保导入模型
 
 @shared_task(bind=True)

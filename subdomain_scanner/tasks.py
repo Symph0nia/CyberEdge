@@ -4,6 +4,7 @@ import subprocess
 import json
 import uuid
 from .models import SubdomainScanJob, Subdomain  # 确保正确导入模型
+from django.db import transaction
 
 @shared_task(bind=True)
 def scan_subdomains(self, target):
@@ -24,22 +25,28 @@ def scan_subdomains(self, target):
         with open(output_file_path, 'r') as file:
             results = json.load(file)
             for result in results:
-                # 创建Subdomain实例
-                Subdomain.objects.create(
-                    scan_job=scan_job,
-                    subdomain=result['subdomain'],
-                    ip_address=result.get('ip', ''),
-                    status=result.get('status', ''),
-                    cname=result.get('cname', ''),
-                    port=result.get('port', None),
-                    title=result.get('title', ''),
-                    banner=result.get('banner', ''),
-                    asn=result.get('asn', ''),
-                    org=result.get('org', ''),
-                    addr=result.get('addr', ''),
-                    isp=result.get('isp', ''),
-                    source=result.get('source', ''),
-                )
+                # 分割和处理包含多个IP的情况
+                ip_addresses = result.get('ip', '').split(',')
+                for ip in ip_addresses:
+                    ip = ip.strip()  # 清除空格
+                    if ip:
+                        # 在事务中创建Subdomain对象
+                        with transaction.atomic():
+                            Subdomain.objects.create(
+                                scan_job=scan_job,
+                                subdomain=result['subdomain'],
+                                ip_address=ip,
+                                status=result.get('status', ''),
+                                cname=result.get('cname', ''),
+                                port=result.get('port', None),
+                                title=result.get('title', ''),
+                                banner=result.get('banner', ''),
+                                asn=result.get('asn', ''),
+                                org=result.get('org', ''),
+                                addr=result.get('addr', ''),
+                                isp=result.get('isp', ''),
+                                source=result.get('source', ''),
+                            )
             scan_job.status = 'C'  # 标记为完成
     except subprocess.CalledProcessError as e:
         scan_job.status = 'E'  # 标记为错误
