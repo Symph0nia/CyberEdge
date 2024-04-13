@@ -20,11 +20,15 @@ class ScanJob(models.Model):
         return f"{self.target} ({self.get_status_display()})"
 
 class Port(models.Model):
-    scan_job = models.ForeignKey(ScanJob, on_delete=models.CASCADE, related_name='ports', verbose_name='扫描任务')
+    scan_job = models.ForeignKey('ScanJob', on_delete=models.CASCADE, related_name='ports', verbose_name='扫描任务')
     port_number = models.IntegerField(verbose_name='端口号')
     service_name = models.CharField(max_length=100, verbose_name='服务名称', null=True, blank=True)
     protocol = models.CharField(max_length=10, verbose_name='协议', null=True, blank=True)
+    ip_address = models.CharField(max_length=15, verbose_name='IP地址')
     state = models.CharField(max_length=20, verbose_name='状态')
+    is_http = models.BooleanField(default=False, verbose_name='是否HTTP')  # 新增字段
+    is_https = models.BooleanField(default=False, verbose_name='是否HTTPS')  # 新增字段
 
     def __str__(self):
-        return f"{self.port_number}/{self.protocol} - {self.state}"
+        return f"{self.ip_address} - {self.port_number}/{self.protocol} - {self.state}"
+
