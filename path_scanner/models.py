@@ -19,6 +19,10 @@ class PathScanJob(models.Model):
     def __str__(self):
         return f"{self.target} ({self.get_status_display()})"
 
+    @property
+    def result_count(self):
+        return self.results.count()
+
 class PathScanResult(models.Model):
     path_scan_job = models.ForeignKey(PathScanJob, on_delete=models.CASCADE, related_name='results', verbose_name='路径扫描任务')
     url = models.URLField(verbose_name='URL')

@@ -19,6 +19,10 @@ class SubdomainScanJob(models.Model):
     def __str__(self):
         return f"{self.target} ({self.get_status_display()})"
 
+    @property
+    def result_count(self):
+        return self.subdomains.count()  # 返回关联的Subdomain对象的数量
+
 class Subdomain(models.Model):
     scan_job = models.ForeignKey(SubdomainScanJob, on_delete=models.CASCADE, related_name='subdomains', verbose_name='子域名扫描任务')
     subdomain = models.CharField(max_length=255, verbose_name='子域名')

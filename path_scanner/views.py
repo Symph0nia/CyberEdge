@@ -72,8 +72,17 @@ def path_task_status_view(request):
 @require_http_methods(["GET"])  # 修改为接受GET请求
 def get_all_tasks_view(request):
     # 获取所有ScanJob实例的概要信息
-    tasks = PathScanJob.objects.all().values('task_id', 'target', 'status', 'start_time', 'end_time')
-    tasks_list = list(tasks)
+    tasks = PathScanJob.objects.all()
+    tasks_list = []
+    for task in tasks:
+        tasks_list.append({
+            'task_id': task.task_id,
+            'target': task.target,
+            'status': task.status,
+            'result_count': task.result_count,
+            'start_time': task.start_time.strftime('%Y年%m月%d日 %H:%M:%S') if task.start_time else None,
+            'end_time': task.end_time.strftime('%Y年%m月%d日 %H:%M:%S') if task.end_time else None
+        })
 
     # 返回响应
     return JsonResponse({'tasks': tasks_list}, safe=False)  # safe=False允许非字典对象被序列化为JSON
