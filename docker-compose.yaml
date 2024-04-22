@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  nginx-frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    ports:
+      - "4567:4567"
+    depends_on:
+      - django-backend
+    networks:
+      - app-network
+
+  django-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    ports:
+      - "1234:1234"
+    depends_on:
+      - redis
+    networks:
+      - app-network
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+
+  redis:
+    image: "redis:alpine"
+    networks:
+      - app-network
+
+  celery-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    command: celery -A cyberedge worker --loglevel=info
+    depends_on:
+      - django-backend
+      - redis
+    networks:
+      - app-network
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+
+networks:
+  app-network:
+    driver: bridge

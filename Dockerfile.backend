@@ -1,0 +1,20 @@
+# 使用官方 Python 镜像作为基础镜像
+FROM python:3.10-slim
+
+# 设置工作目录
+WORKDIR /app
+
+# 将项目代码复制到容器中
+COPY . /app
+
+# 安装项目依赖
+RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
+
+# 暴露 Django 运行端口
+EXPOSE 1234
+
+# 设置环境变量，确保 Python 输出配置在容器日志中
+ENV PYTHONUNBUFFERED 1
+
+# 运行数据库迁移
+CMD ["bash", "-c", "python manage.py makemigrations && python manage.py migrate && python manage.py runserver 0.0.0.0:1234"]
