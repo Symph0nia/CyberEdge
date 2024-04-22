@@ -1,6 +1,16 @@
 # 使用官方 Python 镜像作为基础镜像
 FROM python:3.10-slim
 
+# 安装必需的软件
+RUN apt-get update && apt-get install -y \
+    wget \
+    git \
+    tar \
+    nmap
+
+# 创建符号链接以满足脚本对/usr/bin/python3的期望
+RUN ln -s /usr/local/bin/python3 /usr/bin/python3
+
 # 设置工作目录
 WORKDIR /app
 
@@ -10,11 +20,25 @@ COPY . /app
 # 安装项目依赖
 RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
 
+# 下载并安装 ffuf
+RUN wget https://github.com/ffuf/ffuf/releases/download/v2.1.0/ffuf_2.1.0_linux_amd64.tar.gz \
+    && tar -xzf ffuf_2.1.0_linux_amd64.tar.gz \
+    && mv ffuf /usr/local/bin/
+
+# 克隆 OneForAll 仓库
+RUN git clone https://github.com/shmilylty/OneForAll.git /OneForAll
+
+# 修改 OneForAll 中的脚本文件权限
+RUN chmod +x /OneForAll/oneforall.py
+
+# 将 OneForAll 加入到 bashrc 环境变量
+RUN echo 'export PATH="/OneForAll:${PATH}"' >> /root/.bashrc
+
 # 暴露 Django 运行端口
 EXPOSE 1234
 
 # 设置环境变量，确保 Python 输出配置在容器日志中
 ENV PYTHONUNBUFFERED 1
 
-# 运行数据库迁移
+# 运行数据库迁移和 Django 服务器
 CMD ["bash", "-c", "python manage.py makemigrations && python manage.py migrate && python manage.py runserver 0.0.0.0:1234"]

@@ -20,16 +20,13 @@ services:
       - "1234:1234"
     depends_on:
       - redis
+      - db
     networks:
       - app-network
     environment:
+      - DATABASE_URL=postgres://CyberEdge:Cyb3r3dg3@db:5432/CyberEdge
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
-
-  redis:
-    image: "redis:alpine"
-    networks:
-      - app-network
 
   celery-worker:
     build:
@@ -42,8 +39,29 @@ services:
     networks:
       - app-network
     environment:
+      - DATABASE_URL=postgres://CyberEdge:Cyb3r3dg3@db:5432/CyberEdge
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
+
+  redis:
+    image: "redis:alpine"
+    networks:
+      - app-network
+
+  db:
+    image: postgres:latest
+    environment:
+      - POSTGRES_USER=CyberEdge
+      - POSTGRES_PASSWORD=Cyb3r3dg3
+      - POSTGRES_DB=CyberEdge
+    networks:
+      - app-network
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U $POSTGRES_USER -d $POSTGRES_DB" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
 networks:
   app-network:
