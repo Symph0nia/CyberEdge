@@ -13,7 +13,7 @@ def scan_paths(self, wordlist, url):
     output_file_path = f"/tmp/{scan_job.task_id}.json"
 
     # 构建ffuf命令
-    cmd = f"ffuf -w {wordlist} -u {url} -o {output_file_path} -of json"
+    cmd = f"/usr/local/bin/ffuf -w {wordlist} -u {url} -o {output_file_path} -of json"
 
     try:
         # 执行ffuf命令

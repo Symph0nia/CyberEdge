@@ -3,6 +3,7 @@ FROM python:3.10-slim
 
 # 安装必需的软件
 RUN apt-get update && apt-get install -y \
+    aria2 \
     wget \
     git \
     tar \
@@ -20,8 +21,8 @@ COPY . /app
 # 安装项目依赖
 RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
 
-# 下载并安装 ffuf
-RUN wget https://github.com/ffuf/ffuf/releases/download/v2.1.0/ffuf_2.1.0_linux_amd64.tar.gz \
+# 使用 aria2c 下载 ffuf
+RUN aria2c -x 10 -s 10 https://github.com/ffuf/ffuf/releases/download/v2.1.0/ffuf_2.1.0_linux_amd64.tar.gz \
     && tar -xzf ffuf_2.1.0_linux_amd64.tar.gz \
     && mv ffuf /usr/local/bin/
 
@@ -30,9 +31,6 @@ RUN git clone https://github.com/shmilylty/OneForAll.git /OneForAll
 
 # 修改 OneForAll 中的脚本文件权限
 RUN chmod +x /OneForAll/oneforall.py
-
-# 将 OneForAll 加入到 bashrc 环境变量
-RUN echo 'export PATH="/OneForAll:${PATH}"' >> /root/.bashrc
 
 # 暴露 Django 运行端口
 EXPOSE 1234
