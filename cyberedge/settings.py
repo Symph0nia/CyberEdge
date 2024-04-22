@@ -39,7 +39,8 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "port_scanner",
     "path_scanner",
-    "subdomain_scanner"
+    "subdomain_scanner",
+    "full_scanner"
 ]
 
 MIDDLEWARE = [
@@ -77,12 +78,15 @@ WSGI_APPLICATION = "cyberedge.wsgi.application"
 # https://docs.djangoproject.com/en/5.0/ref/settings/#databases
 
 DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'CyberEdge',
+        'USER': 'CyberEdge',
+        'PASSWORD': 'Cyb3r3dg3',
+        'HOST': 'db',  # 如果使用 Docker-compose，这里应该是服务名称
+        'PORT': '5432',
     }
 }
-
 
 # Password validation
 # https://docs.djangoproject.com/en/5.0/ref/settings/#auth-password-validators

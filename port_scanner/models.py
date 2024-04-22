@@ -19,6 +19,10 @@ class ScanJob(models.Model):
     def __str__(self):
         return f"{self.target} ({self.get_status_display()})"
 
+    @property
+    def result_count(self):
+        return self.ports.count()  # 返回关联的Subdomain对象的数量
+
 class Port(models.Model):
     scan_job = models.ForeignKey('ScanJob', on_delete=models.CASCADE, related_name='ports', verbose_name='扫描任务')
     port_number = models.IntegerField(verbose_name='端口号')
