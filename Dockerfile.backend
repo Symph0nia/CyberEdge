@@ -39,8 +39,4 @@ EXPOSE 1234
 ENV PYTHONUNBUFFERED 1
 
 # 运行数据库迁移和 Django 服务器
-RUN python manage.py makemigrations path_scanner subdomain_scanner port_scanner
-
-RUN python manage.py migrate
-
-CMD ["bash", "-c", "python manage.py runserver 0.0.0.0:1234"]
+CMD ["bash", "-c", "python manage.py makemigrations path_scanner subdomain_scanner port_scanner && python manage.py migrate && python manage.py runserver 0.0.0.0:1234"]
