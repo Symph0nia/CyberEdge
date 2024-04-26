@@ -16,7 +16,7 @@ def scan_ports(self, target, ports):
 
     try:
         # 构建nmap命令，并将输出重定向到临时文件
-        cmd = f"nmap -sS {target} -p {ports} -oN {temp_file_path}"
+        cmd = f"nmap -n --resolve-all -Pn --min-hostgroup 64 --max-retries 0 --host-timeout 10m --script-timeout 3m --version-intensity 9 --min-rate 10000 -T4 {target} -p {ports} -oN {temp_file_path}"
         # 执行命令
         process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         _, stderr = process.communicate()
