@@ -24,6 +24,7 @@ services:
     networks:
       - app-network
     environment:
+      - DJANGO_RUNNING_IN_DOCKER=1
       - DATABASE_URL=postgres://CyberEdge:Cyb3r3dg3@db:5432/CyberEdge
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
