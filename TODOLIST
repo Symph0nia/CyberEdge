@@ -2,4 +2,11 @@
 2024-04-26 前端默认展开条数改为50条 Solved
 2024-04-26 优化Nmap扫描命令 Solved
 2024-04-26 优化默认字典 Solved
-2024-04-26 优化子域名字段 Unsolved
+2024-04-26 优化子域名字段 Solved
+
+2024-04-27 增加搜索筛选功能 Solved
+2024-04-27 后端Wrapper重构 Unsolved
+2024-04-27 URL等字段增加跳转功能 Solved
+2024-04-27 项目化总线重构 Unsolved
+2024-04-27 资产地图GUI显示 Unsolved
+2024-04-27 上下游资产追溯 Unsolved
