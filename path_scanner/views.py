@@ -16,6 +16,7 @@ def scan_paths_view(request):
         data = json.loads(request.body.decode('utf-8'))
         wordlist = data.get('wordlist', './wordlist/default_wordlist.txt')  # 提供默认wordlist文件名
         urls = data.get('urls', [])  # 直接获取数组格式的URLs
+        delay = data.get('delay', 0)
     except json.JSONDecodeError:
         return JsonResponse({'error': '无效的JSON格式'}, status=400)
 
@@ -29,7 +30,7 @@ def scan_paths_view(request):
     task_ids = []
     # 对每个URL启动一个任务
     for url in urls_list:
-        task = scan_paths.delay(wordlist, url)
+        task = scan_paths.delay(wordlist, url, delay)
         task_ids.append(task.id)
 
     # 返回响应

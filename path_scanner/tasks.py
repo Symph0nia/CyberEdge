@@ -5,7 +5,10 @@ import json
 from .models import PathScanJob, PathScanResult  # 确保导入模型
 
 @shared_task(bind=True)
-def scan_paths(self, wordlist, url):
+def scan_paths(self, wordlist, url, delay):
+    # 确保URL格式正确，移除FUZZ前的斜杠（如果存在）
+    url = url.replace('/FUZZ', 'FUZZ')  # 直接替换'/FUZZ'为'FUZZ'
+
     # 创建PathScanJob实例
     scan_job = PathScanJob.objects.create(target=url, status='R', task_id=self.request.id)
 
@@ -13,7 +16,7 @@ def scan_paths(self, wordlist, url):
     output_file_path = f"/tmp/{scan_job.task_id}.json"
 
     # 构建ffuf命令
-    cmd = f"/usr/local/bin/ffuf -w {wordlist} -u {url} -o {output_file_path} -of json"
+    cmd = f"ffuf -w {wordlist} -u {url} -r -p {delay} -mc all -o {output_file_path} -of json"
 
     try:
         # 执行ffuf命令
