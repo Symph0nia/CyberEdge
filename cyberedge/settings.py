@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 """
 
 from pathlib import Path
+import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -23,7 +24,33 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = "django-insecure-e8aol-()2r7s74))9e@dahq^ru9&-sm46y(g2_xoqm@)2f$=ji"
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+
+# 判断是否在Docker容器中运行
+if os.environ.get('DJANGO_RUNNING_IN_DOCKER'):
+    DEBUG = False
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': 'CyberEdge',
+            'USER': 'CyberEdge',
+            'PASSWORD': 'Cyb3r3dg3',
+            'HOST': 'db',  # 使用Docker服务名称
+            'PORT': '5432',
+        }
+    }
+else:
+    DEBUG = True
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': 'CyberEdge',
+            'USER': 'CyberEdge',
+            'PASSWORD': 'Cyb3r3dg3',
+            'HOST': '127.0.0.1',  # 本地数据库地址
+            'PORT': '5432',
+        }
+    }
+
 
 ALLOWED_HOSTS = []
 
@@ -76,17 +103,6 @@ WSGI_APPLICATION = "cyberedge.wsgi.application"
 
 # Database
 # https://docs.djangoproject.com/en/5.0/ref/settings/#databases
-
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'CyberEdge',
-        'USER': 'CyberEdge',
-        'PASSWORD': 'Cyb3r3dg3',
-        'HOST': 'db',  # 如果使用 Docker-compose，这里应该是服务名称
-        'PORT': '5432',
-    }
-}
 
 # Password validation
 # https://docs.djangoproject.com/en/5.0/ref/settings/#auth-password-validators

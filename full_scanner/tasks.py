@@ -108,7 +108,7 @@ def full_scan_ports(self, target, ports='1-65535'):
                     new_port.save()
                     url_protocol = 'https' if https else 'http'
                     url = f"{url_protocol}://{target}:{port}/FUZZ"
-                    tasks.append(full_scan_paths.s('./wordlist/default_wordlist.txt', url))
+                    tasks.append(full_scan_paths.s('./wordlist/top7000.txt', url))
 
                 if tasks:
                     # 启动所有路径扫描任务

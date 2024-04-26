@@ -15,7 +15,7 @@ def scan_subdomains(self, target):
     output_file_path = f"/tmp/{scan_job.task_id}.json"
 
     # 构建OneForAll命令
-    cmd = f"oneforall.py --target {target} --fmt json --path {output_file_path} run"
+    cmd = f"/OneForAll/oneforall.py --target {target} --fmt json --path {output_file_path} run"
 
     try:
         # 执行OneForAll命令
