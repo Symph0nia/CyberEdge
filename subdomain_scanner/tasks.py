@@ -27,26 +27,28 @@ def scan_subdomains(self, target):
             for result in results:
                 # 分割和处理包含多个IP的情况
                 ip_addresses = result.get('ip', '').split(',')
+                # 分割和处理包含多个CNAME的情况
+                cnames = result.get('cname', '').split(',')
+
                 for ip in ip_addresses:
                     ip = ip.strip()  # 清除空格
                     if ip:
-                        # 在事务中创建Subdomain对象
-                        with transaction.atomic():
-                            Subdomain.objects.create(
-                                scan_job=scan_job,
-                                subdomain=result['subdomain'],
-                                ip_address=ip,
-                                status=result.get('status', ''),
-                                cname=result.get('cname', ''),
-                                port=result.get('port', None),
-                                title=result.get('title', ''),
-                                banner=result.get('banner', ''),
-                                asn=result.get('asn', ''),
-                                org=result.get('org', ''),
-                                addr=result.get('addr', ''),
-                                isp=result.get('isp', ''),
-                                source=result.get('source', ''),
-                            )
+                        for cname in cnames:
+                            cname = cname.strip()  # 清除空格
+                            if cname:
+                                # 在事务中创建Subdomain对象
+                                with transaction.atomic():
+                                    Subdomain.objects.create(
+                                        scan_job=scan_job,
+                                        subdomain=result['subdomain'],
+                                        ip_address=ip,
+                                        status=result.get('status', ''),
+                                        cname=cname,
+                                        port=result.get('port', None),
+                                        title=result.get('title', ''),
+                                        banner=result.get('banner', ''),
+                                        addr=result.get('addr', ''),
+                                    )
             scan_job.status = 'C'  # 标记为完成
     except subprocess.CalledProcessError as e:
         scan_job.status = 'E'  # 标记为错误
