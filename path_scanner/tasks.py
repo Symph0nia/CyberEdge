@@ -5,12 +5,18 @@ import json
 from .models import PathScanJob, PathScanResult  # 确保导入模型
 
 @shared_task(bind=True)
-def scan_paths(self, wordlist, url, delay):
+def scan_paths(self, wordlist, url, delay, from_job=None, to_job=None):
     # 确保URL格式正确，移除FUZZ前的斜杠（如果存在）
     url = url.replace('/FUZZ', 'FUZZ')  # 直接替换'/FUZZ'为'FUZZ'
 
     # 创建PathScanJob实例
-    scan_job = PathScanJob.objects.create(target=url, status='R', task_id=self.request.id)
+    scan_job = PathScanJob.objects.create(
+        target=url,
+        status='R',
+        task_id=self.request.id,
+        from_job=from_job,
+        to_job=to_job
+    )
 
     # 构建输出文件名
     output_file_path = f"/tmp/{scan_job.task_id}.json"

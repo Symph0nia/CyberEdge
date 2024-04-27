@@ -6,7 +6,7 @@ import requests
 import os
 import re
 from subdomain_scanner.models import SubdomainScanJob, Subdomain  # 确保正确导入模型
-from port_scanner.models import ScanJob, Port
+from port_scanner.models import PortScanJob, Port
 from path_scanner.models import PathScanJob, PathScanResult  # 确保导入模型
 from django.db import transaction
 
@@ -74,7 +74,7 @@ def full_scan_subdomains(self, target):
 
 @shared_task(bind=True)
 def full_scan_ports(self, target, ports='1-65535'):
-    scan_job = ScanJob.objects.create(target=target, status='R', task_id=self.request.id)
+    scan_job = PortScanJob.objects.create(target=target, status='R', task_id=self.request.id)
     temp_file_path = f"/tmp/{scan_job.task_id}.txt"
 
     try:
