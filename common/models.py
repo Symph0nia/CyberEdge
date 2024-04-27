@@ -1,3 +1,5 @@
+from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.models import ContentType
 from django.db import models
 import uuid
 
@@ -15,11 +17,19 @@ class BaseScanJob(models.Model):
     start_time = models.DateTimeField(auto_now_add=True, verbose_name='开始时间')
     end_time = models.DateTimeField(null=True, blank=True, verbose_name='结束时间')
     error_message = models.TextField(null=True, blank=True, verbose_name='错误消息')
-    from_job = models.UUIDField(null=True, blank=True, verbose_name='上游任务ID')
-    to_job = models.UUIDField(null=True, blank=True, verbose_name='下游任务ID')
+
+    # 定义上游任务的 GenericForeignKey
+    from_content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE, null=True, blank=True, related_name="base_scanjob_from")
+    from_object_id = models.UUIDField(null=True, blank=True)
+    from_job = GenericForeignKey('from_content_type', 'from_object_id')
+
 
     class Meta:
         abstract = True  # 设定这个类为抽象类，不会创建数据库表
 
     def __str__(self):
         return f"{self.target} ({self.get_status_display()})"
+
+    @property
+    def from_job_target(self):
+        return self.from_job.target if self.from_job else None

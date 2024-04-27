@@ -7,14 +7,13 @@ from .models import SubdomainScanJob, Subdomain  # 确保正确导入模型
 from django.db import transaction
 
 @shared_task(bind=True)
-def scan_subdomains(self, target, from_job=None, to_job=None):
+def scan_subdomains(self, target, from_job=None):
     # 创建SubdomainScanJob实例
     scan_job = SubdomainScanJob.objects.create(
         target=target,
         status='R',
         task_id=self.request.id,
         from_job=from_job,
-        to_job=to_job
     )
 
     # 构建输出文件名

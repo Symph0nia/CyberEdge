@@ -16,6 +16,7 @@ def scan_ports_view(request):
         data = json.loads(request.body.decode('utf-8'))
         targets = data.get('target', '')
         ports = data.get('ports', '1-65535')  # 如果未指定，设置默认端口范围
+        from_id = data.get('from_id', '')
     except json.JSONDecodeError:
         return JsonResponse({'error': '无效的JSON格式'}, status=400)
 
@@ -28,7 +29,7 @@ def scan_ports_view(request):
     task_ids = []
     # 对每个IP启动一个任务
     for target in targets_list:
-        task = scan_ports.delay(target, ports)
+        task = scan_ports.delay(target, ports, from_id)
         task_ids.append(task.id)
 
     # 返回响应
@@ -94,7 +95,8 @@ def get_all_tasks_view(request):
             'status': task.status,
             'result_count': task.result_count,
             'start_time': task.start_time.strftime('%Y年%m月%d日 %H:%M:%S') if task.start_time else None,
-            'end_time': task.end_time.strftime('%Y年%m月%d日 %H:%M:%S') if task.end_time else None
+            'end_time': task.end_time.strftime('%Y年%m月%d日 %H:%M:%S') if task.end_time else None,
+            'from': task.from_job_target,
         })
 
     # 返回响应

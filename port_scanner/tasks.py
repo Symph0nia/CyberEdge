@@ -1,28 +1,39 @@
-import requests
-from django.utils import timezone
-from celery import shared_task
-from .models import PortScanJob, Port
-from bs4 import BeautifulSoup
-
-import subprocess
-import re
 import os
+import re
+import subprocess
+import requests
+
+from bs4 import BeautifulSoup
+from celery import shared_task
+from django.db import transaction
+from django.utils import timezone
+
+from .models import PortScanJob, Port
+from common.utils import get_scan_job_by_task_id
 
 @shared_task(bind=True)
-def scan_ports(self, target, ports, from_job=None, to_job=None):
+def scan_ports(self, target, ports, from_job_id=None):
+    # 创建PortScanJob实例前，先处理from_job
+    from_job_instance = None
+    if from_job_id:
+        try:
+            from_job_instance = get_scan_job_by_task_id(from_job_id)
+        except PortScanJob.DoesNotExist:
+            from_job_instance = None
+
+    # 创建PortScanJob实例，使用找到的from_job_instance
     scan_job = PortScanJob.objects.create(
         target=target,
         status='R',
         task_id=self.request.id,
-        from_job=from_job,
-        to_job=to_job
+        from_job=from_job_instance  # 使用实际的PortScanJob实例
     )
 
     temp_file_path = f"/tmp/{scan_job.task_id}.txt"
-    all_ports_found = set()  # 用来存储所有扫描到的端口和服务
+    all_ports_found = set()
 
     try:
-        # 检查端口格式并分割范围
+        # 扫描逻辑与端口分割
         if '-' in ports:
             start_port, end_port = map(int, ports.split('-'))
             port_ranges = [(start, min(start + 999, end_port)) for start in range(start_port, end_port + 1, 1000)]

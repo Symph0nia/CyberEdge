@@ -1,7 +1,17 @@
 from django.db import models
 from common.models import BaseScanJob
+from django.contrib.contenttypes.models import ContentType
 
 class PortScanJob(BaseScanJob):
+
+    from_content_type = models.ForeignKey(
+        ContentType,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="portscanjob_from"  # 修改 related_name 使其唯一
+    )
+
 
     @property
     def result_count(self):
