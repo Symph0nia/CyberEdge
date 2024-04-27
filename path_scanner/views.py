@@ -17,6 +17,7 @@ def scan_paths_view(request):
         wordlist = data.get('wordlist', './wordlist/default_wordlist.txt')  # 提供默认wordlist文件名
         urls = data.get('urls', [])  # 直接获取数组格式的URLs
         delay = data.get('delay', 0)
+        from_id = data.get('from_id', '')
     except json.JSONDecodeError:
         return JsonResponse({'error': '无效的JSON格式'}, status=400)
 
@@ -30,7 +31,7 @@ def scan_paths_view(request):
     task_ids = []
     # 对每个URL启动一个任务
     for url in urls_list:
-        task = scan_paths.delay(wordlist, url, delay)
+        task = scan_paths.delay(wordlist, url, delay, from_id)
         task_ids.append(task.id)
 
     # 返回响应
@@ -82,7 +83,8 @@ def get_all_tasks_view(request):
             'status': task.status,
             'result_count': task.result_count,
             'start_time': task.start_time.strftime('%Y年%m月%d日 %H:%M:%S') if task.start_time else None,
-            'end_time': task.end_time.strftime('%Y年%m月%d日 %H:%M:%S') if task.end_time else None
+            'end_time': task.end_time.strftime('%Y年%m月%d日 %H:%M:%S') if task.end_time else None,
+            'from': task.from_job_target,
         })
 
     # 返回响应

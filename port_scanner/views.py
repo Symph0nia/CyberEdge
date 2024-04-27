@@ -4,7 +4,7 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
-from .models import ScanJob, Port
+from .models import PortScanJob, Port
 from .tasks import scan_ports  # 确保正确导入异步任务
 
 
@@ -16,6 +16,7 @@ def scan_ports_view(request):
         data = json.loads(request.body.decode('utf-8'))
         targets = data.get('target', '')
         ports = data.get('ports', '1-65535')  # 如果未指定，设置默认端口范围
+        from_id = data.get('from_id', '')
     except json.JSONDecodeError:
         return JsonResponse({'error': '无效的JSON格式'}, status=400)
 
@@ -28,7 +29,7 @@ def scan_ports_view(request):
     task_ids = []
     # 对每个IP启动一个任务
     for target in targets_list:
-        task = scan_ports.delay(target, ports)
+        task = scan_ports.delay(target, ports, from_id)
         task_ids.append(task.id)
 
     # 返回响应
@@ -49,8 +50,8 @@ def task_status_view(request):
 
     # 尝试从数据库获取ScanJob实例
     try:
-        scan_job = ScanJob.objects.get(task_id=task_id)
-    except ScanJob.DoesNotExist:
+        scan_job = PortScanJob.objects.get(task_id=task_id)
+    except PortScanJob.DoesNotExist:
         return JsonResponse({'error': '任务ID不存在'}, status=404)
 
     # 构造响应数据
@@ -85,7 +86,7 @@ def task_status_view(request):
 @require_http_methods(["GET"])  # 修改为接受GET请求
 def get_all_tasks_view(request):
     # 获取所有ScanJob实例的概要信息
-    tasks = ScanJob.objects.all()
+    tasks = PortScanJob.objects.all()
     tasks_list = []
     for task in tasks:
         tasks_list.append({
@@ -94,7 +95,8 @@ def get_all_tasks_view(request):
             'status': task.status,
             'result_count': task.result_count,
             'start_time': task.start_time.strftime('%Y年%m月%d日 %H:%M:%S') if task.start_time else None,
-            'end_time': task.end_time.strftime('%Y年%m月%d日 %H:%M:%S') if task.end_time else None
+            'end_time': task.end_time.strftime('%Y年%m月%d日 %H:%M:%S') if task.end_time else None,
+            'from': task.from_job_target,
         })
 
     # 返回响应
@@ -105,11 +107,11 @@ def get_all_tasks_view(request):
 def delete_task_view(request, task_id):
     try:
         # 尝试根据提供的task_id找到对应的任务记录
-        task = ScanJob.objects.get(task_id=task_id)
+        task = PortScanJob.objects.get(task_id=task_id)
         # 删除找到的任务记录
         task.delete()
         return JsonResponse({'message': '任务删除成功'}, status=200)
-    except ScanJob.DoesNotExist:
+    except PortScanJob.DoesNotExist:
         # 如果没有找到对应的任务记录，则返回错误信息
         return JsonResponse({'error': '任务ID不存在，无法删除'}, status=404)
     except Exception as e:

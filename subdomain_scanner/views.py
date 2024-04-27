@@ -61,7 +61,7 @@ def subdomain_task_status_view(request):
     if subdomain_scan_job.status in ['C', 'E']:  # 如果任务已完成或遇到错误
         response_data['task_result'] = {
             'subdomains': list(subdomain_scan_job.subdomains.values('id', 'subdomain', 'ip_address', 'status', 'cname', 'port', 'title',
-                    'banner', 'asn', 'org', 'addr', 'isp', 'source')),
+                    'banner', 'addr')),
             'error_message': subdomain_scan_job.error_message
         }
 
@@ -80,7 +80,8 @@ def get_all_tasks_view(request):
             'status': task.status,
             'result_count': task.result_count,
             'start_time': task.start_time.strftime('%Y年%m月%d日 %H:%M:%S') if task.start_time else None,
-            'end_time': task.end_time.strftime('%Y年%m月%d日 %H:%M:%S') if task.end_time else None
+            'end_time': task.end_time.strftime('%Y年%m月%d日 %H:%M:%S') if task.end_time else None,
+            'from': task.from_job_target,
         })
 
     # 返回响应
