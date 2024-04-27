@@ -2,24 +2,29 @@ import json
 import subprocess
 
 from celery import shared_task
-from django.db import transaction
 from django.utils import timezone
 
-from common.models import BaseScanJob
 from .models import PathScanJob, PathScanResult  # 确保导入模型
-
+from common.utils import get_scan_job_by_task_id
 
 @shared_task(bind=True)
-def scan_paths(self, wordlist, url, delay, from_job=None):
+def scan_paths(self, wordlist, url, delay, from_job_id=None):
     # 确保URL格式正确，移除FUZZ前的斜杠（如果存在）
     url = url.replace('/FUZZ', 'FUZZ')  # 直接替换'/FUZZ'为'FUZZ'
+
+    from_job_instance = None
+    if from_job_id:
+        try:
+            from_job_instance = get_scan_job_by_task_id(from_job_id)
+        except Exception:
+            from_job_instance = None
 
     # 创建PathScanJob实例
     scan_job = PathScanJob.objects.create(
         target=url,
         status='R',
         task_id=self.request.id,
-        from_job=from_job,
+        from_job=from_job_instance,
     )
 
     # 构建输出文件名
@@ -29,13 +34,6 @@ def scan_paths(self, wordlist, url, delay, from_job=None):
     cmd = f"ffuf -w {wordlist} -u {url} -r -p {delay} -mc all -o {output_file_path} -of json"
 
     try:
-        # 如果提供了from_job_id，则设置对应from_job的to_job为当前任务
-        if from_job_id:
-            with transaction.atomic():  # 确保以下操作在一个事务中
-                from_job = BaseScanJob.objects.get(task_id=from_job_id)
-                from_job.to_job = scan_job.task_id
-                from_job.save()
-
         # 执行ffuf命令
         process = subprocess.run(cmd, shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 

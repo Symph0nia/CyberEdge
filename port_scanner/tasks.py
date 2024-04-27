@@ -1,15 +1,15 @@
-import os
+import re
 import re
 import subprocess
-import requests
 
+import requests
 from bs4 import BeautifulSoup
 from celery import shared_task
-from django.db import transaction
 from django.utils import timezone
 
-from .models import PortScanJob, Port
 from common.utils import get_scan_job_by_task_id
+from .models import PortScanJob, Port
+
 
 @shared_task(bind=True)
 def scan_ports(self, target, ports, from_job_id=None):
@@ -18,7 +18,7 @@ def scan_ports(self, target, ports, from_job_id=None):
     if from_job_id:
         try:
             from_job_instance = get_scan_job_by_task_id(from_job_id)
-        except PortScanJob.DoesNotExist:
+        except Exception:
             from_job_instance = None
 
     # 创建PortScanJob实例，使用找到的from_job_instance
