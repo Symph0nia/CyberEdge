@@ -65,6 +65,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "corsheaders",
+    "common",
     "port_scanner",
     "path_scanner",
     "subdomain_scanner",
