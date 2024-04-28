@@ -10,25 +10,28 @@ from .tasks import scan_subdomains  # 确保从你的Celery任务模块导入sca
 
 
 @csrf_exempt  # 允许跨站请求
-@require_http_methods(["POST"])  # 限制只接受POST请求
+@require_http_methods(["POST"])
 def scan_subdomains_view(request):
     try:
         # 解析请求体中的JSON
         data = json.loads(request.body.decode('utf-8'))
-        targets = data.get('target', '')  # 从请求中获取目标域名字符串
+        targets = data.get('targets', [])  # 从请求中获取目标域名列表
+        from_id = data.get('from_id', '')
     except json.JSONDecodeError:
         return JsonResponse({'error': '无效的JSON格式'}, status=400)
 
-    # 分割逗号分隔的目标域名字符串，并移除空字符串
-    targets_list = [target.strip() for target in targets.split(',') if target.strip()]
+    # 确保targets是一个列表
+    if not isinstance(targets, list) or not all(isinstance(target, str) for target in targets):
+        return JsonResponse({'error': 'targets参数必须是字符串的数组'}, status=400)
 
-    if not targets_list:
-        return JsonResponse({'error': '缺少必要的target参数或格式错误'}, status=400)
+    if not targets:
+        return JsonResponse({'error': '缺少必要的targets参数'}, status=400)
 
     task_ids = []
     # 对每个目标域名启动一个子域名扫描任务
-    for target in targets_list:
-        task = scan_subdomains.delay(target)
+    for target in targets:
+        # 假设scan_subdomains.delay是一个异步任务启动函数
+        task = scan_subdomains.delay(target, from_id)
         task_ids.append(task.id)
 
     # 返回响应

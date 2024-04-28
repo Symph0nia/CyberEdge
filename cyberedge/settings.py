@@ -66,6 +66,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "corsheaders",
     "common",
+    "target",
     "port_scanner",
     "path_scanner",
     "subdomain_scanner",

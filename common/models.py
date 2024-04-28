@@ -1,6 +1,5 @@
-from django.contrib.contenttypes.fields import GenericForeignKey
-from django.contrib.contenttypes.models import ContentType
 from django.db import models
+from target.models import Target
 import uuid
 
 class ScanJob(models.Model):
@@ -44,8 +43,15 @@ class ScanJob(models.Model):
         if self.from_job_id:
             try:
                 from_job = ScanJob.objects.get(task_id=self.from_job_id)
-                return from_job.target
+                # 返回ScanJob中的中文描述和目标
+                return f"{from_job.get_type_display()} - {from_job.target}"
             except ScanJob.DoesNotExist:
-                return None
+                # 如果在ScanJob中未找到，接着尝试从Target中找到对应的目标
+                try:
+                    from_target = Target.objects.get(task_id=self.from_job_id)
+                    # Target没有type字段，固定返回“域名”
+                    return f"{from_target.get_type_display()} - {from_target.domain}"
+                except Target.DoesNotExist:
+                    return None
         else:
             return None

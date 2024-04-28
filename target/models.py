@@ -1,34 +1,44 @@
 from django.db import models
-from django.contrib.contenttypes.fields import GenericForeignKey
-from django.contrib.contenttypes.models import ContentType
+import uuid
 
 class Target(models.Model):
-    domain = models.CharField(max_length=255, verbose_name='域名')
+    TYPE_CHOICES = [
+        ('DOMAIN', '域名'),  # 只有一个选项，固定为'DOMAIN'
+    ]
 
-    from_content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE, null=True, blank=True,
-                                          related_name="base_scanjob_from")
-    from_object_id = models.UUIDField(null=True, blank=True)
-    from_job = GenericForeignKey('from_content_type', 'from_object_id')
+    domain = models.CharField(max_length=255, verbose_name='域名')
+    task_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False, verbose_name='任务ID')
+    type = models.CharField(max_length=10, choices=TYPE_CHOICES, default='DOMAIN', verbose_name='扫描类型')
 
     def __str__(self):
         return self.domain
+    def __str__(self):
+        return self.domain
+
+    def count_results_by_type(self, job_type):
+        from common.models import ScanJob
+        jobs = ScanJob.objects.filter(from_job_id=self.task_id)
+        return self._recursive_result_count(jobs, job_type)
+
+    def _recursive_result_count(self, jobs, job_type):
+        from common.models import ScanJob
+        result_count = 0
+        for job in jobs:
+            if job.type == job_type:
+                result_count += job.result_count  # 累加任务的结果数量
+            # 查找此任务下的所有相关任务
+            linked_jobs = ScanJob.objects.filter(from_job_id=job.task_id)
+            result_count += self._recursive_result_count(linked_jobs, job_type)
+        return result_count
 
     @property
     def subdomain_count(self):
-        # 假设存在 Subdomain 模型，并有外键指向 Target
-        return self.subdomain_set.count()
-
-    @property
-    def ip_count(self):
-        # 假设存在 IpAddress 模型，并有外键指向 Target
-        return self.ipaddress_set.count()
+        return self.count_results_by_type('SUBDOMAIN')
 
     @property
     def port_count(self):
-        # 假设存在 Port 模型，并有外键指向 Target
-        return self.port_set.count()
+        return self.count_results_by_type('PORT')
 
     @property
     def path_count(self):
-        # 假设存在 Path 模型，并有外键指向 Target
-        return self.path_set.count()
+        return self.count_results_by_type('PATH')
