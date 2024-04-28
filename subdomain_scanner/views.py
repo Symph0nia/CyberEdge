@@ -4,7 +4,8 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
-from .models import SubdomainScanJob, Subdomain
+from .models import Subdomain
+from common.models import ScanJob
 from .tasks import scan_subdomains  # 确保从你的Celery任务模块导入scan_subdomains函数
 
 
@@ -46,10 +47,9 @@ def subdomain_task_status_view(request):
     if not task_id:
         return JsonResponse({'error': '缺少必要的task_id参数'}, status=400)
 
-    # 尝试从数据库获取SubdomainScanJob实例
     try:
-        subdomain_scan_job = SubdomainScanJob.objects.get(task_id=task_id)
-    except SubdomainScanJob.DoesNotExist:
+        subdomain_scan_job = ScanJob.objects.get(task_id=task_id)
+    except ScanJob.DoesNotExist:
         return JsonResponse({'error': '任务ID不存在'}, status=404)
 
     # 构造响应数据
@@ -71,7 +71,7 @@ def subdomain_task_status_view(request):
 @require_http_methods(["GET"])  # 修改为接受GET请求
 def get_all_tasks_view(request):
     # 获取所有ScanJob实例的概要信息
-    tasks = SubdomainScanJob.objects.all()
+    tasks = ScanJob.objects.filter(type='SUBDOMAIN')
     tasks_list = []
     for task in tasks:
         tasks_list.append({
@@ -92,11 +92,11 @@ def get_all_tasks_view(request):
 def delete_task_view(request, task_id):
     try:
         # 尝试根据提供的task_id找到对应的任务记录
-        task = SubdomainScanJob.objects.get(task_id=task_id)
+        task = ScanJob.objects.get(task_id=task_id)
         # 删除找到的任务记录
         task.delete()
         return JsonResponse({'message': '任务删除成功'}, status=200)
-    except SubdomainScanJob.DoesNotExist:
+    except ScanJob.DoesNotExist:
         # 如果没有找到对应的任务记录，则返回错误信息
         return JsonResponse({'error': '任务ID不存在，无法删除'}, status=404)
     except Exception as e:

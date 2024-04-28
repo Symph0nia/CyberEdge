@@ -4,27 +4,20 @@ import subprocess
 from celery import shared_task
 from django.utils import timezone
 
-from .models import PathScanJob, PathScanResult  # 确保导入模型
-from common.utils import get_scan_job_by_task_id
+from common.models import ScanJob
+from .models import PathScanResult  # 确保导入模型
 
 @shared_task(bind=True)
 def scan_paths(self, wordlist, url, delay, from_job_id=None):
     # 确保URL格式正确，移除FUZZ前的斜杠（如果存在）
     url = url.replace('/FUZZ', 'FUZZ')  # 直接替换'/FUZZ'为'FUZZ'
 
-    from_job_instance = None
-    if from_job_id:
-        try:
-            from_job_instance = get_scan_job_by_task_id(from_job_id)
-        except Exception:
-            from_job_instance = None
-
-    # 创建PathScanJob实例
-    scan_job = PathScanJob.objects.create(
+    scan_job = ScanJob.objects.create(
+        type='PATH',
         target=url,
         status='R',
         task_id=self.request.id,
-        from_job=from_job_instance,
+        from_job_id=from_job_id,
     )
 
     # 构建输出文件名
