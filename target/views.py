@@ -56,6 +56,22 @@ def create_asset_view(request):
 
     return JsonResponse(response_data, status=201)
 
+@csrf_exempt
+@require_http_methods(["DELETE"])
+def delete_target_view(request, task_id):
+    try:
+        # 尝试根据提供的task_id找到对应的任务记录
+        task = Target.objects.get(task_id=task_id)
+        # 删除找到的任务记录
+        task.delete()
+        return JsonResponse({'message': '目标删除成功'}, status=200)
+    except Target.DoesNotExist:
+        # 如果没有找到对应的任务记录，则返回错误信息
+        return JsonResponse({'error': '目标ID不存在，无法删除'}, status=404)
+    except Exception as e:
+        # 捕获并处理其他可能的错误
+        return JsonResponse({'error': f'删除目标时发生错误: {str(e)}'}, status=500)
+
 def build_tree_data(scan_job):
     # 初始化当前任务的节点
     current_job_node = {
