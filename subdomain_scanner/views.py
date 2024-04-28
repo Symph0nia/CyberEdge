@@ -4,30 +4,34 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
-from .models import SubdomainScanJob, Subdomain
+from .models import Subdomain
+from common.models import ScanJob
 from .tasks import scan_subdomains  # 确保从你的Celery任务模块导入scan_subdomains函数
 
 
 @csrf_exempt  # 允许跨站请求
-@require_http_methods(["POST"])  # 限制只接受POST请求
+@require_http_methods(["POST"])
 def scan_subdomains_view(request):
     try:
         # 解析请求体中的JSON
         data = json.loads(request.body.decode('utf-8'))
-        targets = data.get('target', '')  # 从请求中获取目标域名字符串
+        targets = data.get('targets', [])  # 从请求中获取目标域名列表
+        from_id = data.get('from_id', '')
     except json.JSONDecodeError:
         return JsonResponse({'error': '无效的JSON格式'}, status=400)
 
-    # 分割逗号分隔的目标域名字符串，并移除空字符串
-    targets_list = [target.strip() for target in targets.split(',') if target.strip()]
+    # 确保targets是一个列表
+    if not isinstance(targets, list) or not all(isinstance(target, str) for target in targets):
+        return JsonResponse({'error': 'targets参数必须是字符串的数组'}, status=400)
 
-    if not targets_list:
-        return JsonResponse({'error': '缺少必要的target参数或格式错误'}, status=400)
+    if not targets:
+        return JsonResponse({'error': '缺少必要的targets参数'}, status=400)
 
     task_ids = []
     # 对每个目标域名启动一个子域名扫描任务
-    for target in targets_list:
-        task = scan_subdomains.delay(target)
+    for target in targets:
+        # 假设scan_subdomains.delay是一个异步任务启动函数
+        task = scan_subdomains.delay(target, from_id)
         task_ids.append(task.id)
 
     # 返回响应
@@ -46,10 +50,9 @@ def subdomain_task_status_view(request):
     if not task_id:
         return JsonResponse({'error': '缺少必要的task_id参数'}, status=400)
 
-    # 尝试从数据库获取SubdomainScanJob实例
     try:
-        subdomain_scan_job = SubdomainScanJob.objects.get(task_id=task_id)
-    except SubdomainScanJob.DoesNotExist:
+        subdomain_scan_job = ScanJob.objects.get(task_id=task_id)
+    except ScanJob.DoesNotExist:
         return JsonResponse({'error': '任务ID不存在'}, status=404)
 
     # 构造响应数据
@@ -71,7 +74,7 @@ def subdomain_task_status_view(request):
 @require_http_methods(["GET"])  # 修改为接受GET请求
 def get_all_tasks_view(request):
     # 获取所有ScanJob实例的概要信息
-    tasks = SubdomainScanJob.objects.all()
+    tasks = ScanJob.objects.filter(type='SUBDOMAIN')
     tasks_list = []
     for task in tasks:
         tasks_list.append({
@@ -92,11 +95,11 @@ def get_all_tasks_view(request):
 def delete_task_view(request, task_id):
     try:
         # 尝试根据提供的task_id找到对应的任务记录
-        task = SubdomainScanJob.objects.get(task_id=task_id)
+        task = ScanJob.objects.get(task_id=task_id)
         # 删除找到的任务记录
         task.delete()
         return JsonResponse({'message': '任务删除成功'}, status=200)
-    except SubdomainScanJob.DoesNotExist:
+    except ScanJob.DoesNotExist:
         # 如果没有找到对应的任务记录，则返回错误信息
         return JsonResponse({'error': '任务ID不存在，无法删除'}, status=404)
     except Exception as e:

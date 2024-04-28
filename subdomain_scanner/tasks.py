@@ -2,18 +2,20 @@ from django.utils import timezone
 from celery import shared_task
 import subprocess
 import json
-import uuid
-from .models import SubdomainScanJob, Subdomain  # 确保正确导入模型
+
+from common.models import ScanJob
+from .models import Subdomain  # 确保正确导入模型
 from django.db import transaction
 
 @shared_task(bind=True)
-def scan_subdomains(self, target, from_job=None):
+def scan_subdomains(self, target, from_job_id=None):
     # 创建SubdomainScanJob实例
-    scan_job = SubdomainScanJob.objects.create(
+    scan_job = ScanJob.objects.create(
+        type='SUBDOMAIN',
         target=target,
         status='R',
         task_id=self.request.id,
-        from_job=from_job,
+        from_job_id=from_job_id,
     )
 
     # 构建输出文件名
