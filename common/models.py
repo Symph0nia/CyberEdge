@@ -55,3 +55,15 @@ class ScanJob(models.Model):
                     return None
         else:
             return None
+
+    @property
+    def related_assets(self):
+        # 根据任务类型返回特定格式的资产列表
+        if self.type == 'SUBDOMAIN':
+            return [f"子域名:{sub.subdomain}/IP地址:{sub.ip_address}" for sub in self.subdomains.all() if sub.ip_address]
+        elif self.type == 'PORT':
+            return [f"IP地址:{port.ip_address}/端口:{port.port_number}" for port in self.ports.all() if port.url]
+        elif self.type == 'PATH':
+            return [f"路径:{path.path}" for path in self.paths.all() if path.path]
+        else:
+            return []
