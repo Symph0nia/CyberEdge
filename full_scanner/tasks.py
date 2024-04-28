@@ -5,15 +5,16 @@ import json
 import requests
 import os
 import re
-from subdomain_scanner.models import SubdomainScanJob, Subdomain  # 确保正确导入模型
-from port_scanner.models import PortScanJob, Port
-from path_scanner.models import PathScanJob, PathScanResult  # 确保导入模型
+from subdomain_scanner.models import Subdomain  # 确保正确导入模型
+from port_scanner.models import Port
+from path_scanner.models import PathScanResult  # 确保导入模型
+from common.models import ScanJob
 from django.db import transaction
 
 @shared_task(bind=True)
 def full_scan_subdomains(self, target):
     # 创建SubdomainScanJob实例
-    scan_job = SubdomainScanJob.objects.create(target=target, status='R', task_id=self.request.id)
+    scan_job = ScanJob.objects.create(target=target, status='R', task_id=self.request.id)
 
     # 构建输出文件名
     output_file_path = f"/tmp/{scan_job.task_id}.json"
@@ -74,7 +75,7 @@ def full_scan_subdomains(self, target):
 
 @shared_task(bind=True)
 def full_scan_ports(self, target, ports='1-65535'):
-    scan_job = PortScanJob.objects.create(target=target, status='R', task_id=self.request.id)
+    scan_job = ScanJob.objects.create(target=target, status='R', task_id=self.request.id)
     temp_file_path = f"/tmp/{scan_job.task_id}.txt"
 
     try:
@@ -146,7 +147,7 @@ def check_protocol(ip, port, protocol):
 @shared_task(bind=True)
 def full_scan_paths(self, wordlist, url):
     # 创建PathScanJob实例
-    scan_job = PathScanJob.objects.create(target=url, status='R', task_id=self.request.id)
+    scan_job = ScanJob.objects.create(target=url, status='R', task_id=self.request.id)
 
     # 构建输出文件名
     output_file_path = f"/tmp/{scan_job.task_id}.json"

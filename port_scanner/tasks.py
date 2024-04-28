@@ -1,5 +1,4 @@
 import re
-import re
 import subprocess
 
 import requests
@@ -7,26 +6,19 @@ from bs4 import BeautifulSoup
 from celery import shared_task
 from django.utils import timezone
 
-from common.utils import get_scan_job_by_task_id
-from .models import PortScanJob, Port
-
+from .models import Port
+from common.models import ScanJob
 
 @shared_task(bind=True)
 def scan_ports(self, target, ports, from_job_id=None):
-    # 创建PortScanJob实例前，先处理from_job
-    from_job_instance = None
-    if from_job_id:
-        try:
-            from_job_instance = get_scan_job_by_task_id(from_job_id)
-        except Exception:
-            from_job_instance = None
 
     # 创建PortScanJob实例，使用找到的from_job_instance
-    scan_job = PortScanJob.objects.create(
+    scan_job = ScanJob.objects.create(
+        type='PORT',
         target=target,
         status='R',
         task_id=self.request.id,
-        from_job=from_job_instance  # 使用实际的PortScanJob实例
+        from_job_id=from_job_id  # 使用实际的PortScanJob实例
     )
 
     temp_file_path = f"/tmp/{scan_job.task_id}.txt"

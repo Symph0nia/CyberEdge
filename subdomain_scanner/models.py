@@ -1,23 +1,9 @@
 from django.db import models
-from common.models import BaseScanJob
+from common.models import ScanJob
 from django.contrib.contenttypes.models import ContentType
 
-class SubdomainScanJob(BaseScanJob):
-
-    from_content_type = models.ForeignKey(
-        ContentType,
-        on_delete=models.CASCADE,
-        null=True,
-        blank=True,
-        related_name="subdomainscanjob_from"  # 修改 related_name 使其唯一
-    )
-
-    @property
-    def result_count(self):
-        return self.subdomains.count()  # 返回关联的Subdomain对象的数量
-
 class Subdomain(models.Model):
-    scan_job = models.ForeignKey(SubdomainScanJob, on_delete=models.CASCADE, related_name='subdomains', verbose_name='子域名扫描任务')
+    scan_job = models.ForeignKey(ScanJob, on_delete=models.CASCADE, related_name='subdomains', verbose_name='子域名扫描任务')
     subdomain = models.CharField(max_length=255, verbose_name='子域名')
     ip_address = models.CharField(max_length=100, verbose_name='IP地址', null=True, blank=True)
     status = models.CharField(max_length=20, verbose_name='状态', null=True, blank=True)

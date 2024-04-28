@@ -5,7 +5,8 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
-from .models import PathScanJob, PathScanResult  # 确保正确导入PathScanJob模型
+from common.models import ScanJob
+from .models import PathScanResult
 from .tasks import scan_paths  # 确保正确导入异步任务
 
 @csrf_exempt  # 允许跨站请求
@@ -50,10 +51,9 @@ def path_task_status_view(request):
     if not task_id:
         return JsonResponse({'error': '缺少必要的task_id参数'}, status=400)
 
-    # 尝试从数据库获取PathScanJob实例
     try:
-        path_scan_job = PathScanJob.objects.get(task_id=task_id)
-    except PathScanJob.DoesNotExist:
+        path_scan_job = ScanJob.objects.get(task_id=task_id)
+    except ScanJob.DoesNotExist:
         return JsonResponse({'error': '任务ID不存在'}, status=404)
 
     # 构造响应数据
@@ -64,17 +64,17 @@ def path_task_status_view(request):
 
     if path_scan_job.status in ['C', 'E']:  # 如果任务已完成或遇到错误
         response_data['task_result'] = {
-            'results': list(path_scan_job.results.values('id', 'url', 'content_type', 'status', 'length')),
+            'paths': list(path_scan_job.paths.values('id', 'url', 'content_type', 'status', 'length')),
             'error_message': path_scan_job.error_message
         }
 
     return JsonResponse(response_data)
 
 @csrf_exempt
-@require_http_methods(["GET"])  # 修改为接受GET请求
+@require_http_methods(["GET"])
 def get_all_tasks_view(request):
-    # 获取所有ScanJob实例的概要信息
-    tasks = PathScanJob.objects.all()
+    # 获取所有类型为'PATH'的ScanJob实例的概要信息
+    tasks = ScanJob.objects.filter(type='PATH')
     tasks_list = []
     for task in tasks:
         tasks_list.append({
@@ -95,11 +95,11 @@ def get_all_tasks_view(request):
 def delete_task_view(request, task_id):
     try:
         # 尝试根据提供的task_id找到对应的任务记录
-        task = PathScanJob.objects.get(task_id=task_id)
+        task = ScanJob.objects.get(task_id=task_id)
         # 删除找到的任务记录
         task.delete()
         return JsonResponse({'message': '任务删除成功'}, status=200)
-    except PathScanJob.DoesNotExist:
+    except ScanJob.DoesNotExist:
         # 如果没有找到对应的任务记录，则返回错误信息
         return JsonResponse({'error': '任务ID不存在，无法删除'}, status=404)
     except Exception as e:

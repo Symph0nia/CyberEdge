@@ -1,24 +1,9 @@
 from django.db import models
-from common.models import BaseScanJob
+from common.models import ScanJob
 from django.contrib.contenttypes.models import ContentType
 
-class PortScanJob(BaseScanJob):
-
-    from_content_type = models.ForeignKey(
-        ContentType,
-        on_delete=models.CASCADE,
-        null=True,
-        blank=True,
-        related_name="portscanjob_from"  # 修改 related_name 使其唯一
-    )
-
-
-    @property
-    def result_count(self):
-        return self.ports.count()  # 返回关联的Subdomain对象的数量
-
 class Port(models.Model):
-    scan_job = models.ForeignKey('PortScanJob', on_delete=models.CASCADE, related_name='ports', verbose_name='扫描任务')
+    scan_job = models.ForeignKey(ScanJob, on_delete=models.CASCADE, related_name='ports', verbose_name='扫描任务')
     port_number = models.IntegerField(verbose_name='端口号')
     service_name = models.CharField(max_length=100, verbose_name='服务名称', null=True, blank=True)
     protocol = models.CharField(max_length=10, verbose_name='协议', null=True, blank=True)
