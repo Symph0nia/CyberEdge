@@ -5,6 +5,7 @@ from django.contrib.contenttypes.models import ContentType
 class Subdomain(models.Model):
     scan_job = models.ForeignKey(ScanJob, on_delete=models.CASCADE, related_name='subdomains', verbose_name='子域名扫描任务')
     subdomain = models.CharField(max_length=255, verbose_name='子域名')
+    domain = models.CharField(max_length=255, verbose_name='域名', blank=True, editable=False)
     ip_address = models.CharField(max_length=100, verbose_name='IP地址', null=True, blank=True)
     status = models.CharField(max_length=20, verbose_name='状态', null=True, blank=True)
     cname = models.CharField(max_length=255, verbose_name='CNAME', null=True, blank=True)

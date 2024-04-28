@@ -5,12 +5,15 @@ from celery import shared_task
 from django.utils import timezone
 
 from common.models import ScanJob
-from .models import PathScanResult  # 确保导入模型
+from .models import Path # 确保导入模型
 
 @shared_task(bind=True)
 def scan_paths(self, wordlist, url, delay, from_job_id=None):
     # 确保URL格式正确，移除FUZZ前的斜杠（如果存在）
-    url = url.replace('/FUZZ', 'FUZZ')  # 直接替换'/FUZZ'为'FUZZ'
+    path = url.replace('/FUZZ', 'FUZZ')  # 直接替换'/FUZZ'为'FUZZ'
+    url = url.replace('/FUZZ', '')
+    url = url.replace('https://', '')
+    url = url.replace('http://', '')
 
     scan_job = ScanJob.objects.create(
         type='PATH',
@@ -24,7 +27,7 @@ def scan_paths(self, wordlist, url, delay, from_job_id=None):
     output_file_path = f"/tmp/{scan_job.task_id}.json"
 
     # 构建ffuf命令
-    cmd = f"ffuf -w {wordlist} -u {url} -r -p {delay} -mc all -o {output_file_path} -of json"
+    cmd = f"ffuf -w {wordlist} -u {path} -r -p {delay} -mc all -o {output_file_path} -of json"
 
     try:
         # 执行ffuf命令
@@ -35,9 +38,10 @@ def scan_paths(self, wordlist, url, delay, from_job_id=None):
             results = json.load(file)
             if 'results' in results:
                 for result in results['results']:
-                    PathScanResult.objects.create(
+                    Path.objects.create(
                         path_scan_job=scan_job,
-                        url=url.replace('FUZZ', result['input']['FUZZ']),
+                        url=url,
+                        path=url + result['input']['FUZZ'],
                         content_type=result.get('content_type', ''),
                         status=result['status'],
                         length=result['length']

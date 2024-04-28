@@ -7,7 +7,7 @@ import os
 import re
 from subdomain_scanner.models import Subdomain  # 确保正确导入模型
 from port_scanner.models import Port
-from path_scanner.models import PathScanResult  # 确保导入模型
+from path_scanner.models import Path  # 确保导入模型
 from common.models import ScanJob
 from django.db import transaction
 
@@ -164,7 +164,7 @@ def full_scan_paths(self, wordlist, url):
             results = json.load(file)
             if 'results' in results:
                 for result in results['results']:
-                    PathScanResult.objects.create(
+                    Path.objects.create(
                         path_scan_job=scan_job,
                         url=url.replace('FUZZ', result['input']['FUZZ']),
                         content_type=result.get('content_type', ''),

@@ -48,6 +48,7 @@ def scan_subdomains(self, target, from_job_id=None):
                                     Subdomain.objects.create(
                                         scan_job=scan_job,
                                         subdomain=result['subdomain'],
+                                        domain=target,
                                         ip_address=ip,
                                         status=result.get('status', ''),
                                         cname=cname,
