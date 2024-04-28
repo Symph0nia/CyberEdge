@@ -6,7 +6,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from common.models import ScanJob
-from .models import PathScanResult
+from .models import Path
 from .tasks import scan_paths  # 确保正确导入异步任务
 
 @csrf_exempt  # 允许跨站请求
@@ -64,7 +64,7 @@ def path_task_status_view(request):
 
     if path_scan_job.status in ['C', 'E']:  # 如果任务已完成或遇到错误
         response_data['task_result'] = {
-            'paths': list(path_scan_job.paths.values('id', 'url', 'content_type', 'status', 'length')),
+            'paths': list(path_scan_job.paths.values('id', 'url', 'path', 'content_type', 'status', 'length')),
             'error_message': path_scan_job.error_message
         }
 
@@ -111,11 +111,11 @@ def delete_task_view(request, task_id):
 def delete_path_view(request, id):
     try:
         # 尝试根据提供的task_id找到对应的任务记录
-        task = PathScanResult.objects.get(id=id)
+        task = Path.objects.get(id=id)
         # 删除找到的任务记录
         task.delete()
         return JsonResponse({'message': '端口删除成功'}, status=200)
-    except PathScanResult.DoesNotExist:
+    except Path.DoesNotExist:
         # 如果没有找到对应的任务记录，则返回错误信息
         return JsonResponse({'error': '端口ID不存在，无法删除'}, status=404)
     except Exception as e:
