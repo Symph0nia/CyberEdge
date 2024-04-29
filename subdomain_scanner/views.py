@@ -16,7 +16,7 @@ def scan_subdomains_view(request):
         # 解析请求体中的JSON
         data = json.loads(request.body.decode('utf-8'))
         targets = data.get('targets', [])  # 从请求中获取目标域名列表
-        from_id = data.get('from_id', '')
+        from_id = data.get('from_id', None)
     except json.JSONDecodeError:
         return JsonResponse({'error': '无效的JSON格式'}, status=400)
 

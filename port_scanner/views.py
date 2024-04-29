@@ -17,7 +17,7 @@ def scan_ports_view(request):
         data = json.loads(request.body.decode('utf-8'))
         targets = data.get('target', '')
         ports = data.get('ports', '1-65535')  # 如果未指定，设置默认端口范围
-        from_id = data.get('from_id', '')
+        from_id = data.get('from_id', None)
     except json.JSONDecodeError:
         return JsonResponse({'error': '无效的JSON格式'}, status=400)
 

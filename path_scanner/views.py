@@ -18,7 +18,7 @@ def scan_paths_view(request):
         wordlist = data.get('wordlist', './wordlist/default_wordlist.txt')  # 提供默认wordlist文件名
         urls = data.get('urls', [])  # 直接获取数组格式的URLs
         delay = data.get('delay', 0)
-        from_id = data.get('from_id', '')
+        from_id = data.get('from_id', None)
     except json.JSONDecodeError:
         return JsonResponse({'error': '无效的JSON格式'}, status=400)
 
