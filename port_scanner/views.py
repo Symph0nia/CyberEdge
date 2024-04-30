@@ -23,7 +23,7 @@ def scan_ports_view(request):
 
     # 分割逗号分隔的IP地址，并移除空字符串
     targets_list = [ip.strip() for ip in targets.split(',') if ip.strip()]
-
+    # TODO 分割方式和其他的不同，考虑统一
     if not targets_list:
         return JsonResponse({'error': '缺少必要的target参数或格式错误'}, status=400)
 
