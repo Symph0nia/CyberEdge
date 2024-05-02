@@ -142,3 +142,26 @@ def list_wordlists(request):
     except Exception as e:
         # 如果发生错误，返回错误信息
         return JsonResponse({'error': str(e)}, status=500)
+
+@csrf_exempt
+@require_http_methods(["DELETE"])  # 使用DELETE方法来处理这个删除操作
+def delete_status_paths_view(request, task_id):
+    try:
+        # 获取指定ScanJob的所有路径记录，其HTTP状态码非200
+        non_200_http_paths = Path.objects.filter(scan_job_id=task_id).exclude(https_code=200)
+
+        # 记录将要删除的记录数量
+        count_to_delete = non_200_http_paths.count()
+
+        # 删除这些记录
+        non_200_http_paths.delete()
+
+        return JsonResponse({
+            'message': f'成功删除{count_to_delete}个状态码非200的路径。',
+            'deleted': True
+        }, status=200)
+
+    except ScanJob.DoesNotExist:
+        return JsonResponse({'error': '指定的ScanJob不存在，无法执行删除'}, status=404)
+    except Exception as e:
+        return JsonResponse({'error': f'删除操作时发生错误: {str(e)}'}, status=500)
