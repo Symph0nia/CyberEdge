@@ -134,3 +134,49 @@ def delete_port_view(request, id):
     except Exception as e:
         # 捕获并处理其他可能的错误
         return JsonResponse({'error': f'删除端口时发生错误: {str(e)}'}, status=500)
+
+@csrf_exempt
+@require_http_methods(["DELETE"])  # 使用DELETE方法来处理这个删除操作
+def delete_http_ports_view(request, task_id):
+    try:
+        # 获取指定ScanJob的所有端口记录，其HTTP状态码非200
+        non_200_http_ports = Port.objects.filter(scan_job_id=task_id).exclude(http_code=200)
+
+        # 记录将要删除的记录数量
+        count_to_delete = non_200_http_ports.count()
+
+        # 删除这些记录
+        non_200_http_ports.delete()
+
+        return JsonResponse({
+            'message': f'成功删除{count_to_delete}个HTTP状态码非200的端口。',
+            'deleted': True
+        }, status=200)
+
+    except ScanJob.DoesNotExist:
+        return JsonResponse({'error': '指定的ScanJob不存在，无法执行删除'}, status=404)
+    except Exception as e:
+        return JsonResponse({'error': f'删除操作时发生错误: {str(e)}'}, status=500)
+
+@csrf_exempt
+@require_http_methods(["DELETE"])  # 使用DELETE方法来处理这个删除操作
+def delete_https_ports_view(request, task_id):
+    try:
+        # 获取指定ScanJob的所有端口记录，其HTTP状态码非200
+        non_200_https_ports = Port.objects.filter(scan_job_id=task_id).exclude(https_code=200)
+
+        # 记录将要删除的记录数量
+        count_to_delete = non_200_https_ports.count()
+
+        # 删除这些记录
+        non_200_https_ports.delete()
+
+        return JsonResponse({
+            'message': f'成功删除{count_to_delete}个HTTPS状态码非200的端口。',
+            'deleted': True
+        }, status=200)
+
+    except ScanJob.DoesNotExist:
+        return JsonResponse({'error': '指定的ScanJob不存在，无法执行删除'}, status=404)
+    except Exception as e:
+        return JsonResponse({'error': f'删除操作时发生错误: {str(e)}'}, status=500)

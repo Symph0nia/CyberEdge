@@ -147,11 +147,6 @@ def deduplicate_subdomains_view(request, task_id):
     except Exception as e:
         return JsonResponse({'error': f'去重操作时发生错误: {str(e)}'}, status=500)
 
-from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_http_methods
-from .models import Subdomain, ScanJob
-
 @csrf_exempt
 @require_http_methods(["DELETE"])
 def delete_http_code_subdomains_view(request, task_id):
