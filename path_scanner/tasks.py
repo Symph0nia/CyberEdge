@@ -39,7 +39,7 @@ def scan_paths(self, wordlist, target, delay, from_job_id=None):
             if 'results' in results:
                 for result in results['results']:
                     Path.objects.create(
-                        path_scan_job=scan_job,
+                        scan_job=scan_job,
                         url=url,
                         path=url + result['input']['FUZZ'],
                         content_type=result.get('content_type', ''),
