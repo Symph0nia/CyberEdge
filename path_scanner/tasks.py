@@ -8,12 +8,12 @@ from common.models import ScanJob
 from .models import Path # 确保导入模型
 
 @shared_task(bind=True)
-def scan_paths(self, wordlist, url, delay, from_job_id=None):
+def scan_paths(self, wordlist, target, delay, from_job_id=None):
     # 确保URL格式正确，移除FUZZ前的斜杠（如果存在）
-    path = url.replace('/FUZZ', 'FUZZ')  # 直接替换'/FUZZ'为'FUZZ'
-    url = url.replace('/FUZZ', '')
-    url = url.replace('https://', '')
-    url = url.replace('http://', '')
+    path = target.replace('/FUZZ', 'FUZZ')  # 直接替换'/FUZZ'为'FUZZ'
+    url = target.replace('/FUZZ', '')
+    target = url.replace('https://','')
+    target = target.replace('http://', '')
 
     scan_job = ScanJob.objects.create(
         type='PATH',
@@ -39,12 +39,13 @@ def scan_paths(self, wordlist, url, delay, from_job_id=None):
             if 'results' in results:
                 for result in results['results']:
                     Path.objects.create(
-                        path_scan_job=scan_job,
+                        scan_job=scan_job,
                         url=url,
                         path=url + result['input']['FUZZ'],
                         content_type=result.get('content_type', ''),
                         status=result['status'],
-                        length=result['length']
+                        length=result['length'],
+                        from_asset=target,
                     )
                 scan_job.status = 'C'  # 标记为完成
             else:

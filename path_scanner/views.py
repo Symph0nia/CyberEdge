@@ -64,7 +64,7 @@ def path_task_status_view(request):
 
     if path_scan_job.status in ['C', 'E']:  # 如果任务已完成或遇到错误
         response_data['task_result'] = {
-            'paths': list(path_scan_job.paths.values('id', 'url', 'path', 'content_type', 'status', 'length')),
+            'paths': list(path_scan_job.paths.values('id', 'url', 'path', 'content_type', 'status', 'length','from_asset')),
             'error_message': path_scan_job.error_message
         }
 
@@ -142,3 +142,26 @@ def list_wordlists(request):
     except Exception as e:
         # 如果发生错误，返回错误信息
         return JsonResponse({'error': str(e)}, status=500)
+
+@csrf_exempt
+@require_http_methods(["DELETE"])  # 使用DELETE方法来处理这个删除操作
+def delete_status_paths_view(request, task_id):
+    try:
+        # 获取指定ScanJob的所有路径记录，其HTTP状态码非200
+        non_200_http_paths = Path.objects.filter(scan_job_id=task_id).exclude(status=200)
+
+        # 记录将要删除的记录数量
+        count_to_delete = non_200_http_paths.count()
+
+        # 删除这些记录
+        non_200_http_paths.delete()
+
+        return JsonResponse({
+            'message': f'成功删除{count_to_delete}个状态码非200的路径。',
+            'deleted': True
+        }, status=200)
+
+    except ScanJob.DoesNotExist:
+        return JsonResponse({'error': '指定的ScanJob不存在，无法执行删除'}, status=404)
+    except Exception as e:
+        return JsonResponse({'error': f'删除操作时发生错误: {str(e)}'}, status=500)

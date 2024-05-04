@@ -3,6 +3,7 @@ import json
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
+from django.db.models import Min
 
 from .models import Subdomain
 from common.models import ScanJob
@@ -64,7 +65,7 @@ def subdomain_task_status_view(request):
     if subdomain_scan_job.status in ['C', 'E']:  # 如果任务已完成或遇到错误
         response_data['task_result'] = {
             'subdomains': list(subdomain_scan_job.subdomains.values('id', 'subdomain', 'ip_address', 'status', 'cname', 'port', 'title',
-                    'banner', 'addr')),
+                    'banner', 'addr', 'from_asset')),
             'error_message': subdomain_scan_job.error_message
         }
 
@@ -121,3 +122,50 @@ def delete_subdomain_view(request, id):
     except Exception as e:
         # 捕获并处理其他可能的错误
         return JsonResponse({'error': f'删除子域名时发生错误: {str(e)}'}, status=500)
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def deduplicate_subdomains_view(request, task_id):
+    try:
+        subdomains = Subdomain.objects.filter(scan_job_id=task_id)
+        # 对于每个subdomain，找到最小的id值（即最早的记录）
+        min_ids = subdomains.values('subdomain').annotate(min_id=Min('id'))
+
+        # 构建一个包含所有最小id的列表，这些是将要保留的记录
+        min_id_list = [item['min_id'] for item in min_ids]
+
+        # 删除那些id不在min_id_list中的所有记录
+        deleted_count = subdomains.exclude(id__in=min_id_list).delete()[0]  # delete返回一个元组，第一个元素是删除的计数
+
+        return JsonResponse({
+            'message': f'成功删除{deleted_count}个重复的子域名。',
+            'deduplicated': True
+        }, status=200)
+
+    except ScanJob.DoesNotExist:
+        return JsonResponse({'error': '指定的ScanJob不存在，无法进行去重'}, status=404)
+    except Exception as e:
+        return JsonResponse({'error': f'去重操作时发生错误: {str(e)}'}, status=500)
+
+@csrf_exempt
+@require_http_methods(["DELETE"])
+def delete_http_code_subdomains_view(request, task_id):
+    try:
+        # 获取指定ScanJob的所有子域名，其状态非'200'
+        non_200_subdomains = Subdomain.objects.filter(scan_job_id=task_id).exclude(status='200')
+
+        # 记录将要删除的记录数量
+        count_to_delete = non_200_subdomains.count()
+
+        # 删除这些记录
+        non_200_subdomains.delete()
+
+        return JsonResponse({
+            'message': f'成功删除{count_to_delete}个状态非200的子域名。',
+            'deleted': True
+        }, status=200)
+
+    except ScanJob.DoesNotExist:
+        return JsonResponse({'error': '指定的ScanJob不存在，无法执行删除'}, status=404)
+    except Exception as e:
+        return JsonResponse({'error': f'删除操作时发生错误: {str(e)}'}, status=500)

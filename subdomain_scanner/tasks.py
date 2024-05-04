@@ -56,6 +56,7 @@ def scan_subdomains(self, target, from_job_id=None):
                                         title=result.get('title', ''),
                                         banner=result.get('banner', ''),
                                         addr=result.get('addr', ''),
+                                        from_asset=target,
                                     )
             scan_job.status = 'C'  # 标记为完成
     except subprocess.CalledProcessError as e:

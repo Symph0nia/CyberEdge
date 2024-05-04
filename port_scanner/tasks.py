@@ -63,7 +63,8 @@ def scan_ports(self, target, ports, from_job_id=None):
                         service_name=service,
                         protocol='tcp',
                         state='open',
-                        ip_address=target
+                        ip_address=target,
+                        from_asset=target,
                     )
                     new_port.http_code, new_port.http_title = check_protocol(target, port, 'http')
                     new_port.https_code, new_port.https_title = check_protocol(target, port, 'https')
