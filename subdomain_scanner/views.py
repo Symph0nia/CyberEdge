@@ -65,7 +65,7 @@ def subdomain_task_status_view(request):
     if subdomain_scan_job.status in ['C', 'E']:  # 如果任务已完成或遇到错误
         response_data['task_result'] = {
             'subdomains': list(subdomain_scan_job.subdomains.values('id', 'subdomain', 'ip_address', 'status', 'cname', 'port', 'title',
-                    'banner', 'addr')),
+                    'banner', 'addr', 'from_asset')),
             'error_message': subdomain_scan_job.error_message
         }
 

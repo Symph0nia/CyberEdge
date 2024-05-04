@@ -58,12 +58,22 @@ class ScanJob(models.Model):
 
     @property
     def related_assets(self):
-        # 根据任务类型返回特定格式的资产列表
+        # 根据任务类型返回特定格式的资产列表，每个资产为一个字典
         if self.type == 'SUBDOMAIN':
-            return [f"子域名:{sub.subdomain}/IP地址:{sub.ip_address}" for sub in self.subdomains.all() if sub.ip_address]
+            return [{'name': f"子域名:{sub.subdomain}/IP地址:{sub.ip_address}",
+                     'from_asset': sub.from_asset,  # 假设Subdomain模型有 from_asset 字段
+                     'value': sub.id}  # 使用资产的唯一标识符作为 value
+                    for sub in self.subdomains.all() if sub.ip_address]
         elif self.type == 'PORT':
-            return [f"IP地址:{port.ip_address}/端口:{port.port_number}" for port in self.ports.all() if port.url]
+            return [{'name': f"IP地址:{port.ip_address}/端口:{port.port_number}",
+                     'from_asset': port.from_asset,  # 假设Port模型有 from_asset 字段
+                     'value': port.id}
+                    for port in self.ports.all() if port.ip_address]
         elif self.type == 'PATH':
-            return [f"路径:{path.path}" for path in self.paths.all() if path.path]
+            return [{'name': f"路径:{path.path}",
+                     'from_asset': path.from_asset,  # 假设Path模型有 from_asset 字段
+                     'value': path.id}
+                    for path in self.paths.all() if path.path]
         else:
             return []
+

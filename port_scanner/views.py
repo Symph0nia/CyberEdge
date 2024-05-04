@@ -76,6 +76,7 @@ def task_status_view(request):
                     'http_title': port.http_title,
                     'https_code': port.https_code,
                     'https_title': port.https_title,
+                    'from_asset':port.from_asset,
                 } for port in scan_job.ports.all()
             ],
             'error_message': scan_job.error_message
