@@ -12,8 +12,6 @@ class Target(models.Model):
 
     def __str__(self):
         return self.domain
-    def __str__(self):
-        return self.domain
 
     def count_results_by_type(self, job_type):
         from common.models import ScanJob

@@ -14,5 +14,7 @@ class Subdomain(models.Model):
     banner = models.CharField(max_length=255, verbose_name='横幅', null=True, blank=True)
     addr = models.CharField(max_length=255, verbose_name='地址', null=True, blank=True)
 
+    from_asset = models.CharField(max_length=200, verbose_name='上游资产', null=True, blank=True)
+
     def __str__(self):
         return f"{self.subdomain} - {self.ip_address} - {self.status}"

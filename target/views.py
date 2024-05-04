@@ -1,6 +1,7 @@
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
+from django.db.models import Q
 from .models import Target
 from common.models import ScanJob
 import json
@@ -72,31 +73,52 @@ def delete_target_view(request, task_id):
         # 捕获并处理其他可能的错误
         return JsonResponse({'error': f'删除目标时发生错误: {str(e)}'}, status=500)
 
+
 def build_tree_data(scan_job):
-    # 初始化当前任务的节点
-    current_job_node = {
-        'name': scan_job.target,  # 任务目标作为节点名称
-        'value': scan_job.task_id,  # 任务ID作为节点值
-        'children': []  # 初始化子节点列表
-    }
-
-    # 获取与当前任务关联的资产列表
-    for asset in scan_job.related_assets:
-        # 将每个资产作为一个独立的子节点加入
-        current_job_node['children'].append({
-            'name': asset,  # 资产信息作为节点名称
-            'value': scan_job.task_id  # 使用相同的任务ID作为值，因为资产没有独立的task_id
-        })
-
-    # 遍历每个子任务，并构建其树状结构
-    for child_job in ScanJob.objects.filter(from_job_id=scan_job.task_id):
-        current_job_node['children'].append(build_tree_data(child_job))
-
-    # 如果没有子任务和资产，只返回当前任务的基本节点
-    return current_job_node if current_job_node['children'] else {
+    nodes = {}
+    root_node = {
         'name': scan_job.target,
-        'value': scan_job.task_id
+        'value': scan_job.task_id.hex,
+        'children': []
     }
+    nodes[scan_job.task_id.hex] = root_node
+
+    # 处理资产并建立父子关系
+    for asset_type in ['subdomains', 'ports', 'paths']:
+        for asset in getattr(scan_job, asset_type).all():
+            asset_node = {
+                'name': asset.__str__(),
+                'value': asset.id,
+                'children': []
+            }
+            nodes[asset.id] = asset_node
+            # 使用 from_asset 建立父子关系
+            parent_value = asset.from_asset
+            if parent_value and parent_value in nodes:
+                nodes[parent_value]['children'].append(asset_node)
+            elif parent_value:
+                # 如果父资产在 nodes 中不存在但存在 from_asset，创建一个新的根节点
+                parent_node = {
+                    'name': parent_value,
+                    'value': parent_value,  # 这里我们假设 parent_value 唯一
+                    'children': [asset_node]
+                }
+                nodes[parent_value] = parent_node
+                root_node['children'].append(parent_node)
+            else:
+                # 附加到根节点
+                root_node['children'].append(asset_node)
+
+    # 递归处理子任务
+    for child_job in ScanJob.objects.filter(from_job_id=scan_job.task_id):
+        child_node = build_tree_data(child_job)
+        # 仅在子节点还未被添加时，才将其添加到树中
+        if child_node['value'] not in nodes:
+            nodes[child_node['value']] = child_node
+            root_node['children'].append(child_node)
+
+    return root_node
+
 
 @csrf_exempt
 @require_http_methods(["POST"])
@@ -104,14 +126,19 @@ def get_asset_tree_view(request):
     data = json.loads(request.body.decode('utf-8'))
     task_id = data.get('task_id')
     if not task_id:
-        return JsonResponse({'error': '域名参数未传递'}, status=400)
+        return JsonResponse({'error': 'Task ID not provided'}, status=400)
 
     try:
         target = Target.objects.get(task_id=task_id)
     except Target.DoesNotExist:
-        return JsonResponse({'error': '域名未设置'}, status=404)
+        return JsonResponse({'error': 'Target not found'}, status=404)
 
-    root_jobs = ScanJob.objects.filter(from_job_id=target.task_id)
+    # 使用 target.domain 从 ScanJob 的相关资产模型中查询数据
+    root_jobs = ScanJob.objects.filter(
+        Q(subdomains__from_asset=target.domain) |
+        Q(ports__from_asset=target.domain) |
+        Q(paths__from_asset=target.domain)
+    ).distinct()
     children = [build_tree_data(job) for job in root_jobs]
     tree_data = {
         'name': target.domain,

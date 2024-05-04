@@ -18,6 +18,8 @@ class Port(models.Model):
     https_title = models.CharField(max_length=200, verbose_name='HTTPS标题', null=True, blank=True)
     https_code = models.IntegerField(verbose_name='HTTPS状态码', null=True, blank=True)
 
+    from_asset = models.CharField(max_length=200, verbose_name='上游资产', null=True, blank=True)
+
     @property
     def url(self):
         return f"{self.ip_address}:{self.port_number}"
