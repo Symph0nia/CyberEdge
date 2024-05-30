@@ -56,6 +56,10 @@ def subdomain_task_status_view(request):
     except ScanJob.DoesNotExist:
         return JsonResponse({'error': '任务ID不存在'}, status=404)
 
+    if not subdomain_scan_job.is_read:
+        subdomain_scan_job.is_read = True
+        subdomain_scan_job.save()
+
     # 构造响应数据
     response_data = {
         'task_id': task_id,
@@ -86,6 +90,7 @@ def get_all_tasks_view(request):
             'start_time': task.start_time.strftime('%Y年%m月%d日 %H:%M:%S') if task.start_time else None,
             'end_time': task.end_time.strftime('%Y年%m月%d日 %H:%M:%S') if task.end_time else None,
             'from': task.from_job_target,
+            'is_read': task.is_read,
         })
 
     # 返回响应

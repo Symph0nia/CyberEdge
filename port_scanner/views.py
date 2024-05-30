@@ -40,25 +40,26 @@ def scan_ports_view(request):
 @require_http_methods(["POST"])
 def task_status_view(request):
     try:
-        # 解析请求体中的JSON
-        data = json.loads(request.body.decode('utf-8'))
+        data = json.loads(request.body.decode('utf-8'))  # 解析请求体中的JSON
         task_id = data.get('task_id')
+        if not task_id:
+            return JsonResponse({'error': '缺少必要的task_id参数'}, status=400)
     except json.JSONDecodeError:
         return JsonResponse({'error': '无效的JSON格式'}, status=400)
 
-    if not task_id:
-        return JsonResponse({'error': '缺少必要的task_id参数'}, status=400)
-
-    # 尝试从数据库获取ScanJob实例
     try:
         scan_job = ScanJob.objects.get(task_id=task_id)
     except ScanJob.DoesNotExist:
         return JsonResponse({'error': '任务ID不存在'}, status=404)
 
-    # 构造响应数据
+    # 更新任务为已读状态
+    if not scan_job.is_read:
+        scan_job.is_read = True
+        scan_job.save()
+
     response_data = {
         'task_id': task_id,
-        'task_status': scan_job.get_status_display(),
+        'task_status': scan_job.get_Status_display(),
     }
 
     if scan_job.status in ['C', 'E']:  # 如果任务已完成或遇到错误
@@ -76,8 +77,8 @@ def task_status_view(request):
                     'http_title': port.http_title,
                     'https_code': port.https_code,
                     'https_title': port.https_title,
-                    'from_asset':port.from_asset,
-                } for port in scan_job.ports.all()
+                    'from_asset': port.from_asset,
+                } for port in scan_job.ports.all()  # 假设ports是与ScanJob相关联的模型实例
             ],
             'error_message': scan_job.error_message
         }
@@ -99,6 +100,7 @@ def get_all_tasks_view(request):
             'start_time': task.start_time.strftime('%Y年%m月%d日 %H:%M:%S') if task.start_time else None,
             'end_time': task.end_time.strftime('%Y年%m月%d日 %H:%M:%S') if task.end_time else None,
             'from': task.from_job_target,
+            'is_read': task.is_read,
         })
 
     # 返回响应

@@ -1,6 +1,5 @@
 from django.db import models
 from common.models import ScanJob
-from django.contrib.contenttypes.models import ContentType
 
 class Path(models.Model):
     scan_job = models.ForeignKey(ScanJob, on_delete=models.CASCADE, related_name='paths', verbose_name='路径扫描任务')
