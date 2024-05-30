@@ -148,21 +148,33 @@ def list_wordlists(request):
         # 如果发生错误，返回错误信息
         return JsonResponse({'error': str(e)}, status=500)
 
+
 @csrf_exempt
-@require_http_methods(["DELETE"])  # 使用DELETE方法来处理这个删除操作
+@require_http_methods(["DELETE"])
 def delete_status_paths_view(request, task_id):
     try:
-        # 获取指定ScanJob的所有路径记录，其HTTP状态码非200
-        non_200_http_paths = Path.objects.filter(scan_job_id=task_id).exclude(status=200)
+        # 从请求中获取status_code参数
+        status_code = request.GET.get('status_code')
+        if not status_code:
+            return JsonResponse({'error': '缺少必要的status_code参数'}, status=400)
+
+        # 将status_code转换为整数
+        try:
+            status_code = int(status_code)
+        except ValueError:
+            return JsonResponse({'error': 'status_code参数必须是整数'}, status=400)
+
+        # 获取指定ScanJob的所有路径记录，其HTTP状态码等于指定的status_code
+        specific_http_paths = Path.objects.filter(scan_job_id=task_id, status=status_code)
 
         # 记录将要删除的记录数量
-        count_to_delete = non_200_http_paths.count()
+        count_to_delete = specific_http_paths.count()
 
         # 删除这些记录
-        non_200_http_paths.delete()
+        specific_http_paths.delete()
 
         return JsonResponse({
-            'message': f'成功删除{count_to_delete}个状态码非200的路径。',
+            'message': f'成功删除{count_to_delete}个状态码为{status_code}的路径。',
             'deleted': True
         }, status=200)
 
