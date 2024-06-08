@@ -59,7 +59,7 @@ def task_status_view(request):
 
     response_data = {
         'task_id': task_id,
-        'task_status': scan_job.get_Status_display(),
+        'task_status': scan_job.get_status_display(),
     }
 
     if scan_job.status in ['C', 'E']:  # 如果任务已完成或遇到错误
@@ -139,20 +139,31 @@ def delete_port_view(request, id):
         return JsonResponse({'error': f'删除端口时发生错误: {str(e)}'}, status=500)
 
 @csrf_exempt
-@require_http_methods(["DELETE"])  # 使用DELETE方法来处理这个删除操作
+@require_http_methods(["DELETE"])
 def delete_http_ports_view(request, task_id):
     try:
-        # 获取指定ScanJob的所有端口记录，其HTTP状态码非200
-        non_200_http_ports = Port.objects.filter(scan_job_id=task_id).exclude(http_code=200)
+        # 从请求中获取 http_code 参数
+        status_code = request.GET.get('status_code')
+        if not status_code:
+            return JsonResponse({'error': '缺少必要的 status_code 参数'}, status=400)
+
+        # 将 http_code 转换为整数
+        try:
+            http_code = int(status_code)
+        except ValueError:
+            return JsonResponse({'error': 'status_code 参数必须是整数'}, status=400)
+
+        # 获取指定ScanJob的所有端口记录，其HTTP状态码等于指定的http_code
+        specific_http_ports = Port.objects.filter(scan_job_id=task_id, http_code=status_code)
 
         # 记录将要删除的记录数量
-        count_to_delete = non_200_http_ports.count()
+        count_to_delete = specific_http_ports.count()
 
         # 删除这些记录
-        non_200_http_ports.delete()
+        specific_http_ports.delete()
 
         return JsonResponse({
-            'message': f'成功删除{count_to_delete}个HTTP状态码非200的端口。',
+            'message': f'成功删除{count_to_delete}个HTTP状态码为{status_code}的端口。',
             'deleted': True
         }, status=200)
 
@@ -162,20 +173,31 @@ def delete_http_ports_view(request, task_id):
         return JsonResponse({'error': f'删除操作时发生错误: {str(e)}'}, status=500)
 
 @csrf_exempt
-@require_http_methods(["DELETE"])  # 使用DELETE方法来处理这个删除操作
+@require_http_methods(["DELETE"])
 def delete_https_ports_view(request, task_id):
     try:
-        # 获取指定ScanJob的所有端口记录，其HTTP状态码非200
-        non_200_https_ports = Port.objects.filter(scan_job_id=task_id).exclude(https_code=200)
+        # 从请求中获取 http_code 参数
+        status_code = request.GET.get('status_code')
+        if not status_code:
+            return JsonResponse({'error': '缺少必要的 status_code 参数'}, status=400)
+
+        # 将 http_code 转换为整数
+        try:
+            http_code = int(status_code)
+        except ValueError:
+            return JsonResponse({'error': 'status_code 参数必须是整数'}, status=400)
+
+        # 获取指定ScanJob的所有端口记录，其HTTP状态码等于指定的http_code
+        specific_http_ports = Port.objects.filter(scan_job_id=task_id, https_code=status_code)
 
         # 记录将要删除的记录数量
-        count_to_delete = non_200_https_ports.count()
+        count_to_delete = specific_http_ports.count()
 
         # 删除这些记录
-        non_200_https_ports.delete()
+        specific_http_ports.delete()
 
         return JsonResponse({
-            'message': f'成功删除{count_to_delete}个HTTPS状态码非200的端口。',
+            'message': f'成功删除{count_to_delete}个HTTP状态码为{status_code}的端口。',
             'deleted': True
         }, status=200)
 
