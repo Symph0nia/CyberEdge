@@ -139,44 +139,133 @@ def delete_subdomain_view(request, id):
         return JsonResponse({'error': f'删除子域名时发生错误: {str(e)}'}, status=500)
 
 @csrf_exempt
-@require_http_methods(["POST"])
-def deduplicate_subdomains_view(request, task_id):
+@require_http_methods(["DELETE"])
+def delete_subdomain_http_ports_view(request, task_id):
     try:
-        subdomains = Subdomain.objects.filter(scan_job_id=task_id)
-        # 对于每个subdomain，找到最小的id值（即最早的记录）
-        min_ids = subdomains.values('subdomain').annotate(min_id=Min('id'))
+        # 从请求中获取 http_code 参数
+        status_code = request.GET.get('status_code')
+        if not status_code:
+            return JsonResponse({'error': '缺少必要的 status_code 参数'}, status=400)
 
-        # 构建一个包含所有最小id的列表，这些是将要保留的记录
-        min_id_list = [item['min_id'] for item in min_ids]
+        # 将status_code转换为整数
+        try:
+            status_code = int(status_code)
+        except ValueError:
+            return JsonResponse({'error': 'status_code参数必须是整数'}, status=400)
 
-        # 删除那些id不在min_id_list中的所有记录
-        deleted_count = subdomains.exclude(id__in=min_id_list).delete()[0]  # delete返回一个元组，第一个元素是删除的计数
+        # 获取指定ScanJob的所有端口记录，其HTTP状态码等于指定的http_code
+        specific_http_ports = Subdomain.objects.filter(scan_job_id=task_id, subdomain_http_status=status_code)
+
+        # 记录将要删除的记录数量
+        count_to_delete = specific_http_ports.count()
+
+        # 删除这些记录
+        specific_http_ports.delete()
 
         return JsonResponse({
-            'message': f'成功删除{deleted_count}个重复的子域名。',
-            'deduplicated': True
+            'message': f'成功删除{count_to_delete}个HTTP状态码为{status_code}的端口。',
+            'deleted': True
         }, status=200)
 
     except ScanJob.DoesNotExist:
-        return JsonResponse({'error': '指定的ScanJob不存在，无法进行去重'}, status=404)
+        return JsonResponse({'error': '指定的ScanJob不存在，无法执行删除'}, status=404)
     except Exception as e:
-        return JsonResponse({'error': f'去重操作时发生错误: {str(e)}'}, status=500)
+        return JsonResponse({'error': f'删除操作时发生错误: {str(e)}'}, status=500)
 
 @csrf_exempt
 @require_http_methods(["DELETE"])
-def delete_http_code_subdomains_view(request, task_id):
+def delete_subdomain_https_ports_view(request, task_id):
     try:
-        # 获取指定ScanJob的所有子域名，其状态非'200'
-        non_200_subdomains = Subdomain.objects.filter(scan_job_id=task_id).exclude(status='200')
+        # 从请求中获取 http_code 参数
+        status_code = request.GET.get('status_code')
+        if not status_code:
+            return JsonResponse({'error': '缺少必要的 status_code 参数'}, status=400)
+
+        # 将status_code转换为整数
+        try:
+            status_code = int(status_code)
+        except ValueError:
+            return JsonResponse({'error': 'status_code参数必须是整数'}, status=400)
+
+        # 获取指定ScanJob的所有端口记录，其HTTP状态码等于指定的http_code
+        specific_https_ports = Subdomain.objects.filter(scan_job_id=task_id, subdomain_https_status=status_code)
 
         # 记录将要删除的记录数量
-        count_to_delete = non_200_subdomains.count()
+        count_to_delete = specific_https_ports.count()
 
         # 删除这些记录
-        non_200_subdomains.delete()
+        specific_https_ports.delete()
 
         return JsonResponse({
-            'message': f'成功删除{count_to_delete}个状态非200的子域名。',
+            'message': f'成功删除{count_to_delete}个HTTP状态码为{status_code}的端口。',
+            'deleted': True
+        }, status=200)
+
+    except ScanJob.DoesNotExist:
+        return JsonResponse({'error': '指定的ScanJob不存在，无法执行删除'}, status=404)
+    except Exception as e:
+        return JsonResponse({'error': f'删除操作时发生错误: {str(e)}'}, status=500)
+
+@csrf_exempt
+@require_http_methods(["DELETE"])
+def delete_ip_http_ports_view(request, task_id):
+    try:
+        # 从请求中获取 http_code 参数
+        status_code = request.GET.get('status_code')
+        if not status_code:
+            return JsonResponse({'error': '缺少必要的 status_code 参数'}, status=400)
+
+        # 将status_code转换为整数
+        try:
+            status_code = int(status_code)
+        except ValueError:
+            return JsonResponse({'error': 'status_code参数必须是整数'}, status=400)
+
+        # 获取指定ScanJob的所有端口记录，其HTTP状态码等于指定的http_code
+        specific_http_ports = Subdomain.objects.filter(scan_job_id=task_id, ip_http_status=status_code)
+
+        # 记录将要删除的记录数量
+        count_to_delete = specific_http_ports.count()
+
+        # 删除这些记录
+        specific_http_ports.delete()
+
+        return JsonResponse({
+            'message': f'成功删除{count_to_delete}个HTTP状态码为{status_code}的端口。',
+            'deleted': True
+        }, status=200)
+
+    except ScanJob.DoesNotExist:
+        return JsonResponse({'error': '指定的ScanJob不存在，无法执行删除'}, status=404)
+    except Exception as e:
+        return JsonResponse({'error': f'删除操作时发生错误: {str(e)}'}, status=500)
+
+@csrf_exempt
+@require_http_methods(["DELETE"])
+def delete_ip_https_ports_view(request, task_id):
+    try:
+        # 从请求中获取 http_code 参数
+        status_code = request.GET.get('status_code')
+        if not status_code:
+            return JsonResponse({'error': '缺少必要的 status_code 参数'}, status=400)
+
+        # 将status_code转换为整数
+        try:
+            status_code = int(status_code)
+        except ValueError:
+            return JsonResponse({'error': 'status_code参数必须是整数'}, status=400)
+
+        # 获取指定ScanJob的所有端口记录，其HTTP状态码等于指定的http_code
+        specific_https_ports = Subdomain.objects.filter(scan_job_id=task_id, ip_https_status=status_code)
+
+        # 记录将要删除的记录数量
+        count_to_delete = specific_https_ports.count()
+
+        # 删除这些记录
+        specific_https_ports.delete()
+
+        return JsonResponse({
+            'message': f'成功删除{count_to_delete}个HTTP状态码为{status_code}的端口。',
             'deleted': True
         }, status=200)
 

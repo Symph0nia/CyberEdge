@@ -119,7 +119,6 @@ def build_tree_data(scan_job):
 
     return root_node
 
-
 @csrf_exempt
 @require_http_methods(["POST"])
 def get_asset_tree_view(request):

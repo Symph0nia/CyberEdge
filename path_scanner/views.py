@@ -148,7 +148,6 @@ def list_wordlists(request):
         # 如果发生错误，返回错误信息
         return JsonResponse({'error': str(e)}, status=500)
 
-
 @csrf_exempt
 @require_http_methods(["DELETE"])
 def delete_status_paths_view(request, task_id):

@@ -147,11 +147,11 @@ def delete_http_ports_view(request, task_id):
         if not status_code:
             return JsonResponse({'error': '缺少必要的 status_code 参数'}, status=400)
 
-        # 将 http_code 转换为整数
+        # 将status_code转换为整数
         try:
-            http_code = int(status_code)
+            status_code = int(status_code)
         except ValueError:
-            return JsonResponse({'error': 'status_code 参数必须是整数'}, status=400)
+            return JsonResponse({'error': 'status_code参数必须是整数'}, status=400)
 
         # 获取指定ScanJob的所有端口记录，其HTTP状态码等于指定的http_code
         specific_http_ports = Port.objects.filter(scan_job_id=task_id, http_code=status_code)
