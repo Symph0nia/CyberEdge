@@ -1,11 +1,33 @@
 from django.utils import timezone
 from celery import shared_task
 import subprocess
+import socket
+import requests
 import json
 
 from common.models import ScanJob
 from .models import Subdomain  # 确保正确导入模型
 from django.db import transaction
+
+def resolve_ip(subdomain):
+    try:
+        return socket.gethostbyname(subdomain)
+    except socket.gaierror:
+        return None
+
+def check_http_https(url):
+    protocols = ['http', 'https']
+    responses = {}
+    for protocol in protocols:
+        try:
+            response = requests.get(f"{protocol}://{url}", timeout=1)
+            responses[protocol] = {
+                'status_code': response.status_code,
+                'headers': dict(response.headers)
+            }
+        except requests.exceptions.RequestException as e:
+            responses[protocol] = {'error': str(e)}
+    return responses
 
 @shared_task(bind=True)
 def scan_subdomains(self, target, from_job_id=None):
@@ -21,43 +43,40 @@ def scan_subdomains(self, target, from_job_id=None):
     # 构建输出文件名
     output_file_path = f"/tmp/{scan_job.task_id}.json"
 
-    # 构建OneForAll命令
-    cmd = f"/OneForAll/oneforall.py --target {target} --fmt json --path {output_file_path} run"
+    # 构建Subfinder命令
+    cmd = f"subfinder -d {target} -all -o {output_file_path} -oJ"
 
     try:
-        # 执行OneForAll命令
+        # 执行Subfinder命令
         process = subprocess.run(cmd, shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
         # 从输出文件读取结果
         with open(output_file_path, 'r') as file:
-            results = json.load(file)
-            for result in results:
-                # 分割和处理包含多个IP的情况
-                ip_addresses = result.get('ip', '').split(',')
-                # 分割和处理包含多个CNAME的情况
-                cnames = result.get('cname', '').split(',')
+            for line in file:
+                result = json.loads(line.strip())  # 逐行读取并解析JSON
+                subdomain = result.get('host')
+                source = result.get('source', '')
+                ip_address = resolve_ip(subdomain)  # 解析IP地址
 
-                for ip in ip_addresses:
-                    ip = ip.strip()  # 清除空格
-                    if ip:
-                        for cname in cnames:
-                            cname = cname.strip()  # 清除空格
-                            if cname:
-                                # 在事务中创建Subdomain对象
-                                with transaction.atomic():
-                                    Subdomain.objects.create(
-                                        scan_job=scan_job,
-                                        subdomain=result['subdomain'],
-                                        domain=target,
-                                        ip_address=ip,
-                                        status=result.get('status', ''),
-                                        cname=cname,
-                                        port=result.get('port', None),
-                                        title=result.get('title', ''),
-                                        banner=result.get('banner', ''),
-                                        addr=result.get('addr', ''),
-                                        from_asset=target,
-                                    )
+                # 检查子域名的HTTP和HTTPS
+                subdomain_http_https_results = check_http_https(subdomain)
+                # 如果有IP地址，对IP进行HTTP和HTTPS检测
+                ip_http_https_results = check_http_https(ip_address) if ip_address else {}
+
+                # 创建Subdomain对象
+                with transaction.atomic():
+                    Subdomain.objects.create(
+                        scan_job=scan_job,
+                        subdomain=subdomain,
+                        domain=target,
+                        source=source,
+                        ip_address=ip_address,
+                        subdomain_http_status=subdomain_http_https_results['http'].get('status_code', ''),
+                        subdomain_https_status=subdomain_http_https_results['https'].get('status_code', ''),
+                        ip_http_status=ip_http_https_results.get('http', {}).get('status_code', ''),
+                        ip_https_status=ip_http_https_results.get('https', {}).get('status_code', ''),
+                        from_asset=target,
+                    )
             scan_job.status = 'C'  # 标记为完成
     except subprocess.CalledProcessError as e:
         scan_job.status = 'E'  # 标记为错误
@@ -68,8 +87,6 @@ def scan_subdomains(self, target, from_job_id=None):
     finally:
         scan_job.end_time = timezone.now()
         scan_job.save()
-
-        # 可选：删除输出文件或保留供后续审查
 
         if scan_job.status == 'E':
             return {'error': scan_job.error_message}

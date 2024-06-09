@@ -68,12 +68,22 @@ def subdomain_task_status_view(request):
 
     if subdomain_scan_job.status in ['C', 'E']:  # 如果任务已完成或遇到错误
         response_data['task_result'] = {
-            'subdomains': list(subdomain_scan_job.subdomains.values('id', 'subdomain', 'ip_address', 'status', 'cname', 'port', 'title',
-                    'banner', 'addr', 'from_asset')),
+            'subdomains': list(subdomain_scan_job.subdomains.values(
+                'id',
+                'subdomain',
+                'ip_address',
+                'source',  # 新增源字段
+                'subdomain_http_status',  # 新增子域名HTTP状态码字段
+                'subdomain_https_status',  # 新增子域名HTTPS状态码字段
+                'ip_http_status',  # 新增IP HTTP状态码字段
+                'ip_https_status',  # 新增IP HTTPS状态码字段
+                'from_asset',  # 保留上游资产字段
+            )),
             'error_message': subdomain_scan_job.error_message
         }
 
     return JsonResponse(response_data)
+
 
 @csrf_exempt
 @require_http_methods(["GET"])  # 修改为接受GET请求
