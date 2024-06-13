@@ -1,9 +1,10 @@
 import json
+import yaml
+import os
 
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
-from django.db.models import Min
 
 from .models import Subdomain
 from common.models import ScanJob
@@ -273,3 +274,64 @@ def delete_ip_https_ports_view(request, task_id):
         return JsonResponse({'error': '指定的ScanJob不存在，无法执行删除'}, status=404)
     except Exception as e:
         return JsonResponse({'error': f'删除操作时发生错误: {str(e)}'}, status=500)
+@csrf_exempt  # 允许跨站请求，不进行CSRF验证
+@require_http_methods(["GET"])  # 限制只能通过GET方法访问
+def get_subfinder_config_view(request):
+    # 根据操作系统确定配置文件路径
+    if os.name == 'posix':  # Unix/Linux/MacOS
+        home = os.path.expanduser('~')
+        if os.uname().sysname == 'Linux':
+            config_path = f"{home}/.config/subfinder/provider-config.yaml"
+        elif os.uname().sysname == 'Darwin':
+            config_path = f"{home}/Library/Application Support/subfinder/provider-config.yaml"
+    else:
+        return JsonResponse({'error': '不支持的操作系统。'}, status=500)
+
+    try:
+        with open(config_path, 'r') as file:
+            # 使用yaml库安全加载YAML文件
+            config_data = yaml.safe_load(file)
+        return JsonResponse(config_data)  # 以JSON格式返回配置数据
+    except FileNotFoundError:
+        return JsonResponse({'error': '未找到配置文件。'}, status=404)  # 文件未找到时以JSON格式返回404
+    except yaml.YAMLError as e:
+        return JsonResponse({'error': f'解析YAML文件错误：{str(e)}'}, status=500)  # YAML解析错误时以JSON格式返回500
+    except Exception as e:
+        return JsonResponse({'error': f'发生错误：{str(e)}'}, status=500)  # 其他错误以JSON格式返回500
+@csrf_exempt  # 允许跨站请求，不进行CSRF验证
+@require_http_methods(["POST"])  # 限制只能通过POST方法访问
+def update_subfinder_config_view(request):
+    if os.name == 'posix':  # Unix/Linux/MacOS
+        home = os.path.expanduser('~')
+        if os.uname().sysname == 'Linux':
+            config_path = f"{home}/.config/subfinder/provider-config.yaml"
+        elif os.uname().sysname == 'Darwin':
+            config_path = f"{home}/Library/Application Support/subfinder/provider-config.yaml"
+    else:
+        return JsonResponse({'error': '不支持的操作系统。'}, status=500)
+    data = json.loads(request.body.decode('utf-8'))
+    key = data.get('key')  # 从POST数据中获取键名
+    value = data.get('value')  # 从POST数据中获取键值
+
+    if not key or not value:
+        return JsonResponse({'error': '必须提供键名和键值。'}, status=400)
+
+    try:
+        # 读取现有的配置文件
+        if os.path.exists(config_path):
+            with open(config_path, 'r') as file:
+                config_data = yaml.safe_load(file) or {}
+        else:
+            config_data = {}
+
+        # 更新配置文件
+        config_data[key] = value
+        with open(config_path, 'w') as file:
+            yaml.safe_dump(config_data, file)
+
+        return JsonResponse({'message': '配置已更新。'})
+
+    except yaml.YAMLError as e:
+        return JsonResponse({'error': f'处理YAML文件时出错：{str(e)}'}, status=500)
+    except Exception as e:
+        return JsonResponse({'error': f'发生错误：{str(e)}'}, status=500)

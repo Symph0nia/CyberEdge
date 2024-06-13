@@ -26,7 +26,10 @@ def check_http_https(url):
                 'headers': dict(response.headers)
             }
         except requests.exceptions.RequestException as e:
-            responses[protocol] = {'error': str(e)}
+            responses[protocol] = {
+                'status_code': 000,  # 如果发生异常，则设置状态码为000
+                'error': str(e)
+            }
     return responses
 
 @shared_task(bind=True)

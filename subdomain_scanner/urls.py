@@ -7,7 +7,9 @@ from .views import (scan_subdomains_view,
                     delete_subdomain_http_ports_view,
                     delete_subdomain_https_ports_view,
                     delete_ip_http_ports_view,
-                    delete_ip_https_ports_view
+                    delete_ip_https_ports_view,
+                    get_subfinder_config_view,
+                    update_subfinder_config_view,
                     )
 
 urlpatterns = [
@@ -19,5 +21,7 @@ urlpatterns = [
     path('pruning/<uuid:task_id>/subdomain_http', delete_subdomain_http_ports_view, name='pruning-subdomain-http-status'),
     path('pruning/<uuid:task_id>/subdomain_https', delete_subdomain_https_ports_view, name='pruning-subdomain-https-status'),
     path('pruning/<uuid:task_id>/ip_http', delete_ip_http_ports_view, name='pruning-ip-http-status'),
-    path('pruning/<uuid:task_id>/ip_https', delete_ip_https_ports_view, name='pruning-ip-https-status')
+    path('pruning/<uuid:task_id>/ip_https', delete_ip_https_ports_view, name='pruning-ip-https-status'),
+    path('config', get_subfinder_config_view, name='get_subfinder_config'),
+    path('config/update', update_subfinder_config_view, name='update_subfinder_config'),
 ]
