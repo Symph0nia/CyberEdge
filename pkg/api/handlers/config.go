@@ -10,13 +10,6 @@ import (
 	"net/http"
 )
 
-var configCollection *mongo.Collection
-
-// SetConfigCollection 设置MongoDB配置集合
-func SetConfigCollection(collection *mongo.Collection) {
-	configCollection = collection
-}
-
 // GetQRCodeStatus 从数据库获取二维码接口的状态
 func GetQRCodeStatus() (bool, error) {
 	var config struct {

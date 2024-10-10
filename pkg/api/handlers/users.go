@@ -2,25 +2,12 @@ package handlers
 
 import (
 	"context"
+	"net/http"
+
+	"cyberedge/pkg/models" // 导入用户模型包
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"net/http"
 )
-
-// 假设 userCollection 是一个已初始化的 MongoDB 集合
-var userCollection *mongo.Collection
-
-type User struct {
-	Account    string `bson:"account" json:"account"`
-	Secret     string `bson:"secret" json:"-"`
-	LoginCount int    `bson:"loginCount" json:"loginCount"`
-}
-
-// SetUserCollection 设置用户集合
-func SetUserCollection(collection *mongo.Collection) {
-	userCollection = collection
-}
 
 // HandleUsers 处理用户的CRUD操作
 func HandleUsers(c *gin.Context) {
@@ -35,14 +22,14 @@ func HandleUsers(c *gin.Context) {
 			}
 			defer cursor.Close(context.Background())
 
-			var users []User
+			var users []models.User // 使用新模型
 			if err := cursor.All(context.Background(), &users); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "无法解析用户数据"})
 				return
 			}
 			c.JSON(http.StatusOK, users)
 		} else {
-			var user User
+			var user models.User // 使用新模型
 			err := userCollection.FindOne(context.Background(), bson.M{"account": account}).Decode(&user)
 			if err != nil {
 				c.JSON(http.StatusNotFound, gin.H{"error": "用户未找到"})
@@ -52,7 +39,7 @@ func HandleUsers(c *gin.Context) {
 		}
 
 	case http.MethodPost:
-		var newUser User
+		var newUser models.User // 使用新模型
 		if err := c.ShouldBindJSON(&newUser); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "请求格式错误"})
 			return

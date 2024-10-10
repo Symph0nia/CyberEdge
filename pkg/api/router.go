@@ -6,12 +6,11 @@ import (
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-contrib/sessions/cookie"
 	"github.com/gin-gonic/gin"
-	"go.mongodb.org/mongo-driver/mongo"
 	"time"
 )
 
 // SetupRouter 设置API路由
-func SetupRouter(userCollection *mongo.Collection) *gin.Engine {
+func SetupRouter() *gin.Engine {
 	router := gin.Default()
 
 	// 配置CORS中间件
@@ -57,6 +56,12 @@ func SetupRouter(userCollection *mongo.Collection) *gin.Engine {
 		authenticated.POST("/users", handlers.HandleUsers)
 		authenticated.DELETE("/users/:account", handlers.HandleUsers)
 
+		// 任务管理API
+		authenticated.POST("/tasks", handlers.CreateTaskHandler)                // 创建新任务
+		authenticated.GET("/tasks", handlers.GetAllTasksHandler)                // 获取所有任务
+		authenticated.GET("/tasks/:id", handlers.GetSingleTaskHandler)          // 获取单个任务
+		authenticated.POST("/tasks/:id/start", handlers.StartSingleTaskHandler) // 启动单个任务
+		authenticated.POST("/tasks/:id/stop", handlers.StopSingleTaskHandler)   // 停止单个任务
 	}
 
 	return router

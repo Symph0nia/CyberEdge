@@ -4,26 +4,18 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"cyberedge/pkg/models"
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt"
 	"github.com/pquerna/otp/totp"
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
 	"image/png"
 	"math/big"
 	"net/http"
 	"strings"
 	"time"
 )
-
-// MongoDB 集合
-var totpCollection *mongo.Collection
-
-// SetTOTPCollection 设置MongoDB集合
-func SetTOTPCollection(collection *mongo.Collection) {
-	totpCollection = collection
-}
 
 // 随机生成一个16位的字符串
 func generateRandomString(length int) (string, error) {
@@ -105,7 +97,7 @@ func ValidateTOTP(jwtSecret string) gin.HandlerFunc {
 			return
 		}
 
-		var user User
+		var user models.User
 		err := userCollection.FindOne(context.Background(), bson.M{"account": request.Account}).Decode(&user)
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "无法找到密钥"})

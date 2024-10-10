@@ -24,17 +24,19 @@ func main() {
 	userCollection := client.Database("cyberedgeDB").Collection("users")
 	totpCollection := client.Database("cyberedgeDB").Collection("totp")
 	configCollection := client.Database("cyberedgeDB").Collection("config") // 新增配置集合
+	taskCollection := client.Database("cyberedgeDB").Collection("tasks")    // 新增任务集合
 
 	handlers.SetTOTPCollection(totpCollection)
 	handlers.SetUserCollection(userCollection)
 	handlers.SetConfigCollection(configCollection) // 设置配置集合
+	handlers.SetTaskCollection(taskCollection)     // 设置任务集合
 
 	if err := ensureCollectionExists(userCollection); err != nil {
 		logging.LogError(err)
 		return
 	}
 
-	router := api.SetupRouter(userCollection)
+	router := api.SetupRouter()
 	if err := router.Run(":8081"); err != nil {
 		logging.LogError(fmt.Errorf("启动API服务失败: %v", err))
 	}
