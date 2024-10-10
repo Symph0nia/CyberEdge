@@ -2,15 +2,17 @@ package api
 
 import (
 	"cyberedge/pkg/api/handlers"
+	"cyberedge/pkg/task"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-contrib/sessions/cookie"
 	"github.com/gin-gonic/gin"
+	"go.mongodb.org/mongo-driver/mongo"
 	"time"
 )
 
 // SetupRouter 设置API路由
-func SetupRouter() *gin.Engine {
+func SetupRouter(userCollection *mongo.Collection, mongoClient *mongo.Client, dbName string) *gin.Engine {
 	router := gin.Default()
 
 	// 配置CORS中间件
@@ -56,12 +58,20 @@ func SetupRouter() *gin.Engine {
 		authenticated.POST("/users", handlers.HandleUsers)
 		authenticated.DELETE("/users/:account", handlers.HandleUsers)
 
+		// 创建任务调度器
+		scheduler, err := task.NewScheduler("amqp://guest:guest@localhost:5672/", "task_queue", mongoClient, dbName)
+		if err != nil {
+			panic(err) // 或者适当处理错误
+		}
+		taskHandler := handlers.NewTaskHandler(scheduler)
+
 		// 任务管理API
-		authenticated.POST("/tasks", handlers.CreateTaskHandler)                // 创建新任务
-		authenticated.GET("/tasks", handlers.GetAllTasksHandler)                // 获取所有任务
-		authenticated.GET("/tasks/:id", handlers.GetSingleTaskHandler)          // 获取单个任务
-		authenticated.POST("/tasks/:id/start", handlers.StartSingleTaskHandler) // 启动单个任务
-		authenticated.POST("/tasks/:id/stop", handlers.StopSingleTaskHandler)   // 停止单个任务
+		authenticated.GET("/tasks", taskHandler.GetAllTasks) // 获取所有任务
+		authenticated.POST("/tasks", taskHandler.CreateTask)
+		authenticated.GET("/tasks/:id", taskHandler.GetTask)          // 获取单个任务
+		authenticated.POST("/tasks/:id/start", taskHandler.StartTask) // 开始单个任务
+		authenticated.POST("/tasks/:id/stop", taskHandler.StopTask)   // 停止单个任务
+		authenticated.DELETE("/tasks/:id", taskHandler.DeleteTask)    // 删除单个任务
 	}
 
 	return router

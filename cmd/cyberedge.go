@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"cyberedge/pkg/task"
 	"fmt"
 	"time"
 
 	"cyberedge/pkg/api"
 	"cyberedge/pkg/api/handlers"
-	"cyberedge/pkg/logging" // 引入自定义日志组件
+	"cyberedge/pkg/logging"     // 引入自定义日志组件
+	"github.com/streadway/amqp" // 引入 RabbitMQ 客户端库
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -36,7 +38,31 @@ func main() {
 		return
 	}
 
-	router := api.SetupRouter()
+	// 连接到 RabbitMQ
+	rabbitConn, err := connectToRabbitMQ("amqp://guest:guest@localhost:5672/")
+	if err != nil {
+		logging.LogError(err)
+		return
+	}
+	defer rabbitConn.Close()
+
+	rabbitChannel, err := rabbitConn.Channel()
+	if err != nil {
+		logging.LogError(err)
+		return
+	}
+	defer rabbitChannel.Close()
+
+	scheduler, err := task.NewScheduler("amqp://guest:guest@localhost:5672/", "task_queue", client, "cyberedgeDB")
+	if err != nil {
+		logging.LogError(err)
+		return
+	}
+
+	// 启动任务处理器
+	go scheduler.StartTaskProcessor()
+
+	router := api.SetupRouter(userCollection, client, "cyberedgeDB") // 传递 userCollection、client 和数据库名称
 	if err := router.Run(":8081"); err != nil {
 		logging.LogError(fmt.Errorf("启动API服务失败: %v", err))
 	}
@@ -71,4 +97,13 @@ func ensureCollectionExists(collection *mongo.Collection) error {
 	}
 
 	return nil
+}
+
+// connectToRabbitMQ 连接到RabbitMQ并返回连接实例
+func connectToRabbitMQ(uri string) (*amqp.Connection, error) {
+	conn, err := amqp.Dial(uri)
+	if err != nil {
+		return nil, fmt.Errorf("无法连接到RabbitMQ: %v", err)
+	}
+	return conn, nil
 }

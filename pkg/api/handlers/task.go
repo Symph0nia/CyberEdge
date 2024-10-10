@@ -1,92 +1,135 @@
 package handlers
 
 import (
-	"cyberedge/pkg/task"
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	"fmt"
 	"net/http"
 	"time"
 
+	"cyberedge/pkg/task"
 	"github.com/gin-gonic/gin"
 )
 
-var taskManager = task.NewTaskManager(taskCollection)
-
-// CreateTaskHandler 创建新任务的处理函数，并保存到MongoDB中
-func CreateTaskHandler(c *gin.Context) {
-	var json struct {
-		Description string        `json:"description"`
-		Interval    time.Duration `json:"interval"` // 例如：5s, 1m等
-	}
-
-	if err := c.ShouldBindJSON(&json); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "请求格式错误"})
-		return
-	}
-
-	taskID := primitive.NewObjectID() // 创建新的 ObjectID
-
-	schedulerTask := task.NewTask(taskID, json.Description, json.Interval) // 使用 scheduler.Task
-
-	if err := taskManager.AddTask(schedulerTask); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "无法保存任务"})
-		return
-	}
-
-	schedulerTask.Start() // 启动任务
-
-	c.JSON(http.StatusCreated, gin.H{"message": "任务已创建", "id": taskID.Hex()}) // 返回 ID 的字符串表示形式
+// TaskHandler 处理任务相关的请求
+type TaskHandler struct {
+	scheduler *task.Scheduler
 }
 
-// GetAllTasksHandler 获取所有任务状态的处理函数，并从MongoDB加载数据
-func GetAllTasksHandler(c *gin.Context) {
-	tasks, err := taskManager.GetAllTasks()
+// NewTaskHandler 创建新的任务处理器
+func NewTaskHandler(scheduler *task.Scheduler) *TaskHandler {
+	return &TaskHandler{scheduler: scheduler}
+}
+
+// GetAllTasks 获取所有任务
+func (h *TaskHandler) GetAllTasks(c *gin.Context) {
+	tasks, err := h.scheduler.GetAllTasks()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "无法获取任务"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-
 	c.JSON(http.StatusOK, tasks)
 }
 
-// GetSingleTaskHandler 获取单个任务状态的处理函数，并从MongoDB加载数据
-func GetSingleTaskHandler(c *gin.Context) {
+// GetTask 获取单个任务
+func (h *TaskHandler) GetTask(c *gin.Context) {
 	id := c.Param("id")
-
-	task, err := taskManager.GetTask(id)
+	task, err := h.scheduler.GetTask(id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "任务未找到"})
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
 	}
-
 	c.JSON(http.StatusOK, task)
 }
 
-// StartSingleTaskHandler 启动单个任务的处理函数
-func StartSingleTaskHandler(c *gin.Context) {
+// StartTask 开始执行单个任务
+func (h *TaskHandler) StartTask(c *gin.Context) {
 	id := c.Param("id")
-
-	task, err := taskManager.GetTask(id)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "任务未找到"})
+	if err := h.scheduler.StartTask(id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-
-	task.Start() // 启动任务
-
-	c.JSON(http.StatusOK, gin.H{"status": "任务已启动", "id": id})
+	c.JSON(http.StatusOK, gin.H{"message": "任务已开始执行"})
 }
 
-// StopSingleTaskHandler 停止单个任务的处理函数
-func StopSingleTaskHandler(c *gin.Context) {
+// StopTask 停止单个任务
+func (h *TaskHandler) StopTask(c *gin.Context) {
 	id := c.Param("id")
+	if err := h.scheduler.StopTask(id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "任务已停止"})
+}
 
-	task, err := taskManager.GetTask(id)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "任务未找到"})
+// DeleteTask 删除单个任务
+func (h *TaskHandler) DeleteTask(c *gin.Context) {
+	id := c.Param("id")
+	if err := h.scheduler.DeleteTask(id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "任务已删除"})
+}
+
+// CreateTask 创建新任务
+func (h *TaskHandler) CreateTask(c *gin.Context) {
+	var request struct {
+		Type        string `json:"type"`        // 任务类型
+		Description string `json:"description"` // 任务描述
+		Interval    int    `json:"interval"`    // 运行间隔（分钟）
+		Address     string `json:"address"`     // Ping 任务的目标地址
+	}
+
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的请求数据"})
 		return
 	}
 
-	task.Stop() // 停止任务
+	switch request.Type {
+	case "normal":
+		task := task.Task{
+			ID:          generateID(), // 生成唯一 ID 的函数
+			Type:        request.Type,
+			Description: request.Description,
+			Status:      "scheduled",
+			Interval:    request.Interval,
+			RunCount:    0,          // 初始化运行次数为0
+			CreatedAt:   time.Now(), // 设置创建时间
+		}
 
-	c.JSON(http.StatusOK, gin.H{"status": "任务已停止", "id": id})
+		if err := h.scheduler.ScheduleTask(task); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+	case "ping":
+		if request.Address == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Ping 任务必须提供地址"})
+			return
+		}
+
+		pingTask := task.Task{
+			ID:          generateID(), // 生成唯一 ID 的函数
+			Type:        request.Type,
+			Description: fmt.Sprintf(request.Address),
+			Status:      "scheduled",
+			RunCount:    0,          // 初始化运行次数为0
+			CreatedAt:   time.Now(), // 设置创建时间
+		}
+
+		if err := h.scheduler.ScheduleTask(pingTask); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的任务类型"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{"message": "任务已创建"})
+}
+
+// generateID 生成唯一 ID 的函数（示例）
+func generateID() string {
+	return fmt.Sprintf("%d", time.Now().UnixNano())
 }
