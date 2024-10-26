@@ -1,3 +1,5 @@
+// CyberEdge/pkg/models/user.go
+
 package models
 
 // User 代表用户的结构体
