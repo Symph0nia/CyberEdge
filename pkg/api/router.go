@@ -4,11 +4,12 @@ package api
 
 import (
 	"cyberedge/pkg/api/handlers"
-	"cyberedge/pkg/task"
+	"cyberedge/pkg/models"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-contrib/sessions/cookie"
 	"github.com/gin-gonic/gin"
+	"github.com/streadway/amqp"
 	"go.mongodb.org/mongo-driver/mongo"
 	"time"
 )
@@ -60,11 +61,20 @@ func SetupRouter(userCollection *mongo.Collection, mongoClient *mongo.Client, db
 		authenticated.POST("/users", handlers.HandleUsers)
 		authenticated.DELETE("/users/:account", handlers.HandleUsers)
 
-		// 创建任务调度器
-		scheduler, err := task.NewScheduler("amqp://guest:guest@localhost:5672/", "task_queue", mongoClient, dbName)
+		conn, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
 		if err != nil {
 			panic(err) // 或者适当处理错误
 		}
+
+		channel, err := conn.Channel()
+		if err != nil {
+			panic(err) // 或者适当处理错误
+		}
+
+		taskCollection := mongoClient.Database(dbName).Collection("tasks")
+
+		scheduler := models.NewScheduler(conn, channel, "task_queue", mongoClient, taskCollection)
+
 		taskHandler := handlers.NewTaskHandler(scheduler)
 
 		// 任务管理API

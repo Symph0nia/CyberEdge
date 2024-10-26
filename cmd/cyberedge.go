@@ -1,15 +1,17 @@
+// CyberEdge/cmd/cyberedge.go
+
 package main
 
 import (
 	"context"
+	"cyberedge/pkg/models"
+	"cyberedge/pkg/task"
 	"fmt"
 	"time"
 
 	"cyberedge/pkg/api"
 	"cyberedge/pkg/api/handlers"
 	"cyberedge/pkg/logging"
-	"cyberedge/pkg/task"
-
 	"github.com/streadway/amqp"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -63,14 +65,10 @@ func main() {
 	defer rabbitChannel.Close()
 
 	// 初始化任务调度器
-	scheduler, err := task.NewScheduler("amqp://guest:guest@localhost:5672", "taskqueue", client, "cyberedgeDB")
-	if err != nil {
-		logging.Error("创建任务调度器失败: %v", err)
-		return
-	}
+	scheduler := models.NewScheduler(rabbitConn, rabbitChannel, "taskqueue", client, taskCollection)
 
 	// 启动任务处理器
-	go scheduler.StartTaskProcessor()
+	go task.StartTaskProcessor(scheduler)
 
 	// 启动API服务器
 	if err := router.Run(":8081"); err != nil {

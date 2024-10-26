@@ -1,4 +1,4 @@
-// CyberEdge/pkg/api/handles/task.go
+// CyberEdge/pkg/api/handlers/task.go
 
 package handlers
 
@@ -7,23 +7,24 @@ import (
 	"net/http"
 	"time"
 
+	"cyberedge/pkg/models"
 	"cyberedge/pkg/task"
 	"github.com/gin-gonic/gin"
 )
 
 // TaskHandler 处理任务相关的请求
 type TaskHandler struct {
-	scheduler *task.Scheduler
+	scheduler *models.Scheduler
 }
 
 // NewTaskHandler 创建新的任务处理器
-func NewTaskHandler(scheduler *task.Scheduler) *TaskHandler {
+func NewTaskHandler(scheduler *models.Scheduler) *TaskHandler {
 	return &TaskHandler{scheduler: scheduler}
 }
 
 // GetAllTasks 获取所有任务
 func (h *TaskHandler) GetAllTasks(c *gin.Context) {
-	tasks, err := h.scheduler.GetAllTasks()
+	tasks, err := task.GetAllTasks(h.scheduler)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -34,7 +35,7 @@ func (h *TaskHandler) GetAllTasks(c *gin.Context) {
 // GetTask 获取单个任务
 func (h *TaskHandler) GetTask(c *gin.Context) {
 	id := c.Param("id")
-	task, err := h.scheduler.GetTask(id)
+	task, err := task.GetTask(h.scheduler, id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
@@ -45,7 +46,7 @@ func (h *TaskHandler) GetTask(c *gin.Context) {
 // StartTask 开始执行单个任务
 func (h *TaskHandler) StartTask(c *gin.Context) {
 	id := c.Param("id")
-	if err := h.scheduler.StartTask(id); err != nil {
+	if err := task.StartTask(h.scheduler, id); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -55,7 +56,7 @@ func (h *TaskHandler) StartTask(c *gin.Context) {
 // StopTask 停止单个任务
 func (h *TaskHandler) StopTask(c *gin.Context) {
 	id := c.Param("id")
-	if err := h.scheduler.StopTask(id); err != nil {
+	if err := task.StopTask(h.scheduler, id); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -65,7 +66,7 @@ func (h *TaskHandler) StopTask(c *gin.Context) {
 // DeleteTask 删除单个任务
 func (h *TaskHandler) DeleteTask(c *gin.Context) {
 	id := c.Param("id")
-	if err := h.scheduler.DeleteTask(id); err != nil {
+	if err := task.DeleteTask(h.scheduler, id); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -86,21 +87,18 @@ func (h *TaskHandler) CreateTask(c *gin.Context) {
 		return
 	}
 
+	var newTask models.Task
+
 	switch request.Type {
 	case "normal":
-		task := task.Task{
-			ID:          generateID(), // 生成唯一 ID 的函数
-			Type:        request.Type,
+		newTask = models.Task{
+			ID:          generateID(),
+			Type:        models.TaskType(request.Type),
 			Description: request.Description,
-			Status:      "scheduled",
+			Status:      models.TaskStatusScheduled,
 			Interval:    request.Interval,
-			RunCount:    0,          // 初始化运行次数为0
-			CreatedAt:   time.Now(), // 设置创建时间
-		}
-
-		if err := h.scheduler.ScheduleTask(task); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
+			RunCount:    0,
+			CreatedAt:   time.Now(),
 		}
 
 	case "ping":
@@ -109,22 +107,22 @@ func (h *TaskHandler) CreateTask(c *gin.Context) {
 			return
 		}
 
-		pingTask := task.Task{
-			ID:          generateID(), // 生成唯一 ID 的函数
-			Type:        request.Type,
-			Description: fmt.Sprintf(request.Address),
-			Status:      "scheduled",
-			RunCount:    0,          // 初始化运行次数为0
-			CreatedAt:   time.Now(), // 设置创建时间
-		}
-
-		if err := h.scheduler.ScheduleTask(pingTask); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
+		newTask = models.Task{
+			ID:          generateID(),
+			Type:        models.TaskType(request.Type),
+			Description: request.Address,
+			Status:      models.TaskStatusScheduled,
+			RunCount:    0,
+			CreatedAt:   time.Now(),
 		}
 
 	default:
 		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的任务类型"})
+		return
+	}
+
+	if err := task.ScheduleTask(h.scheduler, newTask); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
