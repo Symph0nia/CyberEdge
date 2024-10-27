@@ -1,72 +1,104 @@
-// CyberEdge/pkg/api/handles/users.go
+// pkg/api/handlers/user_handler.go
 
 package handlers
 
 import (
-	"context"
-	"net/http"
-
-	"cyberedge/pkg/models" // 导入用户模型包
+	"cyberedge/pkg/models"
+	"cyberedge/pkg/service"
 	"github.com/gin-gonic/gin"
-	"go.mongodb.org/mongo-driver/bson"
+	"net/http"
 )
 
-// HandleUsers 处理用户的CRUD操作
-func HandleUsers(c *gin.Context) {
-	switch c.Request.Method {
-	case http.MethodGet:
-		account := c.Param("account")
-		if account == "" {
-			cursor, err := userCollection.Find(context.Background(), bson.M{})
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "无法获取用户"})
-				return
-			}
-			defer cursor.Close(context.Background())
+type UserHandler struct {
+	userService *service.UserService
+}
 
-			var users []models.User // 使用新模型
-			if err := cursor.All(context.Background(), &users); err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "无法解析用户数据"})
-				return
-			}
-			c.JSON(http.StatusOK, users)
-		} else {
-			var user models.User // 使用新模型
-			err := userCollection.FindOne(context.Background(), bson.M{"account": account}).Decode(&user)
-			if err != nil {
-				c.JSON(http.StatusNotFound, gin.H{"error": "用户未找到"})
-				return
-			}
-			c.JSON(http.StatusOK, user)
-		}
-
-	case http.MethodPost:
-		var newUser models.User // 使用新模型
-		if err := c.ShouldBindJSON(&newUser); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "请求格式错误"})
-			return
-		}
-		_, err := userCollection.InsertOne(context.Background(), newUser)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "无法添加用户"})
-			return
-		}
-		c.JSON(http.StatusCreated, gin.H{"status": "用户已添加"})
-
-	case http.MethodDelete:
-		account := c.Param("account")
-		if account == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "需要提供用户名"})
-			return
-		}
-		_, err := userCollection.DeleteOne(context.Background(), bson.M{"account": account})
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "无法删除用户"})
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"status": "用户已删除"})
-
-	default:
-		c.JSON(http.StatusMethodNotAllowed, gin.H{"error": "不支持的方法"})
+func NewUserHandler(userService *service.UserService) *UserHandler {
+	return &UserHandler{
+		userService: userService,
 	}
+}
+
+func (h *UserHandler) GenerateQRCode(c *gin.Context) {
+	qrCode, err := h.userService.GenerateQRCode()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.Data(http.StatusOK, "image/png", qrCode)
+}
+
+func (h *UserHandler) ValidateTOTP(c *gin.Context) {
+	var request models.TOTPValidationRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "验证码和账户是必需的"})
+		return
+	}
+
+	token, loginCount, err := h.userService.ValidateTOTP(request.Code, request.Account)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		return
+	}
+
+	response := models.TOTPValidationResponse{
+		Status:     "验证码有效",
+		Token:      token,
+		LoginCount: loginCount,
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+func (h *UserHandler) CheckAuth(c *gin.Context) {
+	tokenString := c.GetHeader("Authorization")
+	authenticated, account, err := h.userService.CheckAuth(tokenString)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"authenticated": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"authenticated": authenticated, "account": account})
+}
+
+// User management handlers
+
+func (h *UserHandler) GetUsers(c *gin.Context) {
+	users, err := h.userService.GetAllUsers()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "无法获取用户"})
+		return
+	}
+	c.JSON(http.StatusOK, users)
+}
+
+func (h *UserHandler) GetUser(c *gin.Context) {
+	account := c.Param("account")
+	user, err := h.userService.GetUserByAccount(account)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "用户未找到"})
+		return
+	}
+	c.JSON(http.StatusOK, user)
+}
+
+func (h *UserHandler) CreateUser(c *gin.Context) {
+	var newUser models.User
+	if err := c.ShouldBindJSON(&newUser); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求格式错误"})
+		return
+	}
+	if err := h.userService.CreateUser(&newUser); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "无法添加用户"})
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"status": "用户已添加"})
+}
+
+func (h *UserHandler) DeleteUser(c *gin.Context) {
+	account := c.Param("account")
+	if err := h.userService.DeleteUser(account); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "无法删除用户"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "用户已删除"})
 }

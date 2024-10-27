@@ -1,4 +1,4 @@
-// CyberEdge/pkg/models/user.go
+// CyberEdge/pkg/models/auth.go
 
 package models
 

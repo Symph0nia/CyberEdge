@@ -1,12 +1,20 @@
-// CyberEdge/cmd/cyberedge.go
+// cmd/cyberedge.go
 
 package main
 
 import (
+	"context"
+	"cyberedge/pkg/api"
+	"cyberedge/pkg/dao"
 	"cyberedge/pkg/logging"
+	"cyberedge/pkg/service"
 	"cyberedge/pkg/utils"
 	"log"
+	"net/http"
+	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 )
 
@@ -14,7 +22,6 @@ func main() {
 	// 初始化日志系统
 	logPath := filepath.Join("logs", "cyberedge.log")
 	if err := logging.InitializeLoggers(logPath); err != nil {
-		// 使用标准库的 log 包，因为我们的日志系统可能还没有初始化
 		log.Fatalf("初始化日志系统失败: %v", err)
 	}
 	logging.Info("日志系统初始化成功")
@@ -23,72 +30,122 @@ func main() {
 	logging.StartLogRotation(24 * time.Hour)
 	defer logging.StopLogRotation()
 
+	// 创建一个用于优雅关闭的 context
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	// 连接MongoDB数据库
 	client, err := utils.ConnectToMongoDB("mongodb://localhost:27017")
 	if err != nil {
 		logging.Error("连接MongoDB失败: %v", err)
 		return
 	}
-	defer func() {
-		if err := utils.DisconnectMongoDB(client); err != nil {
-			logging.Error("断开MongoDB连接失败: %v", err)
-		}
-	}()
+	defer utils.DisconnectMongoDB(client)
 	logging.Info("MongoDB连接成功")
 
-	// 初始化数据库集合
+	// 初始化数据库和集合
 	db := client.Database("cyberedgeDB")
 	userCollection := db.Collection("users")
+	configCollection := db.Collection("config")
 
 	// 确保集合存在
 	if err := utils.EnsureCollectionExists(userCollection); err != nil {
 		logging.Error("确保用户集合存在失败: %v", err)
 		return
 	}
-	logging.Info("用户集合确认存在")
+	if err := utils.EnsureCollectionExists(configCollection); err != nil {
+		logging.Error("确保配置集合存在失败: %v", err)
+		return
+	}
+	logging.Info("数据库集合确认存在")
 
-	// 连接RabbitMQ
-	rabbitConn, err := utils.ConnectToRabbitMQ("amqp://guest:guest@localhost:5672")
+	// 初始化 DAO
+	userDAO := dao.NewUserDAO(userCollection)
+	configDAO := dao.NewConfigDAO(configCollection)
+
+	// 初始化 Service
+	jwtSecret := "your-jwt-secret" // 应从配置文件或环境变量中读取
+	userService := service.NewUserService(userDAO, jwtSecret)
+	configService := service.NewConfigService(configDAO)
+
+	// 连接Redis
+	redisClient, err := utils.ConnectToRedis("localhost:6379")
 	if err != nil {
-		logging.Error("连接RabbitMQ失败: %v", err)
+		logging.Error("连接Redis失败: %v", err)
 		return
 	}
-	defer rabbitConn.Close()
-	logging.Info("RabbitMQ连接成功")
+	defer redisClient.Close()
+	logging.Info("Redis连接成功")
 
-	rabbitChannel, err := utils.CreateRabbitMQChannel(rabbitConn)
+	// 初始化Asynq客户端
+	asynqClient, err := utils.InitAsynqClient("localhost:6379")
 	if err != nil {
-		logging.Error("创建RabbitMQ通道失败: %v", err)
+		logging.Error("初始化Asynq客户端失败: %v", err)
 		return
 	}
-	defer rabbitChannel.Close()
-	logging.Info("RabbitMQ通道创建成功")
+	defer asynqClient.Close()
+	logging.Info("Asynq客户端初始化成功")
 
-	// 设置集合
-	if err := utils.SetupCollections(db); err != nil {
-		logging.Error("设置数据库集合失败: %v", err)
+	// 初始化Asynq服务器
+	asynqServer, err := utils.InitAsynqServer("localhost:6379")
+	if err != nil {
+		logging.Error("初始化Asynq服务器失败: %v", err)
 		return
 	}
-	logging.Info("数据库集合设置完成")
+	logging.Info("Asynq服务器初始化成功")
 
-	// 设置全局变量
-	if err := utils.SetupGlobalVariables("your-jwt-secret"); err != nil {
-		logging.Error("设置全局变量失败: %v", err)
-		return
-	}
-	logging.Info("全局变量设置完成")
+	// 初始化任务处理器
+	taskHandler := utils.NewTaskHandler()
+
+	// 启动Asynq服务器
+	go func() {
+		if err := asynqServer.Run(taskHandler); err != nil {
+			logging.Error("运行Asynq服务器失败: %v", err)
+		}
+	}()
 
 	// 设置API路由
-	router, err := utils.SetupRouter()
-	if err != nil {
-		logging.Error("设置API路由失败: %v", err)
-		return
-	}
+	router := api.NewRouter(
+		userService,
+		configService,
+		jwtSecret,
+		"your-session-secret",             // 应从配置文件或环境变量中读取
+		[]string{"http://localhost:8080"}, // 允许的源
+	)
+	engine := router.SetupRouter()
 	logging.Info("API路由设置完成")
 
-	// 启动API服务器
-	logging.Info("正在启动API服务器...")
-	if err := router.Run(":8081"); err != nil {
-		logging.Error("启动API服务器失败: %v", err)
+	// 创建 HTTP 服务器
+	srv := &http.Server{
+		Addr:    ":8081",
+		Handler: engine,
 	}
+
+	// 在后台启动 HTTP 服务器
+	go func() {
+		logging.Info("正在启动API服务器...")
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logging.Error("启动API服务器失败: %v", err)
+		}
+	}()
+
+	// 设置信号处理
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	logging.Info("正在关闭服务器...")
+
+	// 创建一个5秒的超时上下文
+	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// 关闭 HTTP 服务器
+	if err := srv.Shutdown(ctx); err != nil {
+		logging.Error("服务器强制关闭: %v", err)
+	}
+
+	// 关闭 Asynq 服务器
+	asynqServer.Shutdown()
+
+	logging.Info("服务器已关闭")
 }

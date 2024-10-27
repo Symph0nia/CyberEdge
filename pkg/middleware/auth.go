@@ -1,6 +1,6 @@
 // CyberEdge/pkg/api/middleware.go
 
-package api
+package middleware
 
 import (
 	"fmt"

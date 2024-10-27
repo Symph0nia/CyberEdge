@@ -5,9 +5,10 @@ package utils
 import (
 	"context"
 	"fmt"
+	"github.com/redis/go-redis/v9"
 	"time"
 
-	"github.com/streadway/amqp"
+	"github.com/hibiken/asynq"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -45,20 +46,40 @@ func EnsureCollectionExists(collection *mongo.Collection) error {
 	return nil
 }
 
-// ConnectToRabbitMQ 连接到RabbitMQ
-func ConnectToRabbitMQ(uri string) (*amqp.Connection, error) {
-	conn, err := amqp.Dial(uri)
+// ConnectToRedis 连接到Redis
+func ConnectToRedis(addr string) (*redis.Client, error) {
+	client := redis.NewClient(&redis.Options{
+		Addr: addr,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err := client.Ping(ctx).Result()
 	if err != nil {
-		return nil, fmt.Errorf("连接RabbitMQ失败: %v", err)
+		return nil, fmt.Errorf("连接Redis失败: %v", err)
 	}
-	return conn, nil
+
+	return client, nil
 }
 
-// CreateRabbitMQChannel 创建RabbitMQ通道
-func CreateRabbitMQChannel(conn *amqp.Connection) (*amqp.Channel, error) {
-	channel, err := conn.Channel()
-	if err != nil {
-		return nil, fmt.Errorf("创建RabbitMQ通道失败: %v", err)
-	}
-	return channel, nil
+// InitAsynqClient 初始化Asynq客户端
+func InitAsynqClient(redisAddr string) (*asynq.Client, error) {
+	client := asynq.NewClient(asynq.RedisClientOpt{Addr: redisAddr})
+	return client, nil
+}
+
+// InitAsynqServer 初始化Asynq服务器
+func InitAsynqServer(redisAddr string) (*asynq.Server, error) {
+	server := asynq.NewServer(
+		asynq.RedisClientOpt{Addr: redisAddr},
+		asynq.Config{
+			Concurrency: 10,
+			Queues: map[string]int{
+				"default":  5,
+				"critical": 10,
+			},
+		},
+	)
+	return server, nil
 }
