@@ -3,12 +3,12 @@
 package handlers
 
 import (
+	"cyberedge/pkg/service/task"
 	"fmt"
 	"net/http"
 	"time"
 
 	"cyberedge/pkg/models"
-	"cyberedge/pkg/task"
 	"github.com/gin-gonic/gin"
 )
 

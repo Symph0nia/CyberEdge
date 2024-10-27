@@ -41,16 +41,13 @@ var (
 
 	// 当前日志级别
 	currentLogLevel LogLevel = DEBUG
-)
 
-// 初始化函数
-func init() {
-	// 设置默认日志文件路径
-	defaultLogPath := filepath.Join("logs", "cyberedge.log")
-	if err := InitializeLoggers(defaultLogPath); err != nil {
-		log.Fatalf("无法初始化日志记录器: %v", err)
-	}
-}
+	// 用于停止日志轮换的通道
+	stopRotation chan struct{}
+
+	// 最大日志文件大小（100 MB）
+	maxLogSize int64 = 100 * 1024 * 1024
+)
 
 // InitializeLoggers 创建日志文件并初始化各级别的日志记录器
 func InitializeLoggers(logFilePath string) error {
@@ -96,6 +93,15 @@ func logWithLevel(level LogLevel, format string, v ...interface{}) {
 	_, file, line, _ := runtime.Caller(2)
 	message := fmt.Sprintf(format, v...)
 	logEntry := fmt.Sprintf("%s:%d %s", filepath.Base(file), line, message)
+
+	// 检查日志文件大小
+	if fi, err := logFile.Stat(); err == nil {
+		if fi.Size() > maxLogSize {
+			if err := RotateLogFile(); err != nil {
+				fmt.Fprintf(os.Stderr, "日志轮换失败: %v\n", err)
+			}
+		}
+	}
 
 	switch level {
 	case DEBUG:
@@ -159,6 +165,34 @@ func RotateLogFile() error {
 
 	// 创建新的日志文件
 	return InitializeLoggers(logFile.Name())
+}
+
+// StartLogRotation 开始定期日志轮换
+func StartLogRotation(interval time.Duration) {
+	stopRotation = make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if err := RotateLogFile(); err != nil {
+					Error("日志轮换失败: %v", err)
+				} else {
+					Info("日志轮换成功")
+				}
+			case <-stopRotation:
+				return
+			}
+		}
+	}()
+}
+
+// StopLogRotation 停止日志轮换
+func StopLogRotation() {
+	if stopRotation != nil {
+		close(stopRotation)
+	}
 }
 
 // 在程序退出时关闭日志文件

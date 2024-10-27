@@ -1,4 +1,4 @@
-// CyberEdge/pkg/task/ping.go
+// CyberEdge/pkg/service/task/ping.go
 
 package task
 

@@ -1,5 +1,0 @@
-ERROR: 2024/10/26 23:26:54 logging.go:42: 无法连接到RabbitMQ: dial tcp 127.0.0.1:5672: connect: connection refused
-ERROR: 2024/10/26 23:29:01 logging.go:42: 无法连接到RabbitMQ: dial tcp 127.0.0.1:5672: connect: connection refused
-ERROR: 2024/10/26 23:29:28 logging.go:42: 无法连接到RabbitMQ: dial tcp 127.0.0.1:5672: connect: connection refused
-ERROR: 2024/10/26 23:30:31 logging.go:42: 无法连接到RabbitMQ: dial tcp 127.0.0.1:5672: connect: connection refused
-ERROR: 2024/10/26 23:46:11 logging.go:42: 无法连接到RabbitMQ: dial tcp 127.0.0.1:5672: connect: connection refused
