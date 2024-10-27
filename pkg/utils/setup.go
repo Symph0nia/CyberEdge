@@ -5,7 +5,10 @@ package utils
 import (
 	"cyberedge/pkg/api"
 	"cyberedge/pkg/api/handlers"
+	"cyberedge/pkg/factory"
+	"cyberedge/pkg/logging"
 	"cyberedge/pkg/models"
+	"cyberedge/pkg/service/task"
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/streadway/amqp"
@@ -29,11 +32,23 @@ func SetupScheduler(rabbitConn *amqp.Connection, rabbitChannel *amqp.Channel, cl
 	if rabbitConn == nil || rabbitChannel == nil || client == nil || taskCollection == nil {
 		return nil, fmt.Errorf("初始化调度器的参数不完整")
 	}
-	scheduler := models.NewScheduler(rabbitConn, rabbitChannel, "taskqueue", client, taskCollection)
+	scheduler := factory.CreateScheduler(rabbitConn, rabbitChannel, "taskqueue", client, taskCollection)
 	if scheduler == nil {
 		return nil, fmt.Errorf("创建调度器失败")
 	}
 	return scheduler, nil
+}
+
+// SetupAndStartTaskProcessor 初始化并启动任务处理器
+func SetupAndStartTaskProcessor(scheduler *models.Scheduler) error {
+	taskService := task.NewTaskService(scheduler)
+	taskProcessor := task.NewTaskProcessor(scheduler, taskService)
+
+	// 启动任务处理器
+	go taskProcessor.StartTaskProcessor()
+	logging.Info("任务处理器启动")
+
+	return nil
 }
 
 // SetupGlobalVariables 设置全局变量

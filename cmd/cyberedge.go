@@ -4,7 +4,6 @@ package main
 
 import (
 	"cyberedge/pkg/logging"
-	"cyberedge/pkg/service/task"
 	"cyberedge/pkg/utils"
 	"log"
 	"path/filepath"
@@ -80,16 +79,20 @@ func main() {
 	}
 	logging.Info("任务调度器初始化完成")
 
+	// 设置并启动任务处理器
+	err = utils.SetupAndStartTaskProcessor(scheduler)
+	if err != nil {
+		logging.Error("设置并启动任务处理器失败: %v", err)
+		return
+	}
+	logging.Info("任务处理器初始化完成")
+
 	// 设置全局变量
 	if err := utils.SetupGlobalVariables(scheduler, "your-jwt-secret"); err != nil {
 		logging.Error("设置全局变量失败: %v", err)
 		return
 	}
 	logging.Info("全局变量设置完成")
-
-	// 启动任务处理器
-	go task.StartTaskProcessor(scheduler)
-	logging.Info("任务处理器启动")
 
 	// 设置API路由
 	router, err := utils.SetupRouter()

@@ -1,5 +1,3 @@
-// CyberEdge/models/scheduler.go
-
 package models
 
 import (
@@ -14,15 +12,4 @@ type Scheduler struct {
 	QueueName      string
 	MongoClient    *mongo.Client
 	TaskCollection *mongo.Collection
-}
-
-// NewScheduler 创建新的任务调度器
-func NewScheduler(amqpConn *amqp.Connection, amqpChannel *amqp.Channel, queueName string, mongoClient *mongo.Client, taskCollection *mongo.Collection) *Scheduler {
-	return &Scheduler{
-		AMQPConn:       amqpConn,
-		AMQPChannel:    amqpChannel,
-		QueueName:      queueName,
-		MongoClient:    mongoClient,
-		TaskCollection: taskCollection,
-	}
 }

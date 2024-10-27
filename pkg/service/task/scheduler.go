@@ -1,11 +1,11 @@
-// CyberEdge/pkg/service/task/scheduler.go
-
 package task
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
+	"time"
 
 	"cyberedge/pkg/logging"
 	"cyberedge/pkg/models"
@@ -14,8 +14,23 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+// TaskService 封装所有任务相关的服务
+type TaskService struct {
+	scheduler    *models.Scheduler
+	taskMutex    sync.Mutex
+	runningTasks map[string]context.CancelFunc
+}
+
+// NewTaskService 创建新的 TaskService 实例
+func NewTaskService(scheduler *models.Scheduler) *TaskService {
+	return &TaskService{
+		scheduler:    scheduler,
+		runningTasks: make(map[string]context.CancelFunc),
+	}
+}
+
 // ScheduleTask 将任务发送到RabbitMQ队列并存储到MongoDB
-func ScheduleTask(s *models.Scheduler, task models.Task) error {
+func (s *TaskService) ScheduleTask(task models.Task) error {
 	task.UpdateStatus(models.TaskStatusWaiting)
 
 	body, err := json.Marshal(task)
@@ -24,7 +39,7 @@ func ScheduleTask(s *models.Scheduler, task models.Task) error {
 		return fmt.Errorf("无法序列化任务: %v", err)
 	}
 
-	err = s.AMQPChannel.Publish("", s.QueueName, false, false, amqp.Publishing{
+	err = s.scheduler.AMQPChannel.Publish("", s.scheduler.QueueName, false, false, amqp.Publishing{
 		ContentType: "application/json",
 		MessageId:   task.ID,
 		Body:        body,
@@ -38,7 +53,7 @@ func ScheduleTask(s *models.Scheduler, task models.Task) error {
 	update := bson.M{"$set": task}
 	opts := options.Update().SetUpsert(true)
 
-	_, err = s.TaskCollection.UpdateOne(context.Background(), filter, update, opts)
+	_, err = s.scheduler.TaskCollection.UpdateOne(context.Background(), filter, update, opts)
 	if err != nil {
 		logging.Error("无法插入或更新任务到MongoDB: %v", err)
 		return fmt.Errorf("无法插入或更新任务到MongoDB: %v", err)
@@ -49,9 +64,9 @@ func ScheduleTask(s *models.Scheduler, task models.Task) error {
 }
 
 // GetAllTasks 获取所有任务
-func GetAllTasks(s *models.Scheduler) ([]models.Task, error) {
+func (s *TaskService) GetAllTasks() ([]models.Task, error) {
 	var tasks []models.Task
-	cursor, err := s.TaskCollection.Find(context.Background(), bson.M{})
+	cursor, err := s.scheduler.TaskCollection.Find(context.Background(), bson.M{})
 	if err != nil {
 		logging.Error("无法从MongoDB获取所有任务: %v", err)
 		return nil, fmt.Errorf("无法获取所有任务: %v", err)
@@ -72,9 +87,9 @@ func GetAllTasks(s *models.Scheduler) ([]models.Task, error) {
 }
 
 // GetTask 获取单个任务
-func GetTask(s *models.Scheduler, id string) (models.Task, error) {
+func (s *TaskService) GetTask(id string) (models.Task, error) {
 	var task models.Task
-	err := s.TaskCollection.FindOne(context.Background(), bson.M{"_id": id}).Decode(&task)
+	err := s.scheduler.TaskCollection.FindOne(context.Background(), bson.M{"_id": id}).Decode(&task)
 	if err != nil {
 		logging.Error("从MongoDB获取任务失败，任务ID: %s, 错误: %v", id, err)
 		return models.Task{}, fmt.Errorf("未找到任务: %v", err)
@@ -84,14 +99,14 @@ func GetTask(s *models.Scheduler, id string) (models.Task, error) {
 }
 
 // StartTask 开始执行单个任务
-func StartTask(s *models.Scheduler, id string) error {
-	task, err := GetTask(s, id)
+func (s *TaskService) StartTask(id string) error {
+	task, err := s.GetTask(id)
 	if err != nil {
 		return err
 	}
 
 	task.UpdateStatus(models.TaskStatusRunning)
-	if err := ScheduleTask(s, task); err != nil {
+	if err := s.ScheduleTask(task); err != nil {
 		logging.Error("重新调度任务失败，任务ID: %s, 错误: %v", id, err)
 		return fmt.Errorf("重新调度任务失败: %v", err)
 	}
@@ -101,17 +116,38 @@ func StartTask(s *models.Scheduler, id string) error {
 }
 
 // StopTask 停止单个任务
-func StopTask(s *models.Scheduler, id string) error {
-	task, err := GetTask(s, id)
-	if err != nil {
-		return err
+func (s *TaskService) StopTask(id string) error {
+	s.taskMutex.Lock()
+	cancelFunc, exists := s.runningTasks[id]
+	s.taskMutex.Unlock()
+
+	if exists {
+		// 调用取消函数来停止任务
+		cancelFunc()
+		logging.Info("发送停止信号到任务，任务ID: %s", id)
+
+		// 等待一段时间，确保任务有机会停止
+		time.Sleep(1 * time.Second)
+
+		// 从 runningTasks 中移除任务
+		s.taskMutex.Lock()
+		delete(s.runningTasks, id)
+		s.taskMutex.Unlock()
+	} else {
+		logging.Warn("尝试停止不存在或已完成的任务，任务ID: %s", id)
 	}
 
-	task.UpdateStatus(models.TaskStatusStopped)
-	_, err = s.TaskCollection.UpdateOne(
+	// 更新数据库中的任务状态
+	update := bson.M{
+		"$set": bson.M{
+			"status":     models.TaskStatusStopped,
+			"updated_at": time.Now(),
+		},
+	}
+	_, err := s.scheduler.TaskCollection.UpdateOne(
 		context.Background(),
 		bson.M{"_id": id},
-		bson.M{"$set": bson.M{"status": models.TaskStatusStopped}},
+		update,
 	)
 	if err != nil {
 		logging.Error("更新MongoDB中的任务状态失败，任务ID: %s, 错误: %v", id, err)
@@ -123,8 +159,8 @@ func StopTask(s *models.Scheduler, id string) error {
 }
 
 // DeleteTask 删除单个任务
-func DeleteTask(s *models.Scheduler, id string) error {
-	_, err := s.TaskCollection.DeleteOne(context.Background(), bson.M{"_id": id})
+func (s *TaskService) DeleteTask(id string) error {
+	_, err := s.scheduler.TaskCollection.DeleteOne(context.Background(), bson.M{"_id": id})
 	if err != nil {
 		logging.Error("删除MongoDB中的任务失败，任务ID: %s, 错误: %v", id, err)
 		return fmt.Errorf("删除MongoDB中的任务失败: %v", err)
@@ -135,12 +171,27 @@ func DeleteTask(s *models.Scheduler, id string) error {
 }
 
 // CloseScheduler 关闭调度器连接和通道
-func CloseScheduler(s *models.Scheduler) {
-	if err := s.AMQPChannel.Close(); err != nil {
+func (s *TaskService) CloseScheduler() {
+	if err := s.scheduler.AMQPChannel.Close(); err != nil {
 		logging.Error("关闭RabbitMQ通道失败: %v", err)
 	}
-	if err := s.AMQPConn.Close(); err != nil {
+	if err := s.scheduler.AMQPConn.Close(); err != nil {
 		logging.Error("关闭RabbitMQ连接失败: %v", err)
 	}
 	logging.Info("成功关闭调度器连接和通道")
+}
+
+// UpdateTaskStatus 更新任务状态
+func (s *TaskService) UpdateTaskStatus(id string, status models.TaskStatus) error {
+	_, err := s.scheduler.TaskCollection.UpdateOne(
+		context.Background(),
+		bson.M{"_id": id},
+		bson.M{"$set": bson.M{"status": status, "updated_at": time.Now()}},
+	)
+	if err != nil {
+		logging.Error("更新MongoDB中的任务状态失败，任务ID: %s, 错误: %v", id, err)
+		return fmt.Errorf("更新MongoDB中的任务状态失败: %v", err)
+	}
+	logging.Info("成功更新任务状态，任务ID: %s, 新状态: %s", id, status)
+	return nil
 }
