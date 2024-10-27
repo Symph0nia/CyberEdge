@@ -4,7 +4,6 @@ package api
 
 import (
 	"cyberedge/pkg/api/handlers"
-	"cyberedge/pkg/models"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-contrib/sessions/cookie"
@@ -14,7 +13,6 @@ import (
 
 // 全局变量
 var (
-	GlobalScheduler *models.Scheduler
 	GlobalJWTSecret string
 )
 
@@ -56,16 +54,6 @@ func SetupRouter() *gin.Engine {
 		authenticated.GET("/users/:account", handlers.HandleUsers)
 		authenticated.POST("/users", handlers.HandleUsers)
 		authenticated.DELETE("/users/:account", handlers.HandleUsers)
-
-		taskHandler := handlers.NewTaskHandler(GlobalScheduler)
-
-		// 任务管理API
-		authenticated.GET("/tasks", taskHandler.GetAllTasks)
-		authenticated.POST("/tasks", taskHandler.CreateTask)
-		authenticated.GET("/tasks/:id", taskHandler.GetTask)
-		authenticated.POST("/tasks/:id/start", taskHandler.StartTask)
-		authenticated.POST("/tasks/:id/stop", taskHandler.StopTask)
-		authenticated.DELETE("/tasks/:id", taskHandler.DeleteTask)
 	}
 
 	return router

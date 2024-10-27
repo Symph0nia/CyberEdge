@@ -71,24 +71,8 @@ func main() {
 	}
 	logging.Info("数据库集合设置完成")
 
-	// 初始化任务调度器
-	scheduler, err := utils.SetupScheduler(rabbitConn, rabbitChannel, client, db.Collection("tasks"))
-	if err != nil {
-		logging.Error("初始化任务调度器失败: %v", err)
-		return
-	}
-	logging.Info("任务调度器初始化完成")
-
-	// 设置并启动任务处理器
-	err = utils.SetupAndStartTaskProcessor(scheduler)
-	if err != nil {
-		logging.Error("设置并启动任务处理器失败: %v", err)
-		return
-	}
-	logging.Info("任务处理器初始化完成")
-
 	// 设置全局变量
-	if err := utils.SetupGlobalVariables(scheduler, "your-jwt-secret"); err != nil {
+	if err := utils.SetupGlobalVariables("your-jwt-secret"); err != nil {
 		logging.Error("设置全局变量失败: %v", err)
 		return
 	}
