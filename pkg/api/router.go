@@ -9,13 +9,17 @@ import (
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-contrib/sessions/cookie"
 	"github.com/gin-gonic/gin"
-	"github.com/streadway/amqp"
-	"go.mongodb.org/mongo-driver/mongo"
 	"time"
 )
 
+// 全局变量
+var (
+	GlobalScheduler *models.Scheduler
+	GlobalJWTSecret string
+)
+
 // SetupRouter 设置API路由
-func SetupRouter(userCollection *mongo.Collection, mongoClient *mongo.Client, dbName string) *gin.Engine {
+func SetupRouter() *gin.Engine {
 	router := gin.Default()
 
 	// 配置CORS中间件
@@ -28,32 +32,24 @@ func SetupRouter(userCollection *mongo.Collection, mongoClient *mongo.Client, db
 		MaxAge:           12 * time.Hour,
 	}))
 
-	// 从数据库加载配置
-	var configResult struct {
-		Secrets struct {
-			SessionSecret string `bson:"sessionSecret"`
-			JWTSecret     string `bson:"jwtSecret"`
-		} `bson:"secrets"`
-	}
-
 	// 设置Session中间件
-	store := cookie.NewStore([]byte(configResult.Secrets.SessionSecret))
+	store := cookie.NewStore([]byte("your-session-secret")) // 使用一个固定的session secret
 	router.Use(sessions.Sessions("mysession", store))
 
 	// 验证JWT的API
-	router.GET("/auth/check", handlers.CheckAuth(configResult.Secrets.JWTSecret))
+	router.GET("/auth/check", handlers.CheckAuth(GlobalJWTSecret))
 
 	router.GET("/auth/qrcode", handlers.GenerateQRCode)
-	router.POST("/auth/validate", handlers.ValidateTOTP(configResult.Secrets.JWTSecret))
+	router.POST("/auth/validate", handlers.ValidateTOTP(GlobalJWTSecret))
 
 	// 使用中间件进行鉴权
 	authenticated := router.Group("/")
-	authenticated.Use(AuthMiddleware(configResult.Secrets.JWTSecret))
+	authenticated.Use(AuthMiddleware(GlobalJWTSecret))
 
 	{
 		// 控制二维码接口状态的API
-		authenticated.GET("/auth/qrcode/status", handlers.SetQRCodeStatusHandler)  // 查询二维码状态
-		authenticated.POST("/auth/qrcode/status", handlers.SetQRCodeStatusHandler) // 更新二维码状态
+		authenticated.GET("/auth/qrcode/status", handlers.SetQRCodeStatusHandler)
+		authenticated.POST("/auth/qrcode/status", handlers.SetQRCodeStatusHandler)
 
 		// 用户管理API
 		authenticated.GET("/users", handlers.HandleUsers)
@@ -61,29 +57,15 @@ func SetupRouter(userCollection *mongo.Collection, mongoClient *mongo.Client, db
 		authenticated.POST("/users", handlers.HandleUsers)
 		authenticated.DELETE("/users/:account", handlers.HandleUsers)
 
-		conn, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
-		if err != nil {
-			panic(err) // 或者适当处理错误
-		}
-
-		channel, err := conn.Channel()
-		if err != nil {
-			panic(err) // 或者适当处理错误
-		}
-
-		taskCollection := mongoClient.Database(dbName).Collection("tasks")
-
-		scheduler := models.NewScheduler(conn, channel, "task_queue", mongoClient, taskCollection)
-
-		taskHandler := handlers.NewTaskHandler(scheduler)
+		taskHandler := handlers.NewTaskHandler(GlobalScheduler)
 
 		// 任务管理API
-		authenticated.GET("/tasks", taskHandler.GetAllTasks) // 获取所有任务
+		authenticated.GET("/tasks", taskHandler.GetAllTasks)
 		authenticated.POST("/tasks", taskHandler.CreateTask)
-		authenticated.GET("/tasks/:id", taskHandler.GetTask)          // 获取单个任务
-		authenticated.POST("/tasks/:id/start", taskHandler.StartTask) // 开始单个任务
-		authenticated.POST("/tasks/:id/stop", taskHandler.StopTask)   // 停止单个任务
-		authenticated.DELETE("/tasks/:id", taskHandler.DeleteTask)    // 删除单个任务
+		authenticated.GET("/tasks/:id", taskHandler.GetTask)
+		authenticated.POST("/tasks/:id/start", taskHandler.StartTask)
+		authenticated.POST("/tasks/:id/stop", taskHandler.StopTask)
+		authenticated.DELETE("/tasks/:id", taskHandler.DeleteTask)
 	}
 
 	return router
