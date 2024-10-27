@@ -8,6 +8,7 @@ import (
 	"cyberedge/pkg/dao"
 	"cyberedge/pkg/logging"
 	"cyberedge/pkg/service"
+	"cyberedge/pkg/tasks"
 	"cyberedge/pkg/utils"
 	"log"
 	"net/http"
@@ -53,10 +54,12 @@ func main() {
 		logging.Error("确保用户集合存在失败: %v", err)
 		return
 	}
+
 	if err := utils.EnsureCollectionExists(configCollection); err != nil {
 		logging.Error("确保配置集合存在失败: %v", err)
 		return
 	}
+
 	logging.Info("数据库集合确认存在")
 
 	// 初始化 DAO
@@ -68,6 +71,18 @@ func main() {
 	userService := service.NewUserService(userDAO, jwtSecret)
 	configService := service.NewConfigService(configDAO)
 
+	// 初始化 Task DAO 和 Service
+	taskDAO := dao.NewTaskDAO(db.Collection("tasks"))
+	asynqClient, err := utils.InitAsynqClient("localhost:6379")
+	if err != nil {
+		logging.Error("初始化Asynq客户端失败: %v", err)
+		return
+	}
+	defer asynqClient.Close()
+	logging.Info("Asynq客户端初始化成功")
+
+	taskService := service.NewTaskService(taskDAO, asynqClient)
+
 	// 连接Redis
 	redisClient, err := utils.ConnectToRedis("localhost:6379")
 	if err != nil {
@@ -77,15 +92,6 @@ func main() {
 	defer redisClient.Close()
 	logging.Info("Redis连接成功")
 
-	// 初始化Asynq客户端
-	asynqClient, err := utils.InitAsynqClient("localhost:6379")
-	if err != nil {
-		logging.Error("初始化Asynq客户端失败: %v", err)
-		return
-	}
-	defer asynqClient.Close()
-	logging.Info("Asynq客户端初始化成功")
-
 	// 初始化Asynq服务器
 	asynqServer, err := utils.InitAsynqServer("localhost:6379")
 	if err != nil {
@@ -94,20 +100,19 @@ func main() {
 	}
 	logging.Info("Asynq服务器初始化成功")
 
-	// 初始化任务处理器
-	taskHandler := utils.NewTaskHandler()
-
-	// 启动Asynq服务器
+	// 初始化任务处理器并启动Asynq服务器
+	taskHandler := tasks.NewTaskHandler()
 	go func() {
 		if err := asynqServer.Run(taskHandler); err != nil {
 			logging.Error("运行Asynq服务器失败: %v", err)
 		}
 	}()
 
-	// 设置API路由
+	// 设置API路由，包括任务管理的路由
 	router := api.NewRouter(
 		userService,
 		configService,
+		taskService, // 添加 TaskService 到 Router
 		jwtSecret,
 		"your-session-secret",             // 应从配置文件或环境变量中读取
 		[]string{"http://localhost:8080"}, // 允许的源

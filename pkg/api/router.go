@@ -1,5 +1,3 @@
-// pkg/api/router.go
-
 package api
 
 import (
@@ -16,6 +14,7 @@ import (
 type Router struct {
 	userHandler    *handlers.UserHandler
 	configHandler  *handlers.ConfigHandler
+	taskHandler    *handlers.TaskHandler // 添加 TaskHandler
 	jwtSecret      string
 	sessionSecret  string
 	allowedOrigins []string
@@ -24,6 +23,7 @@ type Router struct {
 func NewRouter(
 	userService *service.UserService,
 	configService *service.ConfigService,
+	taskService *service.TaskService, // 添加 TaskService
 	jwtSecret string,
 	sessionSecret string,
 	allowedOrigins []string,
@@ -31,6 +31,7 @@ func NewRouter(
 	return &Router{
 		userHandler:    handlers.NewUserHandler(userService),
 		configHandler:  handlers.NewConfigHandler(configService),
+		taskHandler:    handlers.NewTaskHandler(taskService), // 初始化 TaskHandler
 		jwtSecret:      jwtSecret,
 		sessionSecret:  sessionSecret,
 		allowedOrigins: allowedOrigins,
@@ -74,6 +75,12 @@ func (r *Router) SetupRouter() *gin.Engine {
 		authenticated.GET("/users/:account", r.userHandler.GetUser)
 		authenticated.POST("/users", r.userHandler.CreateUser)
 		authenticated.DELETE("/users/:account", r.userHandler.DeleteUser)
+
+		// 任务管理API
+		authenticated.POST("/tasks/ping", r.taskHandler.CreatePingTask)        // 创建 Ping 任务
+		authenticated.GET("/tasks", r.taskHandler.GetAllTasks)                 // 获取所有任务
+		authenticated.PUT("/tasks/:id/status", r.taskHandler.UpdateTaskStatus) // 更新任务状态
+		authenticated.DELETE("/tasks/:id", r.taskHandler.DeleteTask)           // 删除任务
 	}
 
 	return router
