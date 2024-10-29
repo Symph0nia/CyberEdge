@@ -54,8 +54,12 @@ func main() {
 	}
 	defer taskService.Close()
 
+	// 初始化 DAO
+	taskDAO := dao.NewTaskDAO(db.Collection("tasks"))
+	resultDAO := dao.NewResultDAO(db.Collection("results"))
+
 	// 初始化任务处理器
-	taskHandler := utils.InitTaskHandler(dao.NewTaskDAO(db.Collection("tasks")))
+	taskHandler := utils.InitTaskHandler(taskDAO, resultDAO)
 
 	// 启动 Asynq 服务器
 	utils.StartAsynqServer(asynqServer, taskHandler)

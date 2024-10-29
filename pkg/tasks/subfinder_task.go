@@ -1,5 +1,3 @@
-// subfinder_task.go
-
 package tasks
 
 import (
@@ -7,19 +5,24 @@ import (
 	"context"
 	"cyberedge/pkg/dao"
 	"cyberedge/pkg/logging"
+	"cyberedge/pkg/models"
 	"encoding/json"
 	"fmt"
 	"github.com/hibiken/asynq"
 	"os/exec"
+	"strings"
+	"time"
 )
 
 type SubfinderTask struct {
 	TaskTemplate
+	resultDAO *dao.ResultDAO
 }
 
-func NewSubfinderTask(taskDAO *dao.TaskDAO) *SubfinderTask {
+func NewSubfinderTask(taskDAO *dao.TaskDAO, resultDAO *dao.ResultDAO) *SubfinderTask {
 	return &SubfinderTask{
 		TaskTemplate: TaskTemplate{TaskDAO: taskDAO},
+		resultDAO:    resultDAO,
 	}
 }
 
@@ -43,7 +46,7 @@ func (s *SubfinderTask) runSubfinder(ctx context.Context, t *asynq.Task) error {
 
 	logging.Info("开始执行 Subfinder 任务: %s", payload.Domain)
 
-	cmd := exec.Command("subfinder", "-d", payload.Domain)
+	cmd := exec.Command("subfinder", "-d", payload.Domain, "-silent")
 	var out bytes.Buffer
 	cmd.Stdout = &out
 
@@ -54,6 +57,28 @@ func (s *SubfinderTask) runSubfinder(ctx context.Context, t *asynq.Task) error {
 	result := out.String()
 	logging.Info("Subfinder 任务完成，结果: %s", result)
 
-	// 返回结果供 Execute 方法使用
+	// 解析结果并存储到数据库
+	subdomains := strings.Split(strings.TrimSpace(result), "\n")
+	target := &models.Target{
+		Identifier: payload.Domain,
+		Type:       "Subdomain",
+		LastScan:   time.Now(),
+	}
+
+	for _, subdomain := range subdomains {
+		if subdomain != "" {
+			target.Subdomains = append(target.Subdomains, &models.Subdomain{Name: subdomain})
+		}
+	}
+
+	scanResult := &models.Result{
+		Targets: []*models.Target{target},
+	}
+
+	if err := s.resultDAO.CreateResult(scanResult); err != nil {
+		logging.Error("存储扫描结果失败: %v", err)
+		return err
+	}
+
 	return nil
 }
