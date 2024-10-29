@@ -11,7 +11,9 @@ func InitTaskHandler(taskDAO *dao.TaskDAO) *tasks.TaskHandler {
 
 	// 注册 Ping 任务处理函数
 	pingTask := tasks.NewPingTask(taskDAO)
+	httpxTask := tasks.NewHttpxTask(taskDAO)
 	taskHandler.RegisterHandler(tasks.TaskTypePing, pingTask.Handle)
+	taskHandler.RegisterHandler(tasks.TaskTypeHttpx, httpxTask.Handle)
 
 	return taskHandler
 }
