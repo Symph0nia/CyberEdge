@@ -35,6 +35,32 @@ func (h *TaskHandler) CreateTask(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"message": "任务创建成功"})
 }
 
+// StartTask 启动单个任务
+func (h *TaskHandler) StartTask(c *gin.Context) {
+	// 从URL参数中获取任务ID
+	taskID := c.Param("id")
+
+	// 从数据库中获取任务
+	task, err := h.taskService.GetTaskByID(taskID)
+	if err != nil {
+		if err.Error() == "task not found" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "任务未找到"})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "获取任务失败"})
+		}
+		return
+	}
+
+	// 启动任务
+	err = h.taskService.StartTask(task)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "启动任务失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "任务启动成功"})
+}
+
 // GetAllTasks 处理获取所有任务的请求
 func (h *TaskHandler) GetAllTasks(c *gin.Context) {
 	tasks, err := h.taskService.GetAllTasks()

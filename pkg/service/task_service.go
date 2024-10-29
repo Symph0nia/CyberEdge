@@ -4,7 +4,9 @@ import (
 	"cyberedge/pkg/dao"
 	"cyberedge/pkg/logging"
 	"cyberedge/pkg/models"
+	"database/sql"
 	"encoding/json"
+	"fmt"
 	"github.com/hibiken/asynq"
 )
 
@@ -21,7 +23,7 @@ func NewTaskService(taskDAO *dao.TaskDAO, asynqClient *asynq.Client) *TaskServic
 	}
 }
 
-// CreateTask 创建一个新的通用任务并将其添加到队列中
+// CreateTask 创建一个新的通用任务并保存到数据库
 func (s *TaskService) CreateTask(taskType string, payload interface{}) error {
 	logging.Info("正在创建任务: 类型 %s", taskType)
 
@@ -53,18 +55,44 @@ func (s *TaskService) CreateTask(taskType string, payload interface{}) error {
 		return err
 	}
 
+	logging.Info("成功创建任务: 类型 %s", taskType)
+	return nil
+}
+
+// StartTask 启动一个已创建的任务，将其加入到 Asynq 队列
+func (s *TaskService) StartTask(task *models.Task) error {
+	logging.Info("正在启动任务: ID %d, 类型 %s", task.ID, task.Type)
+
 	// 创建 Asynq 任务
-	asynqTask := asynq.NewTask(taskType, payloadBytes)
+	asynqTask := asynq.NewTask(task.Type, []byte(task.Payload))
 
 	// 将任务加入队列
-	_, err = s.asynqClient.Enqueue(asynqTask)
+	_, err := s.asynqClient.Enqueue(asynqTask)
 	if err != nil {
 		logging.Error("将任务加入队列失败: %v", err)
 		return err
 	}
 
-	logging.Info("成功创建并加入队列任务: 类型 %s", taskType)
+	logging.Info("成功将任务加入队列: ID %d, 类型 %s", task.ID, task.Type)
 	return nil
+}
+
+// GetTaskByID 根据ID获取任务
+func (s *TaskService) GetTaskByID(id string) (*models.Task, error) {
+	logging.Info("正在获取任务: ID %s", id)
+
+	task, err := s.taskDAO.GetTaskByID(id)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			logging.Warn("任务不存在: ID %s", id)
+			return nil, fmt.Errorf("task not found")
+		}
+		logging.Error("获取任务失败: ID %s, 错误: %v", id, err)
+		return nil, err
+	}
+
+	logging.Info("成功获取任务: ID %s", id)
+	return task, nil
 }
 
 // GetAllTasks 获取所有任务
@@ -79,19 +107,6 @@ func (s *TaskService) GetAllTasks() ([]models.Task, error) {
 
 	logging.Info("成功获取所有任务，共 %d 个", len(tasks))
 	return tasks, nil
-}
-
-// UpdateTaskStatus 更新指定任务的状态并记录结果
-func (s *TaskService) UpdateTaskStatus(id string, status models.TaskStatus, result string) error {
-	logging.Info("正在更新任务状态: %s 到 %s", id, status)
-
-	if err := s.taskDAO.UpdateTaskStatus(id, status, result); err != nil {
-		logging.Error("更新任务状态失败: %s, 错误: %v", id, err)
-		return err
-	}
-
-	logging.Info("成功更新任务状态: %s 到 %s", id, status)
-	return nil
 }
 
 // DeleteTask 删除指定的任务
