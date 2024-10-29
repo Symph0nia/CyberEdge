@@ -9,6 +9,7 @@ const (
 	TaskTypePing      TaskType = "ping"
 	TaskTypeHttpx     TaskType = "httpx"
 	TaskTypeSubfinder TaskType = "subfinder"
+	TaskTypeNaabu     TaskType = "naabu"
 	// 在这里添加其他任务类型
 	// TaskTypeExample TaskType = "example"
 )
