@@ -6,7 +6,6 @@ import (
 	"context"
 	"cyberedge/pkg/dao"
 	"cyberedge/pkg/logging"
-	"cyberedge/pkg/models"
 	"encoding/json"
 	"fmt"
 	"github.com/hibiken/asynq"
@@ -37,7 +36,6 @@ func (p *PingTask) doPing(ctx context.Context, t *asynq.Task) error {
 
 	// 解析 JSON 载荷
 	if err := json.Unmarshal(t.Payload(), &payload); err != nil {
-		logging.Error("解析任务载荷失败: %v", err)
 		return fmt.Errorf("解析任务载荷失败: %v", err)
 	}
 
@@ -56,12 +54,8 @@ func (p *PingTask) doPing(ctx context.Context, t *asynq.Task) error {
 	duration := time.Since(start)
 
 	if err != nil {
-		logging.Error("Ping 失败: %v", err)
-		// 更新状态为失败
-		_ = p.TaskDAO.UpdateTaskStatus(payload.TaskID, models.TaskStatusFailed, fmt.Sprintf("错误: %v", err))
-		return err
+		return fmt.Errorf("Ping 失败: %v", err)
 	}
-
 	defer resp.Body.Close()
 
 	logging.Info("Ping 成功: %s, 耗时: %v", payload.Target, duration)
