@@ -20,11 +20,16 @@ import (
 
 type UserService struct {
 	userDAO   *dao.UserDAO
+	configDAO *dao.ConfigDAO
 	jwtSecret string
 }
 
-func NewUserService(userDAO *dao.UserDAO, jwtSecret string) *UserService {
-	return &UserService{userDAO: userDAO, jwtSecret: jwtSecret}
+func NewUserService(userDAO *dao.UserDAO, configDAO *dao.ConfigDAO, jwtSecret string) *UserService {
+	return &UserService{
+		userDAO:   userDAO,
+		configDAO: configDAO,
+		jwtSecret: jwtSecret,
+	}
 }
 
 // User management methods
@@ -78,7 +83,7 @@ func (s *UserService) DeleteUser(account string) error {
 func (s *UserService) GenerateQRCode() ([]byte, error) {
 	logging.Info("开始生成二维码")
 
-	qrcodeEnabled, err := s.userDAO.GetQRCodeStatus()
+	qrcodeEnabled, err := s.configDAO.GetQRCodeStatus()
 	if err != nil {
 		logging.Error("获取二维码状态失败: %v", err)
 		return nil, errors.New("无法获取二维码状态")

@@ -66,7 +66,7 @@ func main() {
 
 	// 初始化 Service
 	jwtSecret := "your-jwt-secret" // 应从配置文件或环境变量中读取
-	userService := service.NewUserService(userDAO, jwtSecret)
+	userService := service.NewUserService(userDAO, configDAO, jwtSecret)
 	configService := service.NewConfigService(configDAO)
 
 	// 设置API路由，包括任务管理的路由
