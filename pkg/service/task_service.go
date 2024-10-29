@@ -15,6 +15,12 @@ type TaskService struct {
 	asynqClient *asynq.Client
 }
 
+func (s *TaskService) Close() {
+	if s.asynqClient != nil {
+		s.asynqClient.Close()
+	}
+}
+
 // NewTaskService 创建一个新的 TaskService 实例
 func NewTaskService(taskDAO *dao.TaskDAO, asynqClient *asynq.Client) *TaskService {
 	return &TaskService{

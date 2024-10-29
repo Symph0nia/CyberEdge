@@ -26,13 +26,15 @@ func NewRouter(
 	taskService *service.TaskService, // 添加 TaskService
 	jwtSecret string,
 	sessionSecret string,
+	allowedOrigins []string,
 ) *Router {
 	return &Router{
-		userHandler:   handlers.NewUserHandler(userService),
-		configHandler: handlers.NewConfigHandler(configService),
-		taskHandler:   handlers.NewTaskHandler(taskService), // 初始化 TaskHandler
-		jwtSecret:     jwtSecret,
-		sessionSecret: sessionSecret,
+		userHandler:    handlers.NewUserHandler(userService),
+		configHandler:  handlers.NewConfigHandler(configService),
+		taskHandler:    handlers.NewTaskHandler(taskService), // 初始化 TaskHandler
+		jwtSecret:      jwtSecret,
+		sessionSecret:  sessionSecret,
+		allowedOrigins: allowedOrigins,
 	}
 }
 
@@ -42,7 +44,7 @@ func (r *Router) SetupRouter() *gin.Engine {
 
 	// 配置CORS中间件
 	router.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:8080"},
+		AllowOrigins:     r.allowedOrigins,
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
 		ExposeHeaders:    []string{"Content-Length"},
