@@ -7,6 +7,8 @@ import (
 	"cyberedge/pkg/dao"
 	"cyberedge/pkg/logging"
 	"cyberedge/pkg/models"
+	"encoding/json"
+	"fmt"
 	"github.com/hibiken/asynq"
 )
 
@@ -15,9 +17,18 @@ type TaskTemplate struct {
 	TaskDAO *dao.TaskDAO
 }
 
-// Execute 执行任务并处理状态更新
 func (t *TaskTemplate) Execute(ctx context.Context, task *asynq.Task, handler func(context.Context, *asynq.Task) error) error {
-	taskID := task.ResultWriter().TaskID()
+	var payload map[string]string
+	if err := json.Unmarshal(task.Payload(), &payload); err != nil {
+		logging.Error("解析任务载荷失败: %v", err)
+		return err
+	}
+
+	taskID, ok := payload["task_id"]
+	if !ok {
+		logging.Error("任务载荷中缺少 task_id")
+		return fmt.Errorf("缺少 task_id")
+	}
 
 	// 更新任务状态为进行中
 	if err := t.TaskDAO.UpdateTaskStatus(taskID, models.TaskStatusRunning, ""); err != nil {

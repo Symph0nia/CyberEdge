@@ -59,21 +59,30 @@ func (s *TaskService) CreateTask(taskType string, payload interface{}) error {
 	return nil
 }
 
-// StartTask 启动一个已创建的任务，将其加入到 Asynq 队列
 func (s *TaskService) StartTask(task *models.Task) error {
-	logging.Info("正在启动任务: ID %d, 类型 %s", task.ID, task.Type)
+	logging.Info("正在启动任务: ID %s, 类型 %s", task.ID.Hex(), task.Type)
+
+	// 创建 payload，包含数据库的任务 ID
+	payload, err := json.Marshal(map[string]string{
+		"task_id": task.ID.Hex(),
+		"target":  task.Payload, // 或其他相关数据
+	})
+	if err != nil {
+		logging.Error("序列化任务载荷失败: %v", err)
+		return err
+	}
 
 	// 创建 Asynq 任务
-	asynqTask := asynq.NewTask(task.Type, []byte(task.Payload))
+	asynqTask := asynq.NewTask(task.Type, payload)
 
 	// 将任务加入队列
-	_, err := s.asynqClient.Enqueue(asynqTask)
+	_, err = s.asynqClient.Enqueue(asynqTask)
 	if err != nil {
 		logging.Error("将任务加入队列失败: %v", err)
 		return err
 	}
 
-	logging.Info("成功将任务加入队列: ID %d, 类型 %s", task.ID, task.Type)
+	logging.Info("成功将任务加入队列: ID %s, 类型 %s", task.ID.Hex(), task.Type)
 	return nil
 }
 

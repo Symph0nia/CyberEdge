@@ -87,6 +87,13 @@ func (dao *TaskDAO) GetAllTasks() ([]models.Task, error) {
 func (dao *TaskDAO) UpdateTaskStatus(id string, status models.TaskStatus, result string) error {
 	logging.Info("正在更新任务状态: %s 到 %s", id, status)
 
+	// 将字符串 ID 转换为 ObjectID
+	objID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		logging.Error("无效的任务 ID: %s, 错误: %v", id, err)
+		return err
+	}
+
 	update := bson.M{
 		"$set": bson.M{
 			"status":     status,
@@ -100,9 +107,9 @@ func (dao *TaskDAO) UpdateTaskStatus(id string, status models.TaskStatus, result
 		update["$set"].(bson.M)["result"] = result
 	}
 
-	_, err := dao.collection.UpdateOne(
+	updateResult, err := dao.collection.UpdateOne(
 		context.Background(),
-		bson.M{"id": id}, // 使用字符串 ID 进行查询
+		bson.M{"_id": objID}, // 使用 ObjectID 进行查询
 		update,
 	)
 
@@ -111,7 +118,12 @@ func (dao *TaskDAO) UpdateTaskStatus(id string, status models.TaskStatus, result
 		return err
 	}
 
-	logging.Info("成功更新任务状态: %s 到 %s", id, status)
+	if updateResult.ModifiedCount == 0 {
+		logging.Warn("未找到匹配的任务进行更新: %s", id)
+	} else {
+		logging.Info("成功更新任务状态: %s 到 %s", id, status)
+	}
+
 	return nil
 }
 
