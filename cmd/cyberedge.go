@@ -102,6 +102,10 @@ func main() {
 
 	// 初始化任务处理器并启动Asynq服务器
 	taskHandler := tasks.NewTaskHandler()
+	// 注册任务处理函数
+	pingTask := tasks.NewPingTask(taskDAO)
+	taskHandler.RegisterHandler(tasks.TaskTypePing, pingTask.Handle)
+
 	go func() {
 		if err := asynqServer.Run(taskHandler); err != nil {
 			logging.Error("运行Asynq服务器失败: %v", err)

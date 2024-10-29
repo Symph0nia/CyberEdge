@@ -4,7 +4,7 @@ import (
 	"cyberedge/pkg/dao"
 	"cyberedge/pkg/logging"
 	"cyberedge/pkg/models"
-	"cyberedge/pkg/tasks"
+	"encoding/json"
 	"github.com/hibiken/asynq"
 )
 
@@ -21,15 +21,30 @@ func NewTaskService(taskDAO *dao.TaskDAO, asynqClient *asynq.Client) *TaskServic
 	}
 }
 
-// CreatePingTask 创建一个新的 Ping 任务并将其添加到队列中
-func (s *TaskService) CreatePingTask(target string) error {
-	logging.Info("正在创建 Ping 任务: %s", target)
+// CreateTask 创建一个新的通用任务并将其添加到队列中
+func (s *TaskService) CreateTask(taskType string, payload interface{}) error {
+	logging.Info("正在创建任务: 类型 %s", taskType)
+
+	var payloadBytes []byte
+	var err error
+
+	// 检查 payload 是否已经是字符串
+	if payloadStr, ok := payload.(string); ok {
+		payloadBytes = []byte(payloadStr)
+	} else {
+		// 如果不是字符串，则尝试 JSON 序列化
+		payloadBytes, err = json.Marshal(payload)
+		if err != nil {
+			logging.Error("序列化任务载荷失败: %v", err)
+			return err
+		}
+	}
 
 	// 创建任务对象
 	task := &models.Task{
-		Type:   tasks.TaskTypePing,
-		Target: target,
-		Status: models.TaskStatusPending,
+		Type:    taskType,
+		Payload: string(payloadBytes), // 将 []byte 转换为 string
+		Status:  models.TaskStatusPending,
 	}
 
 	// 将任务保存到数据库
@@ -39,11 +54,7 @@ func (s *TaskService) CreatePingTask(target string) error {
 	}
 
 	// 创建 Asynq 任务
-	asynqTask, err := tasks.NewPingTask(target)
-	if err != nil {
-		logging.Error("创建 Asynq 任务失败: %v", err)
-		return err
-	}
+	asynqTask := asynq.NewTask(taskType, payloadBytes)
 
 	// 将任务加入队列
 	_, err = s.asynqClient.Enqueue(asynqTask)
@@ -52,7 +63,7 @@ func (s *TaskService) CreatePingTask(target string) error {
 		return err
 	}
 
-	logging.Info("成功创建并加入队列 Ping 任务: %s", target)
+	logging.Info("成功创建并加入队列任务: 类型 %s", taskType)
 	return nil
 }
 
@@ -70,11 +81,11 @@ func (s *TaskService) GetAllTasks() ([]models.Task, error) {
 	return tasks, nil
 }
 
-// UpdateTaskStatus 更新指定任务的状态
-func (s *TaskService) UpdateTaskStatus(id string, status models.TaskStatus) error {
+// UpdateTaskStatus 更新指定任务的状态并记录结果
+func (s *TaskService) UpdateTaskStatus(id string, status models.TaskStatus, result string) error {
 	logging.Info("正在更新任务状态: %s 到 %s", id, status)
 
-	if err := s.taskDAO.UpdateTaskStatus(id, status); err != nil {
+	if err := s.taskDAO.UpdateTaskStatus(id, status, result); err != nil {
 		logging.Error("更新任务状态失败: %s, 错误: %v", id, err)
 		return err
 	}

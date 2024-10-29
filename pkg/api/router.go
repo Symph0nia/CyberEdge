@@ -77,10 +77,9 @@ func (r *Router) SetupRouter() *gin.Engine {
 		authenticated.DELETE("/users/:account", r.userHandler.DeleteUser)
 
 		// 任务管理API
-		authenticated.POST("/tasks/ping", r.taskHandler.CreatePingTask)        // 创建 Ping 任务
-		authenticated.GET("/tasks", r.taskHandler.GetAllTasks)                 // 获取所有任务
-		authenticated.PUT("/tasks/:id/status", r.taskHandler.UpdateTaskStatus) // 更新任务状态
-		authenticated.DELETE("/tasks/:id", r.taskHandler.DeleteTask)           // 删除任务
+		authenticated.POST("/tasks", r.taskHandler.CreateTask)       // 创建任务
+		authenticated.GET("/tasks", r.taskHandler.GetAllTasks)       // 获取所有任务
+		authenticated.DELETE("/tasks/:id", r.taskHandler.DeleteTask) // 删除任务
 	}
 
 	return router
