@@ -12,6 +12,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type SubfinderTask struct {
@@ -32,8 +34,9 @@ func (s *SubfinderTask) Handle(ctx context.Context, t *asynq.Task) error {
 
 func (s *SubfinderTask) runSubfinder(ctx context.Context, t *asynq.Task) error {
 	var payload struct {
-		Domain string `json:"target"`
-		TaskID string `json:"task_id"`
+		Domain   string `json:"target"`
+		TaskID   string `json:"task_id"`
+		ParentID string `json:"parent_id,omitempty"` // 可选参数，用于关联现有记录
 	}
 
 	if err := json.Unmarshal(t.Payload(), &payload); err != nil {
@@ -57,22 +60,26 @@ func (s *SubfinderTask) runSubfinder(ctx context.Context, t *asynq.Task) error {
 	result := out.String()
 	logging.Info("Subfinder 任务完成，结果: %s", result)
 
-	// 解析结果并存储到数据库
 	subdomains := strings.Split(strings.TrimSpace(result), "\n")
-	target := &models.Target{
-		Identifier: payload.Domain,
-		Type:       "Subdomain",
-		LastScan:   time.Now(),
+	subdomainData := &models.SubdomainData{
+		Subdomains: subdomains,
 	}
 
-	for _, subdomain := range subdomains {
-		if subdomain != "" {
-			target.Subdomains = append(target.Subdomains, &models.Subdomain{Name: subdomain})
+	var parentID *primitive.ObjectID
+	if payload.ParentID != "" {
+		objID, err := primitive.ObjectIDFromHex(payload.ParentID)
+		if err == nil {
+			parentID = &objID
 		}
 	}
 
 	scanResult := &models.Result{
-		Targets: []*models.Target{target},
+		ID:        primitive.NewObjectID(),
+		Type:      "Subdomain",
+		Target:    payload.Domain,
+		Timestamp: time.Now(),
+		Data:      subdomainData,
+		ParentID:  parentID,
 	}
 
 	if err := s.resultDAO.CreateResult(scanResult); err != nil {
