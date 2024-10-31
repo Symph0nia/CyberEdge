@@ -13,7 +13,7 @@ func InitTaskHandler(taskDAO *dao.TaskDAO, resultDAO *dao.ResultDAO) *tasks.Task
 	pingTask := tasks.NewPingTask(taskDAO)
 	httpxTask := tasks.NewHttpxTask(taskDAO)
 	subfinderTask := tasks.NewSubfinderTask(taskDAO, resultDAO) // 传入 resultDAO
-	naabuTask := tasks.NewNaabuTask(taskDAO)
+	naabuTask := tasks.NewNaabuTask(taskDAO, resultDAO)
 
 	taskHandler.RegisterHandler(tasks.TaskTypePing, pingTask.Handle)
 	taskHandler.RegisterHandler(tasks.TaskTypeHttpx, httpxTask.Handle)
