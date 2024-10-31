@@ -14,7 +14,8 @@ import (
 type Router struct {
 	userHandler    *handlers.UserHandler
 	configHandler  *handlers.ConfigHandler
-	taskHandler    *handlers.TaskHandler // 添加 TaskHandler
+	taskHandler    *handlers.TaskHandler
+	resultHandler  *handlers.ResultHandler
 	jwtSecret      string
 	sessionSecret  string
 	allowedOrigins []string
@@ -23,7 +24,8 @@ type Router struct {
 func NewRouter(
 	userService *service.UserService,
 	configService *service.ConfigService,
-	taskService *service.TaskService, // 添加 TaskService
+	taskService *service.TaskService,
+	resultService *service.ResultService,
 	jwtSecret string,
 	sessionSecret string,
 	allowedOrigins []string,
@@ -31,7 +33,8 @@ func NewRouter(
 	return &Router{
 		userHandler:    handlers.NewUserHandler(userService),
 		configHandler:  handlers.NewConfigHandler(configService),
-		taskHandler:    handlers.NewTaskHandler(taskService), // 初始化 TaskHandler
+		taskHandler:    handlers.NewTaskHandler(taskService),
+		resultHandler:  handlers.NewResultHandler(resultService),
 		jwtSecret:      jwtSecret,
 		sessionSecret:  sessionSecret,
 		allowedOrigins: allowedOrigins,
@@ -81,6 +84,13 @@ func (r *Router) SetupRouter() *gin.Engine {
 		authenticated.GET("/tasks", r.taskHandler.GetAllTasks)          // 获取所有任务
 		authenticated.DELETE("/tasks/:id", r.taskHandler.DeleteTask)    // 删除任务
 		authenticated.POST("/tasks/:id/start", r.taskHandler.StartTask) // 启动单个任务
+
+		// 扫描结果管理API
+		// authenticated.POST("/results", r.resultHandler.CreateResult)               // 创建扫描结果
+		authenticated.GET("/results/:id", r.resultHandler.GetResultByID)           // 获取单个扫描结果
+		authenticated.GET("/results/type/:type", r.resultHandler.GetResultsByType) // 获取指定类型的扫描结果
+		authenticated.PUT("/results/:id", r.resultHandler.UpdateResult)            // 更新扫描结果
+		authenticated.DELETE("/results/:id", r.resultHandler.DeleteResult)         // 删除扫描结果
 	}
 
 	return router

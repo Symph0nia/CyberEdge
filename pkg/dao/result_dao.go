@@ -54,6 +54,37 @@ func (dao *ResultDAO) GetResultByID(id string) (*models.Result, error) {
 	return &result, nil
 }
 
+// GetResultsByType 根据类型获取扫描结果列表
+func (dao *ResultDAO) GetResultsByType(resultType string) ([]*models.Result, error) {
+	logging.Info("正在获取类型为 %s 的扫描结果", resultType)
+
+	var results []*models.Result
+
+	cursor, err := dao.collection.Find(context.Background(), bson.M{"type": resultType})
+	if err != nil {
+		logging.Error("获取类型为 %s 的扫描结果失败: %v", resultType, err)
+		return nil, err
+	}
+	defer cursor.Close(context.Background())
+
+	for cursor.Next(context.Background()) {
+		var result models.Result
+		if err := cursor.Decode(&result); err != nil {
+			logging.Error("解析扫描结果失败: %v", err)
+			return nil, err
+		}
+		results = append(results, &result)
+	}
+
+	if err := cursor.Err(); err != nil {
+		logging.Error("游标错误: %v", err)
+		return nil, err
+	}
+
+	logging.Info("成功获取类型为 %s 的扫描结果，共 %d 个", resultType, len(results))
+	return results, nil
+}
+
 // UpdateResult 更新指定 ID 的扫描结果
 func (dao *ResultDAO) UpdateResult(id string, updatedResult *models.Result) error {
 	logging.Info("正在更新扫描结果: %s", id)

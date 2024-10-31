@@ -72,12 +72,14 @@ func main() {
 	jwtSecret := "your-jwt-secret" // 应从配置文件或环境变量中读取
 	userService := service.NewUserService(userDAO, configDAO, jwtSecret)
 	configService := service.NewConfigService(configDAO)
+	resultService := service.NewResultService(resultDAO)
 
 	// 设置API路由，包括任务管理的路由
 	router := api.NewRouter(
 		userService,
 		configService,
-		taskService, // 添加 TaskService 到 Router
+		taskService,
+		resultService,
 		jwtSecret,
 		"your-session-secret",             // 应从配置文件或环境变量中读取
 		[]string{"http://localhost:8080"}, // 允许的源
