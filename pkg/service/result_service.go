@@ -4,9 +4,9 @@ import (
 	"cyberedge/pkg/dao"
 	"cyberedge/pkg/logging"
 	"cyberedge/pkg/models"
+	"cyberedge/pkg/utils"
 	"errors"
 	"github.com/miekg/dns"
-	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"net"
 	"time"
@@ -160,22 +160,6 @@ func (s *ResultService) MarkEntryAsRead(resultID string, entryID string, isRead 
 	return nil
 }
 
-// unmarshalData 是一个辅助函数，用于将 interface{} 类型的数据解析为指定的结构体
-func unmarshalData(data interface{}, target interface{}) error {
-	bsonData, err := bson.Marshal(data)
-	if err != nil {
-		logging.Error("序列化数据失败: %v", err)
-		return errors.New("序列化数据失败")
-	}
-
-	if err := bson.Unmarshal(bsonData, target); err != nil {
-		logging.Error("解析数据失败: %v", err)
-		return errors.New("解析数据失败")
-	}
-
-	return nil
-}
-
 func (s *ResultService) ResolveAndUpdateSubdomainIP(resultID, entryID string) error {
 	// 获取扫描结果
 	result, err := s.resultDAO.GetResultByID(resultID)
@@ -191,7 +175,7 @@ func (s *ResultService) ResolveAndUpdateSubdomainIP(resultID, entryID string) er
 
 	// 解析 SubdomainData
 	var subdomainData models.SubdomainData
-	if err := unmarshalData(result.Data, &subdomainData); err != nil {
+	if err := utils.UnmarshalData(result.Data, &subdomainData); err != nil {
 		logging.Error("解析子域名数据失败: %v", err)
 		return err
 	}

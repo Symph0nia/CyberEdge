@@ -8,7 +8,7 @@ import (
 	"cyberedge/pkg/dao"
 	"cyberedge/pkg/logging"
 	"cyberedge/pkg/service"
-	"cyberedge/pkg/utils"
+	"cyberedge/pkg/setup"
 	"log"
 	"net/http"
 	"os"
@@ -35,19 +35,19 @@ func main() {
 	defer cancel()
 
 	// 连接MongoDB数据库
-	client, err := utils.ConnectToMongoDB("mongodb://localhost:27017")
+	client, err := setup.ConnectToMongoDB("mongodb://localhost:27017")
 	if err != nil {
 		logging.Error("连接MongoDB失败: %v", err)
 		return
 	}
-	defer utils.DisconnectMongoDB(client)
+	defer setup.DisconnectMongoDB(client)
 	logging.Info("MongoDB连接成功")
 
 	// 初始化数据库和集合
 	db := client.Database("cyberedgeDB")
 
 	// 初始化任务相关组件
-	taskService, asynqServer, err := utils.InitTaskComponents(db, "localhost:6379")
+	taskService, asynqServer, err := setup.InitTaskComponents(db, "localhost:6379")
 	if err != nil {
 		logging.Error("初始化任务组件失败: %v", err)
 		return
@@ -59,10 +59,10 @@ func main() {
 	resultDAO := dao.NewResultDAO(db.Collection("results"))
 
 	// 初始化任务处理器
-	taskHandler := utils.InitTaskHandler(taskDAO, resultDAO)
+	taskHandler := setup.InitTaskHandler(taskDAO, resultDAO)
 
 	// 启动 Asynq 服务器
-	utils.StartAsynqServer(asynqServer, taskHandler)
+	setup.StartAsynqServer(asynqServer, taskHandler)
 
 	// 初始化 DAO
 	userDAO := dao.NewUserDAO(db.Collection("users"))

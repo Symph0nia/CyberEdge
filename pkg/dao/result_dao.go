@@ -4,6 +4,7 @@ import (
 	"context"
 	"cyberedge/pkg/logging"
 	"cyberedge/pkg/models"
+	"cyberedge/pkg/utils"
 	"errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -157,7 +158,7 @@ func (dao *ResultDAO) UpdateEntryReadStatus(resultID string, entryID string, isR
 	switch result.Type {
 	case "Port":
 		var portData models.PortData
-		if err := unmarshalData(result.Data, &portData); err != nil {
+		if err := utils.UnmarshalData(result.Data, &portData); err != nil {
 			return err
 		}
 		for _, port := range portData.Ports {
@@ -170,7 +171,7 @@ func (dao *ResultDAO) UpdateEntryReadStatus(resultID string, entryID string, isR
 
 	case "Fingerprint":
 		var fingerprints []*models.Fingerprint
-		if err := unmarshalData(result.Data, &fingerprints); err != nil {
+		if err := utils.UnmarshalData(result.Data, &fingerprints); err != nil {
 			return err
 		}
 		for _, fingerprint := range fingerprints {
@@ -183,7 +184,7 @@ func (dao *ResultDAO) UpdateEntryReadStatus(resultID string, entryID string, isR
 
 	case "Path":
 		var paths []*models.Path
-		if err := unmarshalData(result.Data, &paths); err != nil {
+		if err := utils.UnmarshalData(result.Data, &paths); err != nil {
 			return err
 		}
 		for _, path := range paths {
@@ -196,7 +197,7 @@ func (dao *ResultDAO) UpdateEntryReadStatus(resultID string, entryID string, isR
 
 	case "Subdomain":
 		var subdomainData models.SubdomainData
-		if err := unmarshalData(result.Data, &subdomainData); err != nil {
+		if err := utils.UnmarshalData(result.Data, &subdomainData); err != nil {
 			return err
 		}
 		for i, subdomain := range subdomainData.Subdomains {
@@ -240,22 +241,6 @@ func (dao *ResultDAO) UpdateEntryReadStatus(resultID string, entryID string, isR
 	return nil
 }
 
-// unmarshalData 是一个辅助函数，用于将 interface{} 类型的数据解析为指定的结构体
-func unmarshalData(data interface{}, target interface{}) error {
-	bsonData, err := bson.Marshal(data)
-	if err != nil {
-		logging.Error("序列化数据失败: %v", err)
-		return errors.New("序列化数据失败")
-	}
-
-	if err := bson.Unmarshal(bsonData, target); err != nil {
-		logging.Error("解析数据失败: %v", err)
-		return errors.New("解析数据失败")
-	}
-
-	return nil
-}
-
 // UpdateSubdomainIP 更新指定任务中的子域名解析的 IP 地址
 func (dao *ResultDAO) UpdateSubdomainIP(resultID string, entryID string, ip string) error {
 	logging.Info("正在更新任务 %s 中子域名 %s 的 IP 地址", resultID, entryID)
@@ -287,7 +272,7 @@ func (dao *ResultDAO) UpdateSubdomainIP(resultID string, entryID string, ip stri
 
 	// 解析 result.Data 为 SubdomainData 结构
 	var subdomainData models.SubdomainData
-	if err := unmarshalData(result.Data, &subdomainData); err != nil {
+	if err := utils.UnmarshalData(result.Data, &subdomainData); err != nil {
 		logging.Error("解析子域名数据失败: %v", err)
 		return err
 	}
