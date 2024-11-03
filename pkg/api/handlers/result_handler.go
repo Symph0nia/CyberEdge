@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"cyberedge/pkg/logging"
 	"cyberedge/pkg/models"
 	"cyberedge/pkg/service"
 	"github.com/gin-gonic/gin"
@@ -167,4 +168,27 @@ func (h *ResultHandler) MarkEntryAsRead(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "条目已成功标记为已读/未读"})
+}
+
+// ResolveSubdomainIPHandler 处理子域名 IP 解析请求
+func (h *ResultHandler) ResolveSubdomainIPHandler(c *gin.Context) {
+	// 从 URL 参数中获取 resultID 和 entryID
+	resultID := c.Param("id")
+	entryID := c.Param("entry_id")
+
+	// 调用 Service 层方法进行子域名 IP 解析和更新
+	err := h.resultService.ResolveAndUpdateSubdomainIP(resultID, entryID)
+	if err != nil {
+		logging.Error("解析子域名 IP 失败: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":  "解析子域名 IP 失败",
+			"detail": err.Error(),
+		})
+		return
+	}
+
+	// 返回成功响应
+	c.JSON(http.StatusOK, gin.H{
+		"message": "子域名 IP 解析成功并更新",
+	})
 }

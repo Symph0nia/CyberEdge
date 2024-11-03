@@ -27,6 +27,7 @@ type SubdomainData struct {
 type SubdomainEntry struct {
 	ID     primitive.ObjectID `json:"id" bson:"_id,omitempty"` // 唯一标识符
 	Domain string             `json:"Domain"`                  // 子域名
+	IP     string             `json:"IP"`                      // 域名解析的 IP 地址
 	IsRead bool               `json:"IsRead" bson:"is_read"`   // 是否已读，默认未读
 }
 

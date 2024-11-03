@@ -256,6 +256,82 @@ func unmarshalData(data interface{}, target interface{}) error {
 	return nil
 }
 
+// UpdateSubdomainIP 更新指定任务中的子域名解析的 IP 地址
+func (dao *ResultDAO) UpdateSubdomainIP(resultID string, entryID string, ip string) error {
+	logging.Info("正在更新任务 %s 中子域名 %s 的 IP 地址", resultID, entryID)
+
+	// 将任务 ID 和子域名 ID 转换为 ObjectID
+	objID, err := primitive.ObjectIDFromHex(resultID)
+	if err != nil {
+		logging.Error("无效的任务 ID: %s, 错误: %v", resultID, err)
+		return err
+	}
+
+	entryObjID, err := primitive.ObjectIDFromHex(entryID)
+	if err != nil {
+		logging.Error("无效的条目 ID: %s, 错误: %v", entryID, err)
+		return err
+	}
+
+	// 获取任务
+	result, err := dao.GetResultByID(resultID)
+	if err != nil {
+		logging.Error("无法获取任务: %v", err)
+		return err
+	}
+
+	// 检查任务类型为 Subdomain
+	if result.Type != "Subdomain" {
+		return errors.New("任务类型不匹配，无法更新子域名 IP")
+	}
+
+	// 解析 result.Data 为 SubdomainData 结构
+	var subdomainData models.SubdomainData
+	if err := unmarshalData(result.Data, &subdomainData); err != nil {
+		logging.Error("解析子域名数据失败: %v", err)
+		return err
+	}
+
+	// 遍历子域名数据，找到匹配的子域名并更新 IP 地址
+	for i, subdomain := range subdomainData.Subdomains {
+		if subdomain.ID == entryObjID {
+			subdomainData.Subdomains[i].IP = ip // 更新 IP 地址
+			break
+		}
+	}
+
+	// 将更新后的数据赋值回 result.Data
+	result.Data = subdomainData
+
+	// 构造 MongoDB 更新操作，更新整个任务
+	update := bson.M{
+		"$set": bson.M{
+			"data":       result.Data,
+			"updated_at": time.Now(), // 更新更新时间
+		},
+	}
+
+	// 执行更新操作
+	updateResult, err := dao.collection.UpdateOne(
+		context.Background(),
+		bson.M{"_id": objID},
+		update,
+	)
+
+	if err != nil {
+		logging.Error("更新任务 %s 的子域名 %s 的 IP 地址失败: %v", resultID, entryID, err)
+		return err
+	}
+
+	if updateResult.ModifiedCount == 0 {
+		logging.Warn("未找到匹配的任务 %s 进行更新", resultID)
+	} else {
+		logging.Info("成功更新任务 %s 中子域名 %s 的 IP 地址", resultID, entryID)
+	}
+
+	return nil
+}
+
 // DeleteResult 删除指定 ID 的扫描结果
 func (dao *ResultDAO) DeleteResult(id string) error {
 	logging.Info("正在删除扫描结果: %s", id)
