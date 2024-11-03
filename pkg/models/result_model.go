@@ -20,7 +20,14 @@ type Result struct {
 
 // SubdomainData 表示子域名扫描结果的数据结构
 type SubdomainData struct {
-	Subdomains []string `json:"Subdomains"`
+	Subdomains []SubdomainEntry `json:"Subdomains"`
+}
+
+// SubdomainEntry 表示每个子域名的条目
+type SubdomainEntry struct {
+	ID     primitive.ObjectID `json:"id" bson:"_id,omitempty"` // 唯一标识符
+	Domain string             `json:"Domain"`                  // 子域名
+	IsRead bool               `json:"IsRead" bson:"is_read"`   // 是否已读，默认未读
 }
 
 // IPAddressData 表示 IP 地址扫描结果的数据结构

@@ -194,6 +194,19 @@ func (dao *ResultDAO) UpdateEntryReadStatus(resultID string, entryID string, isR
 		}
 		result.Data = paths
 
+	case "Subdomain":
+		var subdomainData models.SubdomainData
+		if err := unmarshalData(result.Data, &subdomainData); err != nil {
+			return err
+		}
+		for i, subdomain := range subdomainData.Subdomains {
+			if subdomain.ID == entryObjID {
+				subdomainData.Subdomains[i].IsRead = isRead
+				break
+			}
+		}
+		result.Data = subdomainData
+
 	default:
 		return errors.New("未知的数据类型")
 	}
