@@ -89,18 +89,25 @@ func (dao *ResultDAO) GetResultsByType(resultType string) ([]*models.Result, err
 func (dao *ResultDAO) UpdateResult(id string, updatedResult *models.Result) error {
 	logging.Info("正在更新扫描结果: %s", id)
 
+	// 将字符串 ID 转换为 ObjectID
 	objID, err := primitive.ObjectIDFromHex(id)
 	if err != nil {
 		logging.Error("无效的结果 ID: %s, 错误: %v", id, err)
 		return err
 	}
 
+	// 构造 MongoDB 更新操作，确保包含 IsRead 字段
 	update := bson.M{
-		"$set": updatedResult,
+		"$set": bson.M{
+			"type":       updatedResult.Type,
+			"target":     updatedResult.Target,
+			"data":       updatedResult.Data,
+			"is_read":    updatedResult.IsRead, // 包含 IsRead 字段
+			"updated_at": time.Now(),           // 手动更新 updated_at 字段
+		},
 	}
 
-	update["$set"].(bson.M)["updated_at"] = time.Now()
-
+	// 执行更新操作
 	updateResult, err := dao.collection.UpdateOne(
 		context.Background(),
 		bson.M{"_id": objID},

@@ -5,6 +5,7 @@ import (
 	"cyberedge/pkg/logging"
 	"cyberedge/pkg/models"
 	"errors"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type ResultService struct {
@@ -100,5 +101,90 @@ func (s *ResultService) DeleteResult(id string) error {
 	}
 
 	logging.Info("通过 Service 成功删除扫描结果: %s", id)
+	return nil
+}
+
+// MarkResultAsRead 根据任务 ID 修改任务的已读状态（支持已读/未读切换）
+func (s *ResultService) MarkResultAsRead(resultID string, isRead bool) error {
+	if resultID == "" {
+		return errors.New("无效的任务 ID")
+	}
+
+	// 获取扫描结果
+	result, err := s.resultDAO.GetResultByID(resultID)
+	if err != nil {
+		logging.Error("获取扫描结果失败: %v", err)
+		return err
+	}
+
+	// 更新已读状态
+	result.IsRead = isRead
+
+	// 保存更新后的扫描结果
+	err = s.resultDAO.UpdateResult(resultID, result)
+	if err != nil {
+		logging.Error("更新扫描结果失败: %v", err)
+		return err
+	}
+
+	logging.Info("成功更新任务 %s 的已读状态为: %v", resultID, isRead)
+	return nil
+}
+
+// MarkEntryAsRead 根据任务 ID 和条目 ID 修改条目（端口/指纹/路径）的已读状态
+func (s *ResultService) MarkEntryAsRead(resultID string, entryID string) error {
+	if resultID == "" || entryID == "" {
+		return errors.New("无效的任务 ID 或条目 ID")
+	}
+
+	// 获取扫描结果
+	result, err := s.resultDAO.GetResultByID(resultID)
+	if err != nil {
+		logging.Error("获取扫描结果失败: %v", err)
+		return err
+	}
+
+	// 将 entryID 转换为 ObjectID
+	entryObjID, err := primitive.ObjectIDFromHex(entryID)
+	if err != nil {
+		logging.Error("无效的条目 ID: %v", err)
+		return err
+	}
+
+	// 遍历扫描结果中的数据，查找对应条目并更新已读状态
+	switch result.Type {
+	case "Port":
+		for _, port := range result.Data.([]*models.Port) {
+			if port.ID == entryObjID {
+				port.IsRead = true
+				break
+			}
+		}
+	case "Fingerprint":
+		for _, fingerprint := range result.Data.([]*models.Fingerprint) {
+			if fingerprint.ID == entryObjID {
+				fingerprint.IsRead = true
+				break
+			}
+		}
+	case "Path":
+		for _, path := range result.Data.([]*models.Path) {
+			if path.ID == entryObjID {
+				path.IsRead = true
+				break
+			}
+		}
+	default:
+		return errors.New("未知的数据类型")
+	}
+
+	// 保存更新后的扫描结果
+	err = s.resultDAO.UpdateResult(resultID, result)
+	if err != nil {
+		logging.Error("更新条目已读状态失败: %v", err)
+		return err
+	}
+
+	logging.Info("成功更新任务 %s 中条目 %s 的已读状态", resultID, entryID)
 	return nil
 }

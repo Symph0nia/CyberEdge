@@ -70,14 +70,14 @@ func (r *Router) SetupRouter() *gin.Engine {
 
 	{
 		// 控制二维码接口状态的API
-		authenticated.GET("/auth/qrcode/status", r.configHandler.GetQRCodeStatus)
-		authenticated.POST("/auth/qrcode/status", r.configHandler.SetQRCodeStatus)
+		authenticated.GET("/auth/qrcode/status", r.configHandler.GetQRCodeStatus)  // 获取二维码状态
+		authenticated.POST("/auth/qrcode/status", r.configHandler.SetQRCodeStatus) // 设置二维码状态
 
 		// 用户管理API
-		authenticated.GET("/users", r.userHandler.GetUsers)
-		authenticated.GET("/users/:account", r.userHandler.GetUser)
-		authenticated.POST("/users", r.userHandler.CreateUser)
-		authenticated.DELETE("/users/:account", r.userHandler.DeleteUser)
+		authenticated.GET("/users", r.userHandler.GetUsers)               // 获取所有用户
+		authenticated.GET("/users/:account", r.userHandler.GetUser)       // 获取单个用户
+		authenticated.POST("/users", r.userHandler.CreateUser)            // 创建新用户
+		authenticated.DELETE("/users/:account", r.userHandler.DeleteUser) // 删除用户
 
 		// 任务管理API
 		authenticated.POST("/tasks", r.taskHandler.CreateTask)          // 创建任务
@@ -86,11 +86,12 @@ func (r *Router) SetupRouter() *gin.Engine {
 		authenticated.POST("/tasks/:id/start", r.taskHandler.StartTask) // 启动单个任务
 
 		// 扫描结果管理API
-		// authenticated.POST("/results", r.resultHandler.CreateResult)               // 创建扫描结果
-		authenticated.GET("/results/:id", r.resultHandler.GetResultByID)           // 获取单个扫描结果
-		authenticated.GET("/results/type/:type", r.resultHandler.GetResultsByType) // 获取指定类型的扫描结果
-		authenticated.PUT("/results/:id", r.resultHandler.UpdateResult)            // 更新扫描结果
-		authenticated.DELETE("/results/:id", r.resultHandler.DeleteResult)         // 删除扫描结果
+		authenticated.GET("/results/:id", r.resultHandler.GetResultByID)                          // 获取单个扫描结果
+		authenticated.GET("/results/type/:type", r.resultHandler.GetResultsByType)                // 获取指定类型的扫描结果
+		authenticated.PUT("/results/:id", r.resultHandler.UpdateResult)                           // 更新扫描结果
+		authenticated.DELETE("/results/:id", r.resultHandler.DeleteResult)                        // 删除扫描结果
+		authenticated.PUT("/results/:id/read", r.resultHandler.MarkResultAsRead)                  // 根据任务 ID 修改任务的已读状态
+		authenticated.PUT("/results/:id/entries/:entry_id/read", r.resultHandler.MarkEntryAsRead) // 根据任务 ID 和条目 ID 修改条目的已读状态
 	}
 
 	return router
