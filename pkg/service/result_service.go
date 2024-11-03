@@ -131,57 +131,24 @@ func (s *ResultService) MarkResultAsRead(resultID string, isRead bool) error {
 	return nil
 }
 
-// MarkEntryAsRead 根据任务 ID 和条目 ID 修改条目（端口/指纹/路径）的已读状态
-func (s *ResultService) MarkEntryAsRead(resultID string, entryID string) error {
+// MarkEntryAsRead 根据任务 ID 和条目 ID 修改条目的已读状态（支持已读/未读切换）
+func (s *ResultService) MarkEntryAsRead(resultID string, entryID string, isRead bool) error {
+	// 验证传入的任务 ID 和条目 ID 是否有效
 	if resultID == "" || entryID == "" {
 		return errors.New("无效的任务 ID 或条目 ID")
 	}
 
-	// 获取扫描结果
-	result, err := s.resultDAO.GetResultByID(resultID)
-	if err != nil {
-		logging.Error("获取扫描结果失败: %v", err)
-		return err
-	}
-
-	// 将 entryID 转换为 ObjectID
+	// 将 entryID 转换为 ObjectID 以便与 MongoDB 数据匹配
 	entryObjID, err := primitive.ObjectIDFromHex(entryID)
 	if err != nil {
 		logging.Error("无效的条目 ID: %v", err)
-		return err
+		return errors.New("无效的条目 ID")
 	}
 
-	// 遍历扫描结果中的数据，查找对应条目并更新已读状态
-	switch result.Type {
-	case "Port":
-		for _, port := range result.Data.([]*models.Port) {
-			if port.ID == entryObjID {
-				port.IsRead = true
-				break
-			}
-		}
-	case "Fingerprint":
-		for _, fingerprint := range result.Data.([]*models.Fingerprint) {
-			if fingerprint.ID == entryObjID {
-				fingerprint.IsRead = true
-				break
-			}
-		}
-	case "Path":
-		for _, path := range result.Data.([]*models.Path) {
-			if path.ID == entryObjID {
-				path.IsRead = true
-				break
-			}
-		}
-	default:
-		return errors.New("未知的数据类型")
-	}
-
-	// 保存更新后的扫描结果
-	err = s.resultDAO.UpdateResult(resultID, result)
+	// 调用 DAO 层的 UpdateEntryReadStatus 方法，传递任务 ID、条目 ID 和 isRead 状态
+	err = s.resultDAO.UpdateEntryReadStatus(resultID, entryObjID.Hex(), isRead)
 	if err != nil {
-		logging.Error("更新条目已读状态失败: %v", err)
+		logging.Error("更新任务 %s 中条目 %s 的已读状态失败: %v", resultID, entryID, err)
 		return err
 	}
 

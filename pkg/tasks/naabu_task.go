@@ -70,16 +70,18 @@ func (n *NaabuTask) runNaabu(ctx context.Context, t *asynq.Task) error {
 				continue
 			}
 
-			portNumber, err := strconv.Atoi(hostPort[1]) // 提取并解析端口号
+			portNumber, err := strconv.Atoi(hostPort[1])
 			if err != nil {
 				logging.Warn("解析端口失败: %s, 错误: %v", portStr, err)
-				continue // 如果解析失败，则跳过该端口
+				continue
 			}
 
 			portList = append(portList, &models.Port{
+				ID:       primitive.NewObjectID(), // 为每个端口生成新的 ObjectID
 				Number:   portNumber,
-				Protocol: "tcp",     // 假设使用 TCP 协议，可以根据需要调整
-				Service:  "unknown", // 可以根据需要设置服务名称
+				Protocol: "tcp",
+				Service:  "unknown",
+				IsRead:   false, // 设置默认为未读
 			})
 		}
 	}

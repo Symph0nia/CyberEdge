@@ -146,14 +146,25 @@ func (h *ResultHandler) MarkResultAsRead(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "任务已成功标记为已读/未读"})
 }
 
-// MarkEntryAsRead 根据任务 ID 和条目 ID 修改条目的已读状态
+// MarkEntryAsRead 根据任务 ID 和条目 ID 修改条目的已读状态（支持已读/未读切换）
 func (h *ResultHandler) MarkEntryAsRead(c *gin.Context) {
-	resultID := c.Param("result_id")
+	resultID := c.Param("id")
 	entryID := c.Param("entry_id")
 
-	if err := h.resultService.MarkEntryAsRead(resultID, entryID); err != nil {
+	// 从请求体获取 isRead 状态
+	var request struct {
+		IsRead bool `json:"isRead"`
+	}
+
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求格式错误"})
+		return
+	}
+
+	// 调用服务层方法，传入 isRead 状态
+	if err := h.resultService.MarkEntryAsRead(resultID, entryID, request.IsRead); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "无法更新条目的已读状态"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "条目已成功标记为已读"})
+	c.JSON(http.StatusOK, gin.H{"message": "条目已成功标记为已读/未读"})
 }

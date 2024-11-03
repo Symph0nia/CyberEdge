@@ -4,6 +4,7 @@ import (
 	"context"
 	"cyberedge/pkg/logging"
 	"cyberedge/pkg/models"
+	"errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -123,6 +124,120 @@ func (dao *ResultDAO) UpdateResult(id string, updatedResult *models.Result) erro
 		logging.Warn("未找到匹配的扫描结果进行更新: %s", id)
 	} else {
 		logging.Info("成功更新扫描结果: %s", id)
+	}
+
+	return nil
+}
+
+// UpdateEntryReadStatus 更新指定任务中的指定条目的已读状态
+func (dao *ResultDAO) UpdateEntryReadStatus(resultID string, entryID string, isRead bool) error {
+	logging.Info("正在更新任务 %s 中条目 %s 的已读状态", resultID, entryID)
+
+	// 将任务 ID 和条目 ID 转换为 ObjectID
+	objID, err := primitive.ObjectIDFromHex(resultID)
+	if err != nil {
+		logging.Error("无效的任务 ID: %s, 错误: %v", resultID, err)
+		return err
+	}
+
+	entryObjID, err := primitive.ObjectIDFromHex(entryID)
+	if err != nil {
+		logging.Error("无效的条目 ID: %s, 错误: %v", entryID, err)
+		return err
+	}
+
+	// 获取任务
+	result, err := dao.GetResultByID(resultID)
+	if err != nil {
+		logging.Error("无法获取任务: %v", err)
+		return err
+	}
+
+	// 根据任务类型处理不同的数据结构
+	switch result.Type {
+	case "Port":
+		var portData models.PortData
+		if err := unmarshalData(result.Data, &portData); err != nil {
+			return err
+		}
+		for _, port := range portData.Ports {
+			if port.ID == entryObjID {
+				port.IsRead = isRead
+				break
+			}
+		}
+		result.Data = portData
+
+	case "Fingerprint":
+		var fingerprints []*models.Fingerprint
+		if err := unmarshalData(result.Data, &fingerprints); err != nil {
+			return err
+		}
+		for _, fingerprint := range fingerprints {
+			if fingerprint.ID == entryObjID {
+				fingerprint.IsRead = isRead
+				break
+			}
+		}
+		result.Data = fingerprints
+
+	case "Path":
+		var paths []*models.Path
+		if err := unmarshalData(result.Data, &paths); err != nil {
+			return err
+		}
+		for _, path := range paths {
+			if path.ID == entryObjID {
+				path.IsRead = isRead
+				break
+			}
+		}
+		result.Data = paths
+
+	default:
+		return errors.New("未知的数据类型")
+	}
+
+	// 构造 MongoDB 更新操作，更新整个任务
+	update := bson.M{
+		"$set": bson.M{
+			"data":       result.Data,
+			"updated_at": time.Now(),
+		},
+	}
+
+	// 执行更新操作
+	updateResult, err := dao.collection.UpdateOne(
+		context.Background(),
+		bson.M{"_id": objID},
+		update,
+	)
+
+	if err != nil {
+		logging.Error("更新任务 %s 的条目 %s 的已读状态失败: %v", resultID, entryID, err)
+		return err
+	}
+
+	if updateResult.ModifiedCount == 0 {
+		logging.Warn("未找到匹配的任务 %s 进行更新", resultID)
+	} else {
+		logging.Info("成功更新任务 %s 中条目 %s 的已读状态", resultID, entryID)
+	}
+
+	return nil
+}
+
+// unmarshalData 是一个辅助函数，用于将 interface{} 类型的数据解析为指定的结构体
+func unmarshalData(data interface{}, target interface{}) error {
+	bsonData, err := bson.Marshal(data)
+	if err != nil {
+		logging.Error("序列化数据失败: %v", err)
+		return errors.New("序列化数据失败")
+	}
+
+	if err := bson.Unmarshal(bsonData, target); err != nil {
+		logging.Error("解析数据失败: %v", err)
+		return errors.New("解析数据失败")
 	}
 
 	return nil
