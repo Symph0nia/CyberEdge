@@ -37,7 +37,7 @@ func (n *NaabuTask) runNaabu(ctx context.Context, t *asynq.Task) error {
 	var payload struct {
 		Host     string `json:"target"`
 		TaskID   string `json:"task_id"`
-		ParentID string `json:"parent_id,omitempty"` // 可选参数，用于关联现有记录
+		ParentID string `json:"parnt_id,omitempty"` // 可选参数，用于关联现有记录
 	}
 
 	if err := json.Unmarshal(t.Payload(), &payload); err != nil {

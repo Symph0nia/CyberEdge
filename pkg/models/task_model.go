@@ -15,12 +15,13 @@ const (
 )
 
 type Task struct {
-	ID          primitive.ObjectID `bson:"_id,omitempty" json:"id,omitempty"`
-	Type        string             `bson:"type" json:"type"`
-	Status      TaskStatus         `bson:"status" json:"status"`
-	Payload     string             `bson:"payload" json:"payload"`
-	CreatedAt   time.Time          `bson:"created_at" json:"created_at"`
-	UpdatedAt   time.Time          `bson:"updated_at" json:"updated_at"`
-	CompletedAt *time.Time         `bson:"completed_at,omitempty" json:"completed_at,omitempty"`
-	Result      string             `bson:"result,omitempty" json:"result,omitempty"`
+	ID          primitive.ObjectID  `bson:"_id,omitempty" json:"id,omitempty"`
+	Type        string              `bson:"type" json:"type"`
+	Status      TaskStatus          `bson:"status" json:"status"`
+	Payload     string              `bson:"payload" json:"payload"`
+	ParentID    *primitive.ObjectID `bson:"parent_id,omitempty" json:"parent_id,omitempty"`
+	CreatedAt   time.Time           `bson:"created_at" json:"created_at"`
+	UpdatedAt   time.Time           `bson:"updated_at" json:"updated_at"`
+	CompletedAt *time.Time          `bson:"completed_at,omitempty" json:"completed_at,omitempty"`
+	Result      string              `bson:"result,omitempty" json:"result,omitempty"`
 }

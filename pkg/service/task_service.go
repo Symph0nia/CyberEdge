@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/hibiken/asynq"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type TaskService struct {
@@ -30,7 +31,7 @@ func NewTaskService(taskDAO *dao.TaskDAO, asynqClient *asynq.Client) *TaskServic
 }
 
 // CreateTask 创建一个新的通用任务并保存到数据库
-func (s *TaskService) CreateTask(taskType string, payload interface{}) error {
+func (s *TaskService) CreateTask(taskType string, payload interface{}, parentID *primitive.ObjectID) error {
 	logging.Info("正在创建任务: 类型 %s", taskType)
 
 	var payloadBytes []byte
@@ -50,9 +51,10 @@ func (s *TaskService) CreateTask(taskType string, payload interface{}) error {
 
 	// 创建任务对象
 	task := &models.Task{
-		Type:    taskType,
-		Payload: string(payloadBytes), // 将 []byte 转换为 string
-		Status:  models.TaskStatusPending,
+		Type:     taskType,
+		Payload:  string(payloadBytes),
+		Status:   models.TaskStatusPending,
+		ParentID: parentID,
 	}
 
 	// 将任务保存到数据库
@@ -68,11 +70,16 @@ func (s *TaskService) CreateTask(taskType string, payload interface{}) error {
 func (s *TaskService) StartTask(task *models.Task) error {
 	logging.Info("正在启动任务: ID %s, 类型 %s", task.ID.Hex(), task.Type)
 
-	// 创建 payload，包含数据库的任务 ID
-	payload, err := json.Marshal(map[string]string{
+	payloadMap := map[string]interface{}{
 		"task_id": task.ID.Hex(),
-		"target":  task.Payload, // 或其他相关数据
-	})
+		"target":  task.Payload,
+	}
+
+	if task.ParentID != nil {
+		payloadMap["parent_id"] = task.ParentID.Hex()
+	}
+
+	payload, err := json.Marshal(payloadMap)
 	if err != nil {
 		logging.Error("序列化任务载荷失败: %v", err)
 		return err
