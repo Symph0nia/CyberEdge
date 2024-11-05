@@ -10,12 +10,12 @@ import (
 // Result 表示一次扫描结果，使用 Type 字段区分不同类型
 type Result struct {
 	ID        primitive.ObjectID  `json:"id" bson:"_id,omitempty"`
-	ParentID  *primitive.ObjectID `json:"parent_id,omitempty" bson:"parent_id,omitempty"` // 上级 ID，可为空
-	Type      string              `json:"Type"`                                           // "Subdomain", "IP", "Port" 等
-	Target    string              `json:"Target"`                                         // 扫描目标，如域名或 IP 地址
-	Timestamp time.Time           `json:"Timestamp"`                                      // 扫描时间
-	Data      interface{}         `json:"Data"`                                           // 存储具体的扫描数据
-	IsRead    bool                `json:"IsRead" bson:"is_read"`                          // 是否已读，默认未读
+	ParentID  *primitive.ObjectID `json:"ParentID,omitempty" bson:"ParentID,omitempty"` // 上级 ID，可为空
+	Type      string              `json:"Type"`                                         // "Subdomain", "IP", "Port" 等
+	Target    string              `json:"Target"`                                       // 扫描目标，如域名或 IP 地址
+	Timestamp time.Time           `json:"Timestamp"`                                    // 扫描时间
+	Data      interface{}         `json:"Data"`                                         // 存储具体的扫描数据
+	IsRead    bool                `json:"IsRead" bson:"is_read"`                        // 是否已读，默认未读
 }
 
 // SubdomainData 表示子域名扫描结果的数据结构
