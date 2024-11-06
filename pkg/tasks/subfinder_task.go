@@ -1,7 +1,6 @@
 package tasks
 
 import (
-	"bytes"
 	"context"
 	"cyberedge/pkg/dao"
 	"cyberedge/pkg/logging"
@@ -9,6 +8,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/hibiken/asynq"
+	"io/ioutil"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -36,7 +37,7 @@ func (s *SubfinderTask) runSubfinder(ctx context.Context, t *asynq.Task) error {
 	var payload struct {
 		Domain   string `json:"target"`
 		TaskID   string `json:"task_id"`
-		ParentID string `json:"parent_id,omitempty"` // 可选参数，用于关联现有记录
+		ParentID string `json:"parent_id,omitempty"`
 	}
 
 	// 解析任务载荷
@@ -50,28 +51,38 @@ func (s *SubfinderTask) runSubfinder(ctx context.Context, t *asynq.Task) error {
 
 	logging.Info("开始执行 Subfinder 任务: %s", payload.Domain)
 
-	// 执行 Subfinder 命令
-	cmd := exec.Command("subfinder", "-d", payload.Domain, "-silent")
-	var out bytes.Buffer
-	cmd.Stdout = &out
+	// 创建临时文件
+	tempFile, err := ioutil.TempFile("", "subfinder-result-*.txt")
+	if err != nil {
+		return fmt.Errorf("创建临时文件失败: %v", err)
+	}
+	defer os.Remove(tempFile.Name()) // 确保在函数结束时删除临时文件
 
+	// 执行 Subfinder 命令，将结果输出到临时文件
+	cmd := exec.Command("subfinder", "-d", payload.Domain, "-silent", "-o", tempFile.Name())
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("执行 subfinder 命令失败: %v", err)
 	}
 
-	// 获取执行结果
-	result := out.String()
-	logging.Info("Subfinder 任务完成，结果: %s", result)
+	// 读取临时文件内容
+	result, err := ioutil.ReadFile(tempFile.Name())
+	if err != nil {
+		return fmt.Errorf("读取 Subfinder 结果文件失败: %v", err)
+	}
+
+	logging.Info("Subfinder 任务完成，结果已保存到文件: %s", tempFile.Name())
 
 	// 解析子域名并创建 SubdomainEntry 列表
-	subdomains := strings.Split(strings.TrimSpace(result), "\n")
+	subdomains := strings.Split(strings.TrimSpace(string(result)), "\n")
 	var subdomainEntries []models.SubdomainEntry
 	for _, subdomain := range subdomains {
-		subdomainEntries = append(subdomainEntries, models.SubdomainEntry{
-			ID:     primitive.NewObjectID(),
-			Domain: subdomain,
-			IsRead: false, // 默认未读
-		})
+		if subdomain != "" {
+			subdomainEntries = append(subdomainEntries, models.SubdomainEntry{
+				ID:     primitive.NewObjectID(),
+				Domain: subdomain,
+				IsRead: false, // 默认未读
+			})
+		}
 	}
 
 	// 创建 SubdomainData 对象
@@ -103,6 +114,8 @@ func (s *SubfinderTask) runSubfinder(ctx context.Context, t *asynq.Task) error {
 		logging.Error("存储扫描结果失败: %v", err)
 		return err
 	}
+
+	logging.Info("成功处理并存储 Subfinder 结果，共找到 %d 个子域名", len(subdomainEntries))
 
 	return nil
 }
