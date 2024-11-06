@@ -11,11 +11,15 @@ import (
 
 type ResultHandler struct {
 	resultService *service.ResultService
+	dnsService    *service.DNSService
 }
 
 // NewResultHandler 创建一个新的 ResultHandler 实例
-func NewResultHandler(resultService *service.ResultService) *ResultHandler {
-	return &ResultHandler{resultService: resultService}
+func NewResultHandler(resultService *service.ResultService, dnsService *service.DNSService) *ResultHandler {
+	return &ResultHandler{
+		resultService: resultService,
+		dnsService:    dnsService,
+	}
 }
 
 // CreateResult 处理创建扫描结果的请求
@@ -176,8 +180,8 @@ func (h *ResultHandler) ResolveSubdomainIPHandler(c *gin.Context) {
 	resultID := c.Param("id")
 	entryID := c.Param("entry_id")
 
-	// 调用 Service 层方法进行子域名 IP 解析和更新
-	err := h.resultService.ResolveAndUpdateSubdomainIP(resultID, entryID)
+	// 调用 DNSService 层方法进行子域名 IP 解析和更新
+	err := h.dnsService.ResolveAndUpdateSubdomainIP(resultID, entryID)
 	if err != nil {
 		logging.Error("解析子域名 IP 失败: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
