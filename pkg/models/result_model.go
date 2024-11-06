@@ -64,12 +64,29 @@ type Fingerprint struct {
 	IsRead  bool               `json:"IsRead" bson:"is_read"` // 是否已读，默认未读
 }
 
-// Path 表示在 Web 服务中发现的 URL 路径
+// PathEntry 表示单个路径扫描结果
+type PathEntry struct {
+	ID     primitive.ObjectID `bson:"_id,omitempty" json:"id,omitempty"`
+	Path   string             `bson:"path" json:"path"`
+	Status int                `bson:"status" json:"status"`
+	Length int                `bson:"length" json:"length"`
+	Words  int                `bson:"words" json:"words"`
+	Lines  int                `bson:"lines" json:"lines"`
+	IsRead bool               `bson:"is_read" json:"is_read"`
+}
+
+// PathData 表示路径扫描结果的数据结构
+type PathData struct {
+	Paths []*Path `json:"Paths" bson:"paths"`
+}
+
+// Path 表示一个路径及其相关信息
 type Path struct {
-	ID          primitive.ObjectID `json:"id" bson:"_id,omitempty"` // 唯一标识符
-	URL         string             `json:"URL"`
-	StatusCode  int                `json:"StatusCode"`
-	ContentType string             `json:"ContentType"`
-	Size        int64              `json:"Size"`
-	IsRead      bool               `json:"IsRead" bson:"is_read"` // 是否已读，默认未读
+	ID     primitive.ObjectID `json:"id" bson:"_id,omitempty"` // 唯一标识符
+	Path   string             `json:"path" bson:"path"`
+	Status int                `json:"status" bson:"status"`
+	Length int                `json:"length" bson:"length"`
+	Words  int                `json:"words" bson:"words"`
+	Lines  int                `json:"lines" bson:"lines"`
+	IsRead bool               `json:"isRead" bson:"is_read"` // 是否已读，默认未读
 }
