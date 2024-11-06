@@ -14,6 +14,7 @@ require (
 )
 
 require (
+	github.com/Ullaakut/nmap v2.0.2+incompatible // indirect
 	github.com/boombuler/barcode v1.0.1-0.20190219062509-6c824513bacc // indirect
 	github.com/bytedance/sonic v1.11.6 // indirect
 	github.com/bytedance/sonic/loader v0.1.1 // indirect

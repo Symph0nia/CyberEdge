@@ -41,16 +41,20 @@ type PortData struct {
 	Ports []*Port `json:"Ports"`
 }
 
-// Port 表示一个开放端口及其相关信息
+// Port 表示一个端口及其相关信息
 type Port struct {
 	ID           primitive.ObjectID `json:"id" bson:"_id,omitempty"` // 唯一标识符
-	Number       int                `json:"Number"`
-	Protocol     string             `json:"Protocol"`
-	Service      string             `json:"Service"`
-	Banner       string             `json:"Banner"`
-	Fingerprints []*Fingerprint     `json:"Fingerprints,omitempty"` // 指纹信息
-	Paths        []*Path            `json:"Paths,omitempty"`        // URL路径信息
-	IsRead       bool               `json:"IsRead" bson:"is_read"`  // 是否已读，默认未读
+	Number       int                `json:"number" bson:"number"`
+	Protocol     string             `json:"protocol" bson:"protocol"`
+	State        string             `json:"state" bson:"state"`                                   // 端口状态（如 open, closed, filtered）
+	Service      string             `json:"service" bson:"service"`                               // 服务名称
+	Version      string             `json:"version" bson:"version,omitempty"`                     // 服务版本
+	Banner       string             `json:"banner" bson:"banner,omitempty"`                       // 服务横幅信息
+	Product      string             `json:"product" bson:"product,omitempty"`                     // 产品名称
+	ExtraInfo    string             `json:"extraInfo" bson:"extra_info,omitempty"`                // 额外信息
+	Fingerprints []*Fingerprint     `json:"fingerprints,omitempty" bson:"fingerprints,omitempty"` // 指纹信息
+	Paths        []*Path            `json:"paths,omitempty" bson:"paths,omitempty"`               // URL路径信息
+	IsRead       bool               `json:"isRead" bson:"is_read"`                                // 是否已读，默认未读
 }
 
 // Fingerprint 表示在端口上识别到的服务或应用的特征
