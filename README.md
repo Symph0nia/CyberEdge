@@ -1,81 +1,78 @@
-# CyberEdge 互联网综合扫描 攻击面测绘
+# CyberEdge
 
-## 0x01 简介
+## 简洁而强大的互联网资产测绘工具
 
-CyberEdge是一款基于已有扫描器进行集成的互联网综合扫描器，可用于网络安全行业进行各种测试。
+CyberEdge 是一款精心设计的互联网资产测绘工具，为网络安全专业人士提供精准、高效的扫描体验。
 
-CyberEdge采用 域名——子域名——IP——端口——目录——指纹——漏洞 结构进行综合扫描。
+## 核心特性
 
-## 0x02 更新日志
+- **全面扫描**：从域名到漏洞，层层深入
+- **直观界面**：清晰展示资产，一目了然
+- **高效集成**：自动化资产关联，提升工作效率
+- **用户友好**：简洁的操作界面，复杂变简单
+- **性能优化**：多线程执行，快速完成任务
 
-##### 本项目高频更新，请确保每次都进行Pull拉取更新操作
+## 技术细节
 
-**2024-11-01 目前重构已经接近尾声，请期待全新设计及全新UI，旧版本即将弃用，该分支将会移动到废弃分支。**
+- 后端：Go Gin
+- 前端：Vue3
+- 数据库：MongoDB
+- 任务队列：Asynq
 
-2024-05-04 V0.0.8版本：
+## 核心组件
 
-1、重构数据库结构，为所有资产添加上游资产字段，方便溯源。
+- 子域名扫描: Subfinder
+- 端口扫描: Nmap
+- 路径扫描: Ffuf
 
-2、优化图表功能，具体信息和样式还有待进一步优化。
+## 界面预览
 
-3、修复了已知的bug
+![Home](https://raw.githubusercontent.com/ZacharyZcR/CyberEdge/main/image/Home.png)
 
-## 0x03 优点
+![Login](https://raw.githubusercontent.com/ZacharyZcR/CyberEdge/main/image/Login.png)
 
-GUI界面，清晰展示所有资产。
+![Register](https://raw.githubusercontent.com/ZacharyZcR/CyberEdge/main/image/Register.png)
 
-高自动化集成度，便利于资产之间的互相关联。
+![Tools](https://raw.githubusercontent.com/ZacharyZcR/CyberEdge/main/image/Tools.png)
 
-易用性，尽可能的设计了常用简单的接口供用户使用。
+![User](https://raw.githubusercontent.com/ZacharyZcR/CyberEdge/main/image/User.png)
 
-部署便利，一键部署。
+![System](https://raw.githubusercontent.com/ZacharyZcR/CyberEdge/main/image/System.png)
 
-任务调度，多线程执行，速度较快。
+![Task](https://raw.githubusercontent.com/ZacharyZcR/CyberEdge/main/image/Task.png)
 
-提供一键扫描、分步扫描功能，减少人工成本。
+![Work](https://raw.githubusercontent.com/ZacharyZcR/CyberEdge/main/image/Work.png)
 
-代码开源，便于借鉴与参考。
+## 赞助
 
-项目长期支持，更新速度较快。
+![YZA](https://raw.githubusercontent.com/ZacharyZcR/CyberEdge/main/image/YZA.png)
 
-界面展示：
+![MST](https://raw.githubusercontent.com/ZacharyZcR/CyberEdge/main/image/MST.png)
 
-![2](https://raw.githubusercontent.com/ZacharyZcR/CyberEdge/main/image/2.png)
+![DK](https://raw.githubusercontent.com/ZacharyZcR/CyberEdge/main/image/DK.png)
 
-资产地图：
+## 许可证
 
-![3](https://raw.githubusercontent.com/ZacharyZcR/CyberEdge/main/image/3.png)
+CyberEdge 项目采用 **GNU Affero 通用公共许可证 v3.0 (AGPL-3.0)**，这是一款确保软件自由使用、修改和分发的许可证，并且特别适用于网络应用。AGPL-3.0 要求在软件被修改、部署并对外提供服务时，必须公开相关的源代码。
 
-## 0x04 技术栈
+## 核心条款
 
-后端：Python Django
+- **自由使用**：您可以自由地使用、修改和分发本项目的源代码。
+- **开源义务**：如果您修改了 CyberEdge，并将其作为服务提供给第三方使用，您必须公开您的修改内容及源代码。
+- **衍生作品**：任何基于本项目的修改或衍生作品，都需要以 AGPL-3.0 许可证发布，继续保持开源。
 
-前端：Vue2 Tdesign
+## 重要提示
 
-数据库：Postgre
+AGPL-3.0 扩展了 GNU GPL 的要求，特别针对网络应用的场景。无论是通过本地安装还是通过网络提供服务，您都需要遵守许可证的开源义务。这确保了用户在使用软件时依然享有自由获取源代码的权利。更多详细信息请参阅 [AGPL-3.0 官方文档](https://www.gnu.org/licenses/agpl-3.0.html)。 **简要声明**：
 
-## 0x05 部署方法
+- CyberEdge 是自由软件，您可以在 AGPL-3.0 许可证下重新发布和修改，但需要保留此声明。
 
-```bash
-docker-compose up -d
-```
+## 联系方式
 
-前端位于4567端口
-
-后端位于1234端口
-
-## 0x06 使用的组件
-
-子域名扫描: OneForAll
-
-端口扫描: Nmap
-
-路径扫描: ffuf
-
-## 0x07 交流相关
-
-作者邮箱：PayasoNorahC@protonmail.com
+邮箱：PayasoNorahC@protonmail.com
 
 QQ群：
 
-![img](https://raw.githubusercontent.com/ZacharyZcR/CyberEdge/main/image/QQ.jpg)
+![QQ](https://raw.githubusercontent.com/ZacharyZcR/CyberEdge/main/image/QQ.jpg)
+
+CyberEdge：简洁、高效、精准的资产测绘工具，为您的网络安全保驾护航。
