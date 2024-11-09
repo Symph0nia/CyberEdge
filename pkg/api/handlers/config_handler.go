@@ -39,3 +39,66 @@ func (h *ConfigHandler) SetQRCodeStatus(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"status": "二维码接口状态已更新", "enabled": request.Enabled})
 }
+
+// GetSystemInfo 获取系统信息的API接口
+func (h *ConfigHandler) GetSystemInfo(c *gin.Context) {
+	// 创建一个map来存储所有系统信息
+	systemInfo := make(map[string]interface{})
+
+	// 获取程序运行目录
+	currentDir, err := h.configService.GetCurrentDirectory()
+	if err != nil {
+		systemInfo["currentDirectory"] = "获取失败: " + err.Error()
+	} else {
+		systemInfo["currentDirectory"] = currentDir
+	}
+
+	// 获取本机IP
+	localIP, err := h.configService.GetLocalIP()
+	if err != nil {
+		systemInfo["localIP"] = "获取失败: " + err.Error()
+	} else {
+		systemInfo["localIP"] = localIP
+	}
+
+	// 获取外网IP
+	publicIP, err := h.configService.GetPublicIP()
+	if err != nil {
+		systemInfo["publicIP"] = "获取失败: " + err.Error()
+	} else {
+		systemInfo["publicIP"] = publicIP
+	}
+
+	// 获取系统内核版本
+	kernelVersion, err := h.configService.GetKernelVersion()
+	if err != nil {
+		systemInfo["kernelVersion"] = "获取失败: " + err.Error()
+	} else {
+		systemInfo["kernelVersion"] = kernelVersion
+	}
+
+	// 获取系统发行版信息
+	osDistribution, err := h.configService.GetOSDistribution()
+	if err != nil {
+		systemInfo["osDistribution"] = "获取失败: " + err.Error()
+	} else {
+		systemInfo["osDistribution"] = osDistribution
+	}
+
+	// 获取程序运行权限
+	privileges, err := h.configService.GetCurrentPrivileges()
+	if err != nil {
+		systemInfo["privileges"] = "获取失败: " + err.Error()
+	} else {
+		systemInfo["privileges"] = privileges
+	}
+
+	// 返回所有系统信息
+	c.JSON(http.StatusOK, gin.H{
+		"status": "success",
+		"data": gin.H{
+			"systemInfo": systemInfo,
+		},
+		"message": "系统信息获取成功",
+	})
+}

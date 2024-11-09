@@ -59,7 +59,7 @@ func (f *FfufTask) runFfuf(ctx context.Context, t *asynq.Task) error {
 	defer os.Remove(tempFile.Name()) // 确保在函数结束时删除临时文件
 
 	// 执行 ffuf 命令，将结果输出到临时文件
-	cmd := exec.Command("ffuf", "-u", payload.Target+"/FUZZ", "-w", "/path/to/wordlist.txt", "-o", tempFile.Name(), "-of", "json")
+	cmd := exec.Command("ffuf", "-u", payload.Target+"/FUZZ", "-w", "./wordlist/test.txt", "-o", tempFile.Name(), "-of", "json")
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("执行 ffuf 命令失败: %v", err)
 	}
