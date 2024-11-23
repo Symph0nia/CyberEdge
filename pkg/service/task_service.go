@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"github.com/hibiken/asynq"
 	"go.mongodb.org/mongo-driver/bson/primitive"
-	"strings"
 )
 
 type TaskService struct {
@@ -134,15 +133,9 @@ func (s *TaskService) GetAllTasks() ([]models.Task, error) {
 	return tasks, nil
 }
 
+// DeleteTask 删除指定的任务
 func (s *TaskService) DeleteTask(id string) error {
 	logging.Info("正在删除任务: %s", id)
-
-	// 1. 先获取任务信息
-	task, err := s.taskDAO.GetTaskByID(id)
-	if err != nil {
-		logging.Error("获取任务信息失败: %s, 错误: %v", id, err)
-		return err
-	}
 
 	// 2. 从数据库中删除任务
 	if err := s.taskDAO.DeleteTask(id); err != nil {
@@ -159,25 +152,50 @@ func (s *TaskService) DeleteTask(id string) error {
 	queues, err := inspector.Queues()
 	if err != nil {
 		logging.Error("获取队列列表失败: %v", err)
-		return nil // 即使获取队列失败，我们也已经从数据库删除了任务，所以返回nil
+		return nil
 	}
 
-	// 构造任务key
-	taskKey := fmt.Sprintf("%s", task.ID.Hex()) // 修改任务key的构造方式
-
-	// 遍历所有存在的队列
+	// 遍历所有队列
 	for _, queue := range queues {
-		err = inspector.DeleteTask(queue, taskKey)
-		if err != nil {
-			if strings.Contains(err.Error(), "task not found") {
-				logging.Info("任务在队列[%s]中未找到: %s", queue, id)
+		// 检查各种状态的任务列表
+		taskLists := []struct {
+			name     string
+			listFunc func(string, ...asynq.ListOption) ([]*asynq.TaskInfo, error)
+		}{
+			{"待处理", inspector.ListPendingTasks},
+			{"进行中", inspector.ListActiveTasks},
+			{"已调度", inspector.ListScheduledTasks},
+			{"重试中", inspector.ListRetryTasks},
+			{"已归档", inspector.ListArchivedTasks},
+			{"已完成", inspector.ListCompletedTasks},
+		}
+
+		// 遍历所有状态的任务
+		for _, tl := range taskLists {
+			tasks, err := tl.listFunc(queue)
+			if err != nil {
+				logging.Error("获取队列[%s]%s任务列表失败: %v", queue, tl.name, err)
 				continue
 			}
-			logging.Error("从Asynq队列[%s]删除任务失败: %s, 错误: %v", queue, id, err)
-			// 继续尝试其他队列，不要因为一个队列失败就中断
-			continue
+
+			// 遍历任务找到匹配的任务ID
+			for _, t := range tasks {
+				var payloadMap map[string]interface{}
+				if err := json.Unmarshal(t.Payload, &payloadMap); err != nil {
+					continue
+				}
+
+				// 检查任务ID是否匹配
+				if taskID, ok := payloadMap["task_id"].(string); ok && taskID == id {
+					err = inspector.DeleteTask(queue, t.ID)
+					if err != nil {
+						logging.Error("从队列[%s]删除%s任务失败: %v", queue, tl.name, err)
+						continue
+					}
+					logging.Info("成功从队列[%s]删除%s任务: %s", queue, tl.name, id)
+				}
+			}
 		}
-		logging.Info("成功从Asynq队列[%s]删除任务: %s", queue, id)
 	}
 
 	logging.Info("成功删除任务: %s", id)
