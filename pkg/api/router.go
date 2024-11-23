@@ -74,8 +74,9 @@ func (r *Router) SetupRouter() *gin.Engine {
 		authenticated.GET("/auth/qrcode/status", r.configHandler.GetQRCodeStatus)  // 获取二维码状态
 		authenticated.POST("/auth/qrcode/status", r.configHandler.SetQRCodeStatus) // 设置二维码状态
 
-		// 添加系统信息获取接口
-		authenticated.GET("/system/info", r.configHandler.GetSystemInfo) // 获取系统信息
+		// 系统配置相关API
+		authenticated.GET("/system/info", r.configHandler.GetSystemInfo)   // 获取系统信息
+		authenticated.GET("/system/tools", r.configHandler.GetToolsStatus) // 获取工具安装状态
 
 		// 用户管理API
 		authenticated.GET("/users", r.userHandler.GetUsers)               // 获取所有用户

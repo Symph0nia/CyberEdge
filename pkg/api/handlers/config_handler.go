@@ -102,3 +102,55 @@ func (h *ConfigHandler) GetSystemInfo(c *gin.Context) {
 		"message": "系统信息获取成功",
 	})
 }
+
+// GetToolsStatus 获取工具安装状态的API接口
+func (h *ConfigHandler) GetToolsStatus(c *gin.Context) {
+	// 获取工具安装状态
+	toolStatus, err := h.configService.CheckToolsInstallation()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"status":  "error",
+			"message": "获取工具状态失败",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// 创建工具版本信息映射
+	toolVersions := make(map[string]string)
+	tools := []string{"nmap", "ffuf", "subfinder", "httpx"}
+
+	// 尝试获取已安装工具的版本信息
+	for _, tool := range tools {
+		if toolStatus.GetToolStatus(tool) {
+			version, err := h.configService.GetToolVersion(tool)
+			if err == nil {
+				toolVersions[tool] = version
+			}
+		}
+	}
+
+	// 构造响应数据
+	toolsInfo := map[string]interface{}{
+		"installedStatus": map[string]bool{
+			"Nmap":      toolStatus.Nmap,
+			"Ffuf":      toolStatus.Ffuf,
+			"Subfinder": toolStatus.Subfinder,
+			"HttpX":     toolStatus.HttpX,
+		},
+	}
+
+	// 如果有版本信息，添加到响应中
+	if len(toolVersions) > 0 {
+		toolsInfo["versions"] = toolVersions
+	}
+
+	// 返回响应
+	c.JSON(http.StatusOK, gin.H{
+		"status": "success",
+		"data": gin.H{
+			"toolsInfo": toolsInfo,
+		},
+		"message": "工具状态检测成功",
+	})
+}

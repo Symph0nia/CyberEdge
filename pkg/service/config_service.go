@@ -17,6 +17,14 @@ type ConfigService struct {
 	configDAO *dao.ConfigDAO
 }
 
+// ToolStatus 存储工具的安装状态
+type ToolStatus struct {
+	Nmap      bool `json:"nmap"`
+	Ffuf      bool `json:"ffuf"`
+	Subfinder bool `json:"subfinder"`
+	HttpX     bool `json:"httpx"`
+}
+
 func NewConfigService(configDAO *dao.ConfigDAO) *ConfigService {
 	return &ConfigService{configDAO: configDAO}
 }
@@ -234,4 +242,150 @@ func (s *ConfigService) GetCurrentPrivileges() (string, error) {
 
 	logging.Info("成功获取程序运行权限: %s", info)
 	return info, nil
+}
+
+// CheckToolsInstallation 检查所有工具的安装状态
+func (s *ConfigService) CheckToolsInstallation() (*ToolStatus, error) {
+	logging.Info("正在检查工具安装状态")
+
+	status := &ToolStatus{}
+
+	if runtime.GOOS == "windows" {
+		// Windows系统使用WMI检查
+		status.Nmap = s.checkWindowsToolExists("nmap.exe")
+		status.Ffuf = s.checkWindowsToolExists("ffuf.exe")
+		status.Subfinder = s.checkWindowsToolExists("subfinder.exe")
+		status.HttpX = s.checkWindowsToolExists("httpx.exe")
+	} else {
+		// Unix-based系统使用which命令检查
+		status.Nmap = s.checkUnixToolExists("nmap")
+		status.Ffuf = s.checkUnixToolExists("ffuf")
+		status.Subfinder = s.checkUnixToolExists("subfinder")
+		status.HttpX = s.checkUnixToolExists("httpx")
+	}
+
+	logging.Info("工具安装状态检查完成: Nmap=%v, Ffuf=%v, Subfinder=%v, HttpX=%v",
+		status.Nmap, status.Ffuf, status.Subfinder, status.HttpX)
+
+	return status, nil
+}
+
+// checkWindowsToolExists 使用WMI检查Windows系统中是否存在指定工具
+func (s *ConfigService) checkWindowsToolExists(toolName string) bool {
+	type Win32_Process struct {
+		ExecutablePath string
+	}
+
+	logging.Info("检查Windows工具: %s", toolName)
+
+	query := fmt.Sprintf("SELECT ExecutablePath FROM Win32_Process WHERE Name LIKE '%%%s%%'", toolName)
+	var processes []Win32_Process
+	err := wmi.Query(query, &processes)
+
+	if err != nil {
+		logging.Error("WMI查询工具[%s]失败: %v", toolName, err)
+		return false
+	}
+
+	// 尝试执行命令验证
+	cmd := exec.Command("where", toolName)
+	if output, err := cmd.Output(); err == nil && len(output) > 0 {
+		logging.Info("工具[%s]已安装", toolName)
+		return true
+	}
+
+	logging.Info("工具[%s]未安装", toolName)
+	return false
+}
+
+// checkUnixToolExists 检查Unix-based系统中是否存在指定工具
+func (s *ConfigService) checkUnixToolExists(toolName string) bool {
+	logging.Info("检查Unix工具: %s", toolName)
+
+	cmd := exec.Command("which", toolName)
+	if output, err := cmd.Output(); err == nil && len(output) > 0 {
+		logging.Info("工具[%s]已安装", toolName)
+		return true
+	}
+
+	logging.Info("工具[%s]未安装", toolName)
+	return false
+}
+
+// GetToolVersion 获取指定工具的版本信息
+func (s *ConfigService) GetToolVersion(toolName string) (string, error) {
+	var cmd *exec.Cmd
+
+	switch toolName {
+	case "nmap":
+		cmd = exec.Command("nmap", "--version")
+	case "ffuf":
+		cmd = exec.Command("ffuf", "-V")
+	case "subfinder":
+		cmd = exec.Command("subfinder", "-version")
+	case "httpx":
+		cmd = exec.Command("httpx", "-version")
+	default:
+		return "", fmt.Errorf("unsupported tool: %s", toolName)
+	}
+
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to get version: %v", err)
+	}
+
+	// 提取第一行作为版本信息
+	version := strings.Split(string(output), "\n")[0]
+	return strings.TrimSpace(version), nil
+}
+
+// 为HTTP处理程序准备的辅助方法
+func (s *ConfigService) GetToolsStatus() (map[string]interface{}, error) {
+	status, err := s.CheckToolsInstallation()
+	if err != nil {
+		return nil, err
+	}
+
+	result := map[string]interface{}{
+		"toolsStatus": map[string]interface{}{
+			"Nmap":      status.Nmap,
+			"Ffuf":      status.Ffuf,
+			"Subfinder": status.Subfinder,
+			"HttpX":     status.HttpX,
+		},
+	}
+
+	// 获取已安装工具的版本信息
+	versions := make(map[string]string)
+	tools := []string{"nmap", "ffuf", "subfinder", "httpx"}
+
+	for _, tool := range tools {
+		if status.GetToolStatus(tool) {
+			if version, err := s.GetToolVersion(tool); err == nil {
+				versions[tool] = version
+			}
+		}
+	}
+
+	if len(versions) > 0 {
+		result["versions"] = versions
+	}
+
+	return result, nil
+}
+
+// GetToolStatus 辅助方法，用于根据工具名获取状态
+func (ts *ToolStatus) GetToolStatus(toolName string) bool {
+	switch strings.ToLower(toolName) {
+	case "nmap":
+		return ts.Nmap
+	case "ffuf":
+		return ts.Ffuf
+	case "subfinder":
+		return ts.Subfinder
+	case "httpx":
+		return ts.HttpX
+	default:
+		return false
+	}
 }
