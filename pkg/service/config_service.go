@@ -4,7 +4,6 @@ import (
 	"cyberedge/pkg/dao"
 	"cyberedge/pkg/logging"
 	"fmt"
-	"github.com/StackExchange/wmi"
 	"net"
 	"os"
 	"os/exec"
@@ -117,26 +116,25 @@ func (s *ConfigService) GetKernelVersion() (string, error) {
 	logging.Info("正在获取系统内核版本")
 
 	if runtime.GOOS == "windows" {
-		type Win32_OperatingSystem struct {
-			Version     string
-			BuildNumber string
-		}
-
-		var operatingSystems []Win32_OperatingSystem
-		err := wmi.Query("SELECT Version, BuildNumber FROM Win32_OperatingSystem", &operatingSystems)
+		cmd := exec.Command("powershell", "-Command", "(Get-WmiObject Win32_OperatingSystem).Version")
+		output, err := cmd.Output()
 		if err != nil {
-			logging.Error("WMI查询系统版本失败: %v", err)
+			logging.Error("获取Windows系统版本失败: %v", err)
 			return "", err
 		}
 
-		if len(operatingSystems) > 0 {
-			version := fmt.Sprintf("%s (Build %s)",
-				operatingSystems[0].Version,
-				operatingSystems[0].BuildNumber)
-			logging.Info("成功获取Windows系统版本: %s", version)
-			return version, nil
+		version := strings.TrimSpace(string(output))
+
+		// 获取 Build 号
+		buildCmd := exec.Command("powershell", "-Command", "(Get-WmiObject Win32_OperatingSystem).BuildNumber")
+		buildOutput, err := buildCmd.Output()
+		if err == nil {
+			buildNumber := strings.TrimSpace(string(buildOutput))
+			version = fmt.Sprintf("%s (Build %s)", version, buildNumber)
 		}
-		return "", fmt.Errorf("未找到系统版本信息")
+
+		logging.Info("成功获取Windows系统版本: %s", version)
+		return version, nil
 	} else {
 		// Linux/Unix 系统
 		cmd := exec.Command("uname", "-r")
@@ -156,28 +154,36 @@ func (s *ConfigService) GetOSDistribution() (string, error) {
 	logging.Info("正在获取系统发行版信息")
 
 	if runtime.GOOS == "windows" {
-		type Win32_OperatingSystem struct {
-			Caption        string
-			Version        string
-			OSArchitecture string
-		}
-
-		var operatingSystems []Win32_OperatingSystem
-		err := wmi.Query("SELECT Caption, Version, OSArchitecture FROM Win32_OperatingSystem", &operatingSystems)
+		// 获取操作系统名称
+		captionCmd := exec.Command("powershell", "-Command", "(Get-WmiObject Win32_OperatingSystem).Caption")
+		captionOutput, err := captionCmd.Output()
 		if err != nil {
-			logging.Error("WMI查询操作系统信息失败: %v", err)
+			logging.Error("获取Windows系统名称失败: %v", err)
 			return "", err
 		}
+		caption := strings.TrimSpace(string(captionOutput))
 
-		if len(operatingSystems) > 0 {
-			info := fmt.Sprintf("%s %s (%s)",
-				operatingSystems[0].Caption,
-				operatingSystems[0].Version,
-				operatingSystems[0].OSArchitecture)
-			logging.Info("成功获取Windows系统信息: %s", info)
-			return info, nil
+		// 获取版本号
+		versionCmd := exec.Command("powershell", "-Command", "(Get-WmiObject Win32_OperatingSystem).Version")
+		versionOutput, err := versionCmd.Output()
+		if err != nil {
+			logging.Error("获取Windows版本号失败: %v", err)
+			return "", err
 		}
-		return "", fmt.Errorf("未找到操作系统信息")
+		version := strings.TrimSpace(string(versionOutput))
+
+		// 获取系统架构
+		archCmd := exec.Command("powershell", "-Command", "(Get-WmiObject Win32_OperatingSystem).OSArchitecture")
+		archOutput, err := archCmd.Output()
+		if err != nil {
+			logging.Error("获取Windows架构信息失败: %v", err)
+			return "", err
+		}
+		arch := strings.TrimSpace(string(archOutput))
+
+		info := fmt.Sprintf("%s %s (%s)", caption, version, arch)
+		logging.Info("成功获取Windows系统信息: %s", info)
+		return info, nil
 	} else {
 		// Linux/Unix 系统代码保持不变
 		content, err := os.ReadFile("/etc/os-release")
@@ -251,7 +257,7 @@ func (s *ConfigService) CheckToolsInstallation() (*ToolStatus, error) {
 	status := &ToolStatus{}
 
 	if runtime.GOOS == "windows" {
-		// Windows系统使用WMI检查
+		// Windows系统使用where命令检查
 		status.Nmap = s.checkWindowsToolExists("nmap.exe")
 		status.Ffuf = s.checkWindowsToolExists("ffuf.exe")
 		status.Subfinder = s.checkWindowsToolExists("subfinder.exe")
@@ -270,26 +276,21 @@ func (s *ConfigService) CheckToolsInstallation() (*ToolStatus, error) {
 	return status, nil
 }
 
-// checkWindowsToolExists 使用WMI检查Windows系统中是否存在指定工具
+// checkWindowsToolExists 检查Windows系统中是否存在指定工具
 func (s *ConfigService) checkWindowsToolExists(toolName string) bool {
-	type Win32_Process struct {
-		ExecutablePath string
-	}
-
 	logging.Info("检查Windows工具: %s", toolName)
 
-	query := fmt.Sprintf("SELECT ExecutablePath FROM Win32_Process WHERE Name LIKE '%%%s%%'", toolName)
-	var processes []Win32_Process
-	err := wmi.Query(query, &processes)
-
-	if err != nil {
-		logging.Error("WMI查询工具[%s]失败: %v", toolName, err)
-		return false
+	// 首先使用 where 命令检查
+	whereCmd := exec.Command("where", toolName)
+	if output, err := whereCmd.Output(); err == nil && len(output) > 0 {
+		logging.Info("工具[%s]已安装", toolName)
+		return true
 	}
 
-	// 尝试执行命令验证
-	cmd := exec.Command("where", toolName)
-	if output, err := cmd.Output(); err == nil && len(output) > 0 {
+	// 如果 where 命令失败，尝试使用 PowerShell 检查
+	psCmd := exec.Command("powershell", "-Command",
+		fmt.Sprintf("Get-Command %s -ErrorAction SilentlyContinue", toolName))
+	if output, err := psCmd.Output(); err == nil && len(output) > 0 {
 		logging.Info("工具[%s]已安装", toolName)
 		return true
 	}
