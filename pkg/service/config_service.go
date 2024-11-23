@@ -4,6 +4,7 @@ import (
 	"cyberedge/pkg/dao"
 	"cyberedge/pkg/logging"
 	"fmt"
+	"github.com/StackExchange/wmi"
 	"net"
 	"os"
 	"os/exec"
@@ -107,24 +108,39 @@ func (s *ConfigService) GetCurrentDirectory() (string, error) {
 func (s *ConfigService) GetKernelVersion() (string, error) {
 	logging.Info("正在获取系统内核版本")
 
-	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
-		// Windows 系统
-		cmd = exec.Command("ver")
+		type Win32_OperatingSystem struct {
+			Version     string
+			BuildNumber string
+		}
+
+		var operatingSystems []Win32_OperatingSystem
+		err := wmi.Query("SELECT Version, BuildNumber FROM Win32_OperatingSystem", &operatingSystems)
+		if err != nil {
+			logging.Error("WMI查询系统版本失败: %v", err)
+			return "", err
+		}
+
+		if len(operatingSystems) > 0 {
+			version := fmt.Sprintf("%s (Build %s)",
+				operatingSystems[0].Version,
+				operatingSystems[0].BuildNumber)
+			logging.Info("成功获取Windows系统版本: %s", version)
+			return version, nil
+		}
+		return "", fmt.Errorf("未找到系统版本信息")
 	} else {
 		// Linux/Unix 系统
-		cmd = exec.Command("uname", "-r")
+		cmd := exec.Command("uname", "-r")
+		output, err := cmd.Output()
+		if err != nil {
+			logging.Error("获取系统内核版本失败: %v", err)
+			return "", err
+		}
+		version := strings.TrimSpace(string(output))
+		logging.Info("成功获取系统内核版本: %s", version)
+		return version, nil
 	}
-
-	output, err := cmd.Output()
-	if err != nil {
-		logging.Error("获取系统内核版本失败: %v", err)
-		return "", err
-	}
-
-	version := strings.TrimSpace(string(output))
-	logging.Info("成功获取系统内核版本: %s", version)
-	return version, nil
 }
 
 // GetOSDistribution 获取系统发行版信息
@@ -132,25 +148,30 @@ func (s *ConfigService) GetOSDistribution() (string, error) {
 	logging.Info("正在获取系统发行版信息")
 
 	if runtime.GOOS == "windows" {
-		// Windows 系统
-		cmd := exec.Command("systeminfo")
-		output, err := cmd.Output()
+		type Win32_OperatingSystem struct {
+			Caption        string
+			Version        string
+			OSArchitecture string
+		}
+
+		var operatingSystems []Win32_OperatingSystem
+		err := wmi.Query("SELECT Caption, Version, OSArchitecture FROM Win32_OperatingSystem", &operatingSystems)
 		if err != nil {
-			logging.Error("获取Windows系统信息失败: %v", err)
+			logging.Error("WMI查询操作系统信息失败: %v", err)
 			return "", err
 		}
-		// 解析输出找到操作系统名称
-		lines := strings.Split(string(output), "\n")
-		for _, line := range lines {
-			if strings.Contains(line, "OS Name:") || strings.Contains(line, "操作系统名称:") {
-				info := strings.TrimSpace(strings.Split(line, ":")[1])
-				logging.Info("成功获取Windows系统信息: %s", info)
-				return info, nil
-			}
+
+		if len(operatingSystems) > 0 {
+			info := fmt.Sprintf("%s %s (%s)",
+				operatingSystems[0].Caption,
+				operatingSystems[0].Version,
+				operatingSystems[0].OSArchitecture)
+			logging.Info("成功获取Windows系统信息: %s", info)
+			return info, nil
 		}
+		return "", fmt.Errorf("未找到操作系统信息")
 	} else {
-		// Linux/Unix 系统
-		// 尝试读取 /etc/os-release 文件
+		// Linux/Unix 系统代码保持不变
 		content, err := os.ReadFile("/etc/os-release")
 		if err == nil {
 			lines := strings.Split(string(content), "\n")
@@ -163,7 +184,6 @@ func (s *ConfigService) GetOSDistribution() (string, error) {
 			}
 		}
 
-		// 如果无法读取 os-release，尝试使用 lsb_release 命令
 		cmd := exec.Command("lsb_release", "-d")
 		output, err := cmd.Output()
 		if err != nil {
@@ -174,9 +194,6 @@ func (s *ConfigService) GetOSDistribution() (string, error) {
 		logging.Info("成功获取Linux发行版信息: %s", info)
 		return info, nil
 	}
-
-	logging.Error("无法获取系统发行版信息")
-	return "", nil
 }
 
 // GetCurrentPrivileges 获取当前程序运行权限
