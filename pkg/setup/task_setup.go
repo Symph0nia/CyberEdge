@@ -11,10 +11,8 @@ import (
 
 // InitTaskComponents 初始化任务相关组件
 func InitTaskComponents(db *mongo.Database, redisAddr string) (*service.TaskService, *asynq.Server, error) {
-	// 初始化 Task DAO
 	taskDAO := dao.NewTaskDAO(db.Collection("tasks"))
 
-	// 初始化 Asynq 客户端
 	asynqClient, err := InitAsynqClient(redisAddr)
 	if err != nil {
 		logging.Error("初始化 Asynq 客户端失败: %v", err)
@@ -22,10 +20,9 @@ func InitTaskComponents(db *mongo.Database, redisAddr string) (*service.TaskServ
 	}
 	logging.Info("Asynq 客户端初始化成功")
 
-	// 初始化 TaskService
-	taskService := service.NewTaskService(taskDAO, asynqClient)
+	// 传入 redisAddr
+	taskService := service.NewTaskService(taskDAO, asynqClient, redisAddr)
 
-	// 初始化 Asynq 服务器
 	asynqServer, err := InitAsynqServer(redisAddr)
 	if err != nil {
 		asynqClient.Close()

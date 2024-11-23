@@ -9,24 +9,27 @@ import (
 	"fmt"
 	"github.com/hibiken/asynq"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"strings"
 )
 
 type TaskService struct {
 	taskDAO     *dao.TaskDAO
 	asynqClient *asynq.Client
+	redisAddr   string // 添加Redis地址存储
+}
+
+// NewTaskService 创建一个新的 TaskService 实例
+func NewTaskService(taskDAO *dao.TaskDAO, asynqClient *asynq.Client, redisAddr string) *TaskService {
+	return &TaskService{
+		taskDAO:     taskDAO,
+		asynqClient: asynqClient,
+		redisAddr:   redisAddr,
+	}
 }
 
 func (s *TaskService) Close() {
 	if s.asynqClient != nil {
 		s.asynqClient.Close()
-	}
-}
-
-// NewTaskService 创建一个新的 TaskService 实例
-func NewTaskService(taskDAO *dao.TaskDAO, asynqClient *asynq.Client) *TaskService {
-	return &TaskService{
-		taskDAO:     taskDAO,
-		asynqClient: asynqClient,
 	}
 }
 
@@ -131,13 +134,50 @@ func (s *TaskService) GetAllTasks() ([]models.Task, error) {
 	return tasks, nil
 }
 
-// DeleteTask 删除指定的任务
 func (s *TaskService) DeleteTask(id string) error {
 	logging.Info("正在删除任务: %s", id)
 
-	if err := s.taskDAO.DeleteTask(id); err != nil {
-		logging.Error("删除任务失败: %s, 错误: %v", id, err)
+	// 1. 先获取任务信息
+	task, err := s.taskDAO.GetTaskByID(id)
+	if err != nil {
+		logging.Error("获取任务信息失败: %s, 错误: %v", id, err)
 		return err
+	}
+
+	// 2. 从数据库中删除任务
+	if err := s.taskDAO.DeleteTask(id); err != nil {
+		logging.Error("从数据库删除任务失败: %s, 错误: %v", id, err)
+		return err
+	}
+
+	// 3. 从Asynq队列中删除任务
+	inspector := asynq.NewInspector(asynq.RedisClientOpt{
+		Addr: s.redisAddr,
+	})
+
+	// 获取所有可用队列
+	queues, err := inspector.Queues()
+	if err != nil {
+		logging.Error("获取队列列表失败: %v", err)
+		return nil // 即使获取队列失败，我们也已经从数据库删除了任务，所以返回nil
+	}
+
+	// 构造任务key
+	taskKey := fmt.Sprintf("%s", task.ID.Hex()) // 修改任务key的构造方式
+
+	// 遍历所有存在的队列
+	for _, queue := range queues {
+		err = inspector.DeleteTask(queue, taskKey)
+		if err != nil {
+			if strings.Contains(err.Error(), "task not found") {
+				logging.Info("任务在队列[%s]中未找到: %s", queue, id)
+				continue
+			}
+			logging.Error("从Asynq队列[%s]删除任务失败: %s, 错误: %v", queue, id, err)
+			// 继续尝试其他队列，不要因为一个队列失败就中断
+			continue
+		}
+		logging.Info("成功从Asynq队列[%s]删除任务: %s", queue, id)
 	}
 
 	logging.Info("成功删除任务: %s", id)
