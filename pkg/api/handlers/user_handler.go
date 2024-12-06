@@ -5,8 +5,10 @@ package handlers
 import (
 	"cyberedge/pkg/models"
 	"cyberedge/pkg/service"
-	"github.com/gin-gonic/gin"
+	"fmt"
 	"net/http"
+
+	"github.com/gin-gonic/gin"
 )
 
 type UserHandler struct {
@@ -30,6 +32,7 @@ func (h *UserHandler) GenerateQRCode(c *gin.Context) {
 
 func (h *UserHandler) ValidateTOTP(c *gin.Context) {
 	var request models.TOTPValidationRequest
+	fmt.Println("request: ", request)
 	if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "验证码和账户是必需的"})
 		return

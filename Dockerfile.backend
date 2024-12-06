@@ -1,42 +1,58 @@
-# 使用官方 Python 镜像作为基础镜像
-FROM python:3.10-slim
-
-# 安装必需的软件
-RUN apt-get update && apt-get install -y \
-    aria2 \
-    wget \
-    git \
-    tar \
-    nmap
-
-# 创建符号链接以满足脚本对/usr/bin/python3的期望
-RUN ln -s /usr/local/bin/python3 /usr/bin/python3
+# 使用官方 Go 1.23 镜像作为构建环境
+FROM golang:1.23 AS builder
+ENV GOPROXY="https://goproxy.cn|https://mirrors.tencentyun.com/go/|https://mirrors.aliyun.com/goproxy/|direct"
 
 # 设置工作目录
 WORKDIR /app
 
-# 将项目代码复制到容器中
-COPY . /app
+# 复制 go mod 和 sum 文件
+COPY go.mod go.sum ./
 
-# 安装项目依赖
-RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
+# 下载所有依赖
+RUN go mod download
 
-# 使用 aria2c 下载 ffuf
-RUN aria2c -x 10 -s 10 https://github.com/ffuf/ffuf/releases/download/v2.1.0/ffuf_2.1.0_linux_amd64.tar.gz \
-    && tar -xzf ffuf_2.1.0_linux_amd64.tar.gz \
-    && mv ffuf /usr/local/bin/
+# 复制源代码到容器中
+COPY . .
 
-# 克隆 OneForAll 仓库
-RUN git clone https://github.com/shmilylty/OneForAll.git /OneForAll
+# 构建应用程序，确保切换到包含 main.go 的目录，这里假设它在 cmd 目录下
+RUN CGO_ENABLED=0 GOOS=linux go build -o backend ./cmd/cyberedge.go
 
-# 修改 OneForAll 中的脚本文件权限
-RUN chmod +x /OneForAll/oneforall.py
+# 安装 nmap、subfinder、httpx 和 ffuf
+RUN apt-get update && apt-get install -y nmap \
+    && go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest \
+    && go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest \
+    && go install -v github.com/ffuf/ffuf@latest
 
-# 暴露 Django 运行端口
-EXPOSE 1234
+# 获取 CA 证书（使用 Alpine 作为基础）
+FROM alpine:latest AS certs
+RUN apk --update add ca-certificates
 
-# 设置环境变量，确保 Python 输出配置在容器日志中
-ENV PYTHONUNBUFFERED 1
+# 使用 debian:bullseye-slim 作为最终基础镜像
+FROM debian:bullseye-slim
 
-# 运行数据库迁移和 Django 服务器
-CMD ["bash", "-c", "python manage.py makemigrations common target path_scanner subdomain_scanner port_scanner && python manage.py migrate && python manage.py runserver 0.0.0.0:1234"]
+# 安装 nmap
+RUN apt-get update && apt-get install -y nmap && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# 从 Alpine 中复制 CA 证书到最终镜像
+COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+
+# 从 builder 阶段复制可执行文件到根目录并重新命名为 backend
+COPY --from=builder /app/backend /app/backend
+
+# 从 builder 阶段复制 subfinder、httpx 和 ffuf 可执行文件
+COPY --from=builder /go/bin/subfinder /usr/local/bin/subfinder
+COPY --from=builder /go/bin/httpx /usr/local/bin/httpx
+COPY --from=builder /go/bin/ffuf /usr/local/bin/ffuf
+
+# 设置环境变量以确保应用使用正确的 CA 证书路径
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+ENV SSL_CERT_DIR=/etc/ssl/certs
+
+# 设置工作目录
+WORKDIR /app
+
+# 暴露应用运行端口
+EXPOSE 8081
+
+# 运行应用
+CMD ["/app/backend"]
