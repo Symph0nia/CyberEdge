@@ -35,7 +35,7 @@ func main() {
 	defer cancel()
 
 	// 连接MongoDB数据库
-	client, err := setup.ConnectToMongoDB("mongodb://localhost:27017")
+	client, err := setup.ConnectToMongoDB("mongodb://mongodb:27017")
 	if err != nil {
 		logging.Error("连接MongoDB失败: %v", err)
 		return
@@ -47,7 +47,7 @@ func main() {
 	db := client.Database("cyberedgeDB")
 
 	// 初始化任务相关组件
-	taskService, asynqServer, err := setup.InitTaskComponents(db, "localhost:6379")
+	taskService, asynqServer, err := setup.InitTaskComponents(db, "redis:6379")
 	if err != nil {
 		logging.Error("初始化任务组件失败: %v", err)
 		return

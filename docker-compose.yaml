@@ -1,70 +1,39 @@
 version: '3.8'
 
 services:
-  nginx-frontend:
-    build:
-      context: .
-      dockerfile: Dockerfile.frontend
-    ports:
-      - "4567:4567"
-    depends_on:
-      - django-backend
-    networks:
-      - app-network
-
-  django-backend:
+  backend:
     build:
       context: .
       dockerfile: Dockerfile.backend
     ports:
-      - "1234:1234"
+      - "8081:8081"
     depends_on:
+      - mongodb
       - redis
-      - db
-    networks:
-      - app-network
-    environment:
-      - DJANGO_RUNNING_IN_DOCKER=1
-      - DATABASE_URL=postgres://CyberEdge:Cyb3r3dg3@db:5432/CyberEdge
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
 
-  celery-worker:
-    build:
-      context: .
-      dockerfile: Dockerfile.backend
-    command: celery -A cyberedge worker --loglevel=info
-    depends_on:
-      - django-backend
-      - redis
-    networks:
-      - app-network
-    environment:
-      - DJANGO_RUNNING_IN_DOCKER=1
-      - DATABASE_URL=postgres://CyberEdge:Cyb3r3dg3@db:5432/CyberEdge
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+  # frontend:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.frontend
+  #   ports:
+  #     - "8080:8080"
+  #   depends_on:
+  #     - backend
+
+  mongodb:
+    image: mongo:latest
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
 
   redis:
-    image: "redis:alpine"
-    networks:
-      - app-network
+    image: redis:latest
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
 
-  db:
-    image: postgres:latest
-    environment:
-      - POSTGRES_USER=CyberEdge
-      - POSTGRES_PASSWORD=Cyb3r3dg3
-      - POSTGRES_DB=CyberEdge
-    networks:
-      - app-network
-    healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U $POSTGRES_USER -d $POSTGRES_DB" ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-
-networks:
-  app-network:
-    driver: bridge
+volumes:
+  mongo-data:
+  redis-data:
