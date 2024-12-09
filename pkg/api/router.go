@@ -85,10 +85,10 @@ func (r *Router) SetupRouter() *gin.Engine {
 		authenticated.DELETE("/users", r.userHandler.DeleteUsers)   // 批量删除用户
 
 		// 任务管理API
-		authenticated.POST("/tasks", r.taskHandler.CreateTask)          // 创建任务
-		authenticated.GET("/tasks", r.taskHandler.GetAllTasks)          // 获取所有任务
-		authenticated.DELETE("/tasks/:id", r.taskHandler.DeleteTask)    // 删除任务
-		authenticated.POST("/tasks/:id/start", r.taskHandler.StartTask) // 启动单个任务
+		authenticated.POST("/tasks", r.taskHandler.CreateTask)       // 创建任务
+		authenticated.GET("/tasks", r.taskHandler.GetAllTasks)       // 获取所有任务
+		authenticated.DELETE("/tasks", r.taskHandler.DeleteTasks)    // 批量删除任务
+		authenticated.POST("/tasks/start", r.taskHandler.StartTasks) // 批量启动任务
 
 		// 扫描结果管理API
 		authenticated.GET("/results/:id", r.resultHandler.GetResultByID)                          // 获取单个扫描结果

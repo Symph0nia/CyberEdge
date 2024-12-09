@@ -57,6 +57,34 @@ func (dao *TaskDAO) GetTaskByID(id string) (*models.Task, error) {
 	return &task, nil
 }
 
+// GetTasksByIDs 批量获取任务信息
+func (dao *TaskDAO) GetTasksByIDs(ids []string) ([]*models.Task, error) {
+	var objectIDs []primitive.ObjectID
+	for _, id := range ids {
+		objID, err := primitive.ObjectIDFromHex(id)
+		if err != nil {
+			continue
+		}
+		objectIDs = append(objectIDs, objID)
+	}
+
+	var tasks []*models.Task
+	cursor, err := dao.collection.Find(
+		context.Background(),
+		bson.M{"_id": bson.M{"$in": objectIDs}},
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(context.Background())
+
+	if err = cursor.All(context.Background(), &tasks); err != nil {
+		return nil, err
+	}
+
+	return tasks, nil
+}
+
 // GetAllTasks 获取所有任务
 func (dao *TaskDAO) GetAllTasks() ([]models.Task, error) {
 	logging.Info("正在获取所有任务")
@@ -127,30 +155,89 @@ func (dao *TaskDAO) UpdateTaskStatus(id string, status models.TaskStatus, result
 	return nil
 }
 
-// DeleteTask 删除任务
-func (dao *TaskDAO) DeleteTask(id string) error {
-	logging.Info("正在删除任务: %s", id)
+type DeleteTasksResult struct {
+	DeletedIDs []string
+	FailedIDs  map[string]string
+}
 
-	objID, err := primitive.ObjectIDFromHex(id)
+// DeleteTasks 批量删除任务
+func (dao *TaskDAO) DeleteTasks(ids []string) (*DeleteTasksResult, error) {
+	logging.Info("正在批量删除任务: %v", ids)
+
+	result := &DeleteTasksResult{
+		DeletedIDs: make([]string, 0),
+		FailedIDs:  make(map[string]string),
+	}
+
+	// 转换所有有效的ObjectID
+	var objectIDs []primitive.ObjectID
+	invalidIDs := make(map[string]bool)
+
+	for _, id := range ids {
+		objID, err := primitive.ObjectIDFromHex(id)
+		if err != nil {
+			result.FailedIDs[id] = "无效的任务ID"
+			invalidIDs[id] = true
+			continue
+		}
+		objectIDs = append(objectIDs, objID)
+	}
+
+	if len(objectIDs) == 0 {
+		return result, nil
+	}
+
+	// 执行批量删除
+	_, err := dao.collection.DeleteMany(
+		context.Background(),
+		bson.M{"_id": bson.M{"$in": objectIDs}},
+	)
+
 	if err != nil {
-		logging.Error("无效的任务 ID: %s, 错误: %v", id, err)
-		return err
+		logging.Error("批量删除任务失败: %v", err)
+		return nil, err
 	}
 
-	result, err := dao.collection.DeleteOne(context.Background(), bson.M{"_id": objID})
-
-	if result.DeletedCount == 0 {
-		logging.Warn("未找到要删除的任务: %s", id)
-		return mongo.ErrNoDocuments
-	}
-
+	// 查询剩余的任务ID（未被删除的）
+	cursor, err := dao.collection.Find(
+		context.Background(),
+		bson.M{"_id": bson.M{"$in": objectIDs}},
+	)
 	if err != nil {
-		logging.Error("删除任务失败: %s, 错误: %v", id, err)
-		return err
+		logging.Error("查询剩余任务失败: %v", err)
+		return nil, err
+	}
+	defer cursor.Close(context.Background())
+
+	var remainingTasks []struct {
+		ID primitive.ObjectID `bson:"_id"`
+	}
+	if err := cursor.All(context.Background(), &remainingTasks); err != nil {
+		return nil, err
 	}
 
-	logging.Info("成功删除任务: %s", id)
-	return nil
+	// 标记删除失败的任务
+	remainingIDMap := make(map[string]bool)
+	for _, task := range remainingTasks {
+		remainingIDMap[task.ID.Hex()] = true
+	}
+
+	// 计算成功删除的任务
+	for _, id := range ids {
+		if invalidIDs[id] {
+			continue
+		}
+		if remainingIDMap[id] {
+			result.FailedIDs[id] = "删除失败"
+		} else {
+			result.DeletedIDs = append(result.DeletedIDs, id)
+		}
+	}
+
+	logging.Info("批量删除任务完成，成功删除: %d, 删除失败: %d",
+		len(result.DeletedIDs), len(result.FailedIDs))
+
+	return result, nil
 }
 
 // UpdateTaskResult 更新指定 ID 的任务结果
