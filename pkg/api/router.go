@@ -79,10 +79,10 @@ func (r *Router) SetupRouter() *gin.Engine {
 		authenticated.GET("/system/tools", r.configHandler.GetToolsStatus) // 获取工具安装状态
 
 		// 用户管理API
-		authenticated.GET("/users", r.userHandler.GetUsers)               // 获取所有用户
-		authenticated.GET("/users/:account", r.userHandler.GetUser)       // 获取单个用户
-		authenticated.POST("/users", r.userHandler.CreateUser)            // 创建新用户
-		authenticated.DELETE("/users/:account", r.userHandler.DeleteUser) // 删除用户
+		authenticated.GET("/users", r.userHandler.GetUsers)         // 获取所有用户
+		authenticated.GET("/users/:account", r.userHandler.GetUser) // 获取单个用户
+		authenticated.POST("/users", r.userHandler.CreateUser)      // 创建新用户
+		authenticated.DELETE("/users", r.userHandler.DeleteUsers)   // 批量删除用户
 
 		// 任务管理API
 		authenticated.POST("/tasks", r.taskHandler.CreateTask)          // 创建任务

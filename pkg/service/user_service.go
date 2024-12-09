@@ -67,15 +67,33 @@ func (s *UserService) CreateUser(user *models.User) error {
 	return nil
 }
 
-func (s *UserService) DeleteUser(account string) error {
-	logging.Info("正在删除用户: %s", account)
-	err := s.userDAO.DeleteUser(account)
-	if err != nil {
-		logging.Error("删除用户失败: %s, 错误: %v", account, err)
-		return err
+type DeleteResult struct {
+	Success []string          `json:"success"`
+	Failed  map[string]string `json:"failed"` // account -> error message
+}
+
+func (s *UserService) DeleteUsers(accounts []string) (*DeleteResult, error) {
+	logging.Info("正在批量删除用户: %v", accounts)
+
+	result := &DeleteResult{
+		Success: make([]string, 0),
+		Failed:  make(map[string]string),
 	}
-	logging.Info("成功删除用户: %s", account)
-	return nil
+
+	// 使用 DAO 层的批量删除方法
+	deleteResult, err := s.userDAO.DeleteUsers(accounts)
+	if err != nil {
+		logging.Error("批量删除用户失败: %v", err)
+		return nil, err
+	}
+
+	result.Success = deleteResult.DeletedAccounts
+	result.Failed = deleteResult.FailedAccounts
+
+	logging.Info("批量删除用户完成，成功: %d, 失败: %d",
+		len(result.Success), len(result.Failed))
+
+	return result, nil
 }
 
 // Authentication methods

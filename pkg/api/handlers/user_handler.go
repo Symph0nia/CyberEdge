@@ -94,11 +94,24 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"status": "用户已添加"})
 }
 
-func (h *UserHandler) DeleteUser(c *gin.Context) {
-	account := c.Param("account")
-	if err := h.userService.DeleteUser(account); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "无法删除用户"})
+func (h *UserHandler) DeleteUsers(c *gin.Context) {
+	var request struct {
+		Accounts []string `json:"accounts" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"status": "用户已删除"})
+
+	result, err := h.userService.DeleteUsers(request.Accounts)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "删除用户失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status": "用户删除完成",
+		"result": result,
+	})
 }

@@ -83,19 +83,68 @@ func (d *UserDAO) CreateUser(user *models.User) error {
 	return nil
 }
 
-func (d *UserDAO) DeleteUser(account string) error {
-	logging.Info("正在删除用户: %s", account)
-	result, err := d.collection.DeleteOne(context.Background(), bson.M{"account": account})
+type DeleteUsersResult struct {
+	DeletedAccounts []string          // 成功删除的账号
+	FailedAccounts  map[string]string // 失败的账号及原因
+}
+
+func (d *UserDAO) DeleteUsers(accounts []string) (*DeleteUsersResult, error) {
+	logging.Info("正在批量删除用户: %v", accounts)
+
+	result := &DeleteUsersResult{
+		DeletedAccounts: make([]string, 0),
+		FailedAccounts:  make(map[string]string),
+	}
+
+	// 创建批量删除条件
+	filter := bson.M{"account": bson.M{"$in": accounts}}
+
+	// 执行批量删除
+	_, err := d.collection.DeleteMany(context.Background(), filter)
 	if err != nil {
-		logging.Error("删除用户失败: %s, 错误: %v", account, err)
-		return err
+		logging.Error("批量删除用户失败: %v", err)
+		return nil, err
 	}
-	if result.DeletedCount == 0 {
-		logging.Warn("未找到要删除的用户: %s", account)
-		return mongo.ErrNoDocuments
+
+	// 查询剩余的账号（未被删除的）
+	var remainingAccounts []string
+	cursor, err := d.collection.Find(context.Background(),
+		bson.M{"account": bson.M{"$in": accounts}})
+	if err != nil {
+		logging.Error("查询剩余账号失败: %v", err)
+		return nil, err
 	}
-	logging.Info("成功删除用户: %s", account)
-	return nil
+	defer cursor.Close(context.Background())
+
+	var users []struct{ Account string }
+	if err := cursor.All(context.Background(), &users); err != nil {
+		return nil, err
+	}
+	for _, user := range users {
+		remainingAccounts = append(remainingAccounts, user.Account)
+	}
+
+	// 计算成功和失败的账号
+	successMap := make(map[string]bool)
+	for _, account := range accounts {
+		found := false
+		for _, remaining := range remainingAccounts {
+			if account == remaining {
+				result.FailedAccounts[account] = "删除失败"
+				found = true
+				break
+			}
+		}
+		if !found {
+			result.DeletedAccounts = append(result.DeletedAccounts, account)
+			successMap[account] = true
+		}
+	}
+
+	logging.Info("批量删除用户完成，成功删除: %d, 删除失败: %d",
+		len(result.DeletedAccounts), len(result.FailedAccounts))
+
+	return result, nil
 }
 
 func (d *UserDAO) IncrementLoginCount(account string) (int, error) {
