@@ -27,6 +27,7 @@ func NewRouter(
 	taskService *service.TaskService,
 	resultService *service.ResultService,
 	dnsService *service.DNSService,
+	httpxService *service.HTTPXService,
 	jwtSecret string,
 	sessionSecret string,
 	allowedOrigins []string,
@@ -35,7 +36,7 @@ func NewRouter(
 		userHandler:    handlers.NewUserHandler(userService),
 		configHandler:  handlers.NewConfigHandler(configService),
 		taskHandler:    handlers.NewTaskHandler(taskService),
-		resultHandler:  handlers.NewResultHandler(resultService, dnsService),
+		resultHandler:  handlers.NewResultHandler(resultService, dnsService, httpxService),
 		jwtSecret:      jwtSecret,
 		sessionSecret:  sessionSecret,
 		allowedOrigins: allowedOrigins,
@@ -99,6 +100,8 @@ func (r *Router) SetupRouter() *gin.Engine {
 		authenticated.PUT("/results/:id/entries/:entry_id/read", r.resultHandler.MarkEntryAsRead) // 根据任务 ID 和条目 ID 修改条目的已读状态
 		authenticated.PUT("/results/:id/entries/:entry_id/resolve", r.resultHandler.ResolveSubdomainIPHandler)
 		authenticated.PUT("/results/:id/entries/batch/resolve", r.resultHandler.BatchResolveSubdomainIPHandler)
+		authenticated.PUT("/results/:id/entries/:entry_id/probe", r.resultHandler.ProbeSubdomainHandler)
+		authenticated.PUT("/results/:id/entries/batch/probe", r.resultHandler.BatchProbeSubdomainHandler)
 	}
 
 	return router

@@ -12,13 +12,15 @@ import (
 type ResultHandler struct {
 	resultService *service.ResultService
 	dnsService    *service.DNSService
+	httpxService  *service.HTTPXService
 }
 
 // NewResultHandler 创建一个新的 ResultHandler 实例
-func NewResultHandler(resultService *service.ResultService, dnsService *service.DNSService) *ResultHandler {
+func NewResultHandler(resultService *service.ResultService, dnsService *service.DNSService, httpxService *service.HTTPXService) *ResultHandler {
 	return &ResultHandler{
 		resultService: resultService,
 		dnsService:    dnsService,
+		httpxService:  httpxService,
 	}
 }
 
@@ -221,6 +223,51 @@ func (h *ResultHandler) BatchResolveSubdomainIPHandler(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "批量解析完成",
+		"result":  result,
+	})
+}
+
+func (h *ResultHandler) ProbeSubdomainHandler(c *gin.Context) {
+	resultID := c.Param("id")
+	entryID := c.Param("entry_id")
+
+	err := h.httpxService.ProbeAndUpdateSubdomain(resultID, entryID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":  "HTTP探测失败",
+			"detail": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "HTTP探测成功",
+	})
+}
+
+func (h *ResultHandler) BatchProbeSubdomainHandler(c *gin.Context) {
+	resultID := c.Param("id")
+
+	var request struct {
+		EntryIDs []string `json:"entryIds" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的请求参数"})
+		return
+	}
+
+	result, err := h.httpxService.BatchProbeAndUpdateSubdomains(resultID, request.EntryIDs)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":  "批量HTTP探测失败",
+			"detail": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "批量HTTP探测完成",
 		"result":  result,
 	})
 }

@@ -74,6 +74,7 @@ func main() {
 	configService := service.NewConfigService(configDAO)
 	resultService := service.NewResultService(resultDAO)
 	dnsService := service.NewDNSService(resultDAO)
+	httpxService := service.NewHTTPXService(resultDAO)
 
 	// 设置API路由，包括任务管理的路由
 	router := api.NewRouter(
@@ -82,6 +83,7 @@ func main() {
 		taskService,
 		resultService,
 		dnsService,
+		httpxService,
 		jwtSecret,
 		"your-session-secret",             // 应从配置文件或环境变量中读取
 		[]string{"http://localhost:8080"}, // 允许的源
