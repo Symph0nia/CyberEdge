@@ -8,6 +8,7 @@ import (
 	"cyberedge/pkg/models"
 	"cyberedge/pkg/utils"
 	"errors"
+	"fmt"
 	"github.com/miekg/dns"
 	"net"
 	"time"
@@ -125,4 +126,83 @@ func (s *DNSService) resolveIPUsingDNSServer(domain, dnsServer string) (string, 
 	}
 
 	return "", errors.New("no A record found")
+}
+
+type ResolveResult struct {
+	Success []string          `json:"success"`
+	Failed  map[string]string `json:"failed"` // entryId -> error message
+}
+
+func (s *DNSService) BatchResolveAndUpdateSubdomainIP(resultID string, entryIDs []string) (*ResolveResult, error) {
+	logging.Info("开始批量解析子域名IP: %v", entryIDs)
+
+	result := &ResolveResult{
+		Success: make([]string, 0),
+		Failed:  make(map[string]string),
+	}
+
+	// 获取扫描结果
+	scanResult, err := s.resultDAO.GetResultByID(resultID)
+	if err != nil {
+		logging.Error("获取扫描结果失败: %v", err)
+		return nil, err
+	}
+
+	// 检查任务类型
+	if scanResult.Type != "Subdomain" {
+		return nil, errors.New("任务类型不是子域名扫描")
+	}
+
+	// 解析 SubdomainData
+	var subdomainData models.SubdomainData
+	if err := utils.UnmarshalData(scanResult.Data, &subdomainData); err != nil {
+		logging.Error("解析子域名数据失败: %v", err)
+		return nil, err
+	}
+
+	// 创建entryID到subdomain的映射
+	subdomainMap := make(map[string]*models.SubdomainEntry)
+	for i := range subdomainData.Subdomains {
+		subdomainMap[subdomainData.Subdomains[i].ID.Hex()] = &subdomainData.Subdomains[i]
+	}
+
+	// 批量解析和更新
+	for _, entryID := range entryIDs {
+		subdomain, exists := subdomainMap[entryID]
+		if !exists {
+			result.Failed[entryID] = "未找到指定的子域名"
+			continue
+		}
+
+		// 如果已经有IP，跳过
+		if subdomain.IP != "" {
+			continue
+		}
+
+		resolvedIP, err := s.resolveIPWithFallback(subdomain.Domain)
+		if err != nil {
+			result.Failed[entryID] = fmt.Sprintf("解析失败: %v", err)
+			continue
+		}
+
+		if resolvedIP == "" {
+			result.Failed[entryID] = "未能解析到IP地址"
+			continue
+		}
+
+		// 更新IP
+		err = s.resultDAO.UpdateSubdomainIP(resultID, entryID, resolvedIP)
+		if err != nil {
+			result.Failed[entryID] = fmt.Sprintf("更新IP失败: %v", err)
+			continue
+		}
+
+		result.Success = append(result.Success, entryID)
+		logging.Info("成功更新子域名 %s 的 IP 为 %s", subdomain.Domain, resolvedIP)
+	}
+
+	logging.Info("批量解析完成，成功: %d, 失败: %d",
+		len(result.Success), len(result.Failed))
+
+	return result, nil
 }

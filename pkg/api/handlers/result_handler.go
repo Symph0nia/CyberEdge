@@ -196,3 +196,31 @@ func (h *ResultHandler) ResolveSubdomainIPHandler(c *gin.Context) {
 		"message": "子域名 IP 解析成功并更新",
 	})
 }
+
+// BatchResolveSubdomainIPHandler 处理批量子域名 IP 解析请求
+func (h *ResultHandler) BatchResolveSubdomainIPHandler(c *gin.Context) {
+	resultID := c.Param("id")
+
+	var request struct {
+		EntryIDs []string `json:"entryIds" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的请求参数"})
+		return
+	}
+
+	result, err := h.dnsService.BatchResolveAndUpdateSubdomainIP(resultID, request.EntryIDs)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":  "批量解析子域名IP失败",
+			"detail": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "批量解析完成",
+		"result":  result,
+	})
+}
