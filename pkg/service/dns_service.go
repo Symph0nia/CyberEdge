@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"github.com/miekg/dns"
 	"net"
+	"sync"
 	"time"
 )
 
@@ -207,8 +208,6 @@ func (s *DNSService) BatchResolveAndUpdateSubdomainIP(resultID string, entryIDs 
 	return result, nil
 }
 
-// dns_service.go
-
 func (s *DNSService) ResolveSubdomainIPs(resultID string, entryIDs []string) (*ResolveResult, error) {
 	logging.Info("开始解析子域名IP: %v", entryIDs)
 
@@ -217,7 +216,7 @@ func (s *DNSService) ResolveSubdomainIPs(resultID string, entryIDs []string) (*R
 		Failed:  make(map[string]string),
 	}
 
-	// 获取扫描结果
+	// 获取扫描结果和数据验证
 	scanResult, err := s.resultDAO.GetResultByID(resultID)
 	if err != nil {
 		logging.Error("获取扫描结果失败: %v", err)
@@ -228,7 +227,6 @@ func (s *DNSService) ResolveSubdomainIPs(resultID string, entryIDs []string) (*R
 		return nil, errors.New("任务类型不是子域名扫描")
 	}
 
-	// 解析数据
 	var subdomainData models.SubdomainData
 	if err := utils.UnmarshalData(scanResult.Data, &subdomainData); err != nil {
 		logging.Error("解析子域名数据失败: %v", err)
@@ -241,7 +239,19 @@ func (s *DNSService) ResolveSubdomainIPs(resultID string, entryIDs []string) (*R
 		subdomainMap[subdomainData.Subdomains[i].ID.Hex()] = &subdomainData.Subdomains[i]
 	}
 
-	// 解析和更新
+	// 创建并发控制
+	type resolveResult struct {
+		EntryID string
+		IP      string
+		Error   error
+	}
+
+	maxWorkers := 10 // 最大并发数
+	resultChan := make(chan resolveResult, len(entryIDs))
+	semaphore := make(chan struct{}, maxWorkers)
+	var wg sync.WaitGroup
+
+	// 启动解析协程
 	for _, entryID := range entryIDs {
 		subdomain, exists := subdomainMap[entryID]
 		if !exists {
@@ -254,24 +264,60 @@ func (s *DNSService) ResolveSubdomainIPs(resultID string, entryIDs []string) (*R
 			continue
 		}
 
-		resolvedIP, err := s.resolveIPWithFallback(subdomain.Domain)
-		if err != nil {
-			result.Failed[entryID] = fmt.Sprintf("解析失败: %v", err)
+		wg.Add(1)
+		go func(entryID string, domain string) {
+			defer wg.Done()
+
+			// 获取信号量
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+
+			// 解析IP
+			resolvedIP, err := s.resolveIPWithFallback(domain)
+			resultChan <- resolveResult{
+				EntryID: entryID,
+				IP:      resolvedIP,
+				Error:   err,
+			}
+		}(entryID, subdomain.Domain)
+	}
+
+	// 启动结果处理协程
+	go func() {
+		wg.Wait()
+		close(resultChan)
+	}()
+
+	// 处理结果
+	var mu sync.Mutex // 用于保护 result 的并发访问
+	for res := range resultChan {
+		if res.Error != nil {
+			mu.Lock()
+			result.Failed[res.EntryID] = fmt.Sprintf("解析失败: %v", res.Error)
+			mu.Unlock()
 			continue
 		}
 
-		if resolvedIP == "" {
-			result.Failed[entryID] = "未能解析到IP地址"
+		if res.IP == "" {
+			mu.Lock()
+			result.Failed[res.EntryID] = "未能解析到IP地址"
+			mu.Unlock()
 			continue
 		}
 
-		if err := s.resultDAO.UpdateSubdomainIP(resultID, entryID, resolvedIP); err != nil {
-			result.Failed[entryID] = fmt.Sprintf("更新IP失败: %v", err)
+		// 更新IP
+		if err := s.resultDAO.UpdateSubdomainIP(resultID, res.EntryID, res.IP); err != nil {
+			mu.Lock()
+			result.Failed[res.EntryID] = fmt.Sprintf("更新IP失败: %v", err)
+			mu.Unlock()
 			continue
 		}
 
-		result.Success = append(result.Success, entryID)
-		logging.Info("成功更新子域名 %s 的 IP 为 %s", subdomain.Domain, resolvedIP)
+		mu.Lock()
+		result.Success = append(result.Success, res.EntryID)
+		mu.Unlock()
+
+		logging.Info("成功更新子域名IP: %s -> %s", subdomainMap[res.EntryID].Domain, res.IP)
 	}
 
 	logging.Info("解析完成，成功: %d, 失败: %d", len(result.Success), len(result.Failed))
