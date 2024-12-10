@@ -206,3 +206,74 @@ func (s *DNSService) BatchResolveAndUpdateSubdomainIP(resultID string, entryIDs 
 
 	return result, nil
 }
+
+// dns_service.go
+
+func (s *DNSService) ResolveSubdomainIPs(resultID string, entryIDs []string) (*ResolveResult, error) {
+	logging.Info("开始解析子域名IP: %v", entryIDs)
+
+	result := &ResolveResult{
+		Success: make([]string, 0),
+		Failed:  make(map[string]string),
+	}
+
+	// 获取扫描结果
+	scanResult, err := s.resultDAO.GetResultByID(resultID)
+	if err != nil {
+		logging.Error("获取扫描结果失败: %v", err)
+		return nil, err
+	}
+
+	if scanResult.Type != "Subdomain" {
+		return nil, errors.New("任务类型不是子域名扫描")
+	}
+
+	// 解析数据
+	var subdomainData models.SubdomainData
+	if err := utils.UnmarshalData(scanResult.Data, &subdomainData); err != nil {
+		logging.Error("解析子域名数据失败: %v", err)
+		return nil, err
+	}
+
+	// 创建 ID 映射
+	subdomainMap := make(map[string]*models.SubdomainEntry)
+	for i := range subdomainData.Subdomains {
+		subdomainMap[subdomainData.Subdomains[i].ID.Hex()] = &subdomainData.Subdomains[i]
+	}
+
+	// 解析和更新
+	for _, entryID := range entryIDs {
+		subdomain, exists := subdomainMap[entryID]
+		if !exists {
+			result.Failed[entryID] = "未找到指定的子域名"
+			continue
+		}
+
+		// 跳过已有IP的记录
+		if subdomain.IP != "" {
+			continue
+		}
+
+		resolvedIP, err := s.resolveIPWithFallback(subdomain.Domain)
+		if err != nil {
+			result.Failed[entryID] = fmt.Sprintf("解析失败: %v", err)
+			continue
+		}
+
+		if resolvedIP == "" {
+			result.Failed[entryID] = "未能解析到IP地址"
+			continue
+		}
+
+		if err := s.resultDAO.UpdateSubdomainIP(resultID, entryID, resolvedIP); err != nil {
+			result.Failed[entryID] = fmt.Sprintf("更新IP失败: %v", err)
+			continue
+		}
+
+		result.Success = append(result.Success, entryID)
+		logging.Info("成功更新子域名 %s 的 IP 为 %s", subdomain.Domain, resolvedIP)
+	}
+
+	logging.Info("解析完成，成功: %d, 失败: %d", len(result.Success), len(result.Failed))
+	return result, nil
+}

@@ -98,8 +98,7 @@ func (r *Router) SetupRouter() *gin.Engine {
 		authenticated.DELETE("/results/:id", r.resultHandler.DeleteResult)                        // 删除扫描结果
 		authenticated.PUT("/results/:id/read", r.resultHandler.MarkResultAsRead)                  // 根据任务 ID 修改任务的已读状态
 		authenticated.PUT("/results/:id/entries/:entry_id/read", r.resultHandler.MarkEntryAsRead) // 根据任务 ID 和条目 ID 修改条目的已读状态
-		authenticated.PUT("/results/:id/entries/:entry_id/resolve", r.resultHandler.ResolveSubdomainIPHandler)
-		authenticated.PUT("/results/:id/entries/batch/resolve", r.resultHandler.BatchResolveSubdomainIPHandler)
+		authenticated.PUT("/results/:id/entries/resolve", r.resultHandler.ResolveSubdomainIPHandler)
 		authenticated.PUT("/results/:id/entries/:entry_id/probe", r.resultHandler.ProbeSubdomainHandler)
 		authenticated.PUT("/results/:id/entries/batch/probe", r.resultHandler.BatchProbeSubdomainHandler)
 	}
