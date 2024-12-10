@@ -105,6 +105,7 @@ func (dao *TargetDAO) UpdateTarget(id string, updatedTarget *models.Target) erro
 			"description": updatedTarget.Description,
 			"type":        updatedTarget.Type,
 			"target":      updatedTarget.Target,
+			"status":      updatedTarget.Status, // 添加 status 字段
 			"updated_at":  updatedTarget.UpdatedAt,
 		},
 	}

@@ -12,6 +12,7 @@ type Target struct {
 	Description string             `json:"description" bson:"description"` // 目标描述
 	Type        string             `json:"type" bson:"type"`               // "domain" 或 "ip"
 	Target      string             `json:"target" bson:"target"`           // 具体的域名或IP地址
+	Status      string             `json:"status" bson:"status"`           // "active" 或 "archived"
 	CreatedAt   time.Time          `json:"createdAt" bson:"created_at"`    // 创建时间
 	UpdatedAt   time.Time          `json:"updatedAt" bson:"updated_at"`    // 更新时间
 }
