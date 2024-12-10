@@ -205,24 +205,6 @@ func (h *ResultHandler) ResolveSubdomainIPHandler(c *gin.Context) {
 
 func (h *ResultHandler) ProbeSubdomainHandler(c *gin.Context) {
 	resultID := c.Param("id")
-	entryID := c.Param("entry_id")
-
-	err := h.httpxService.ProbeAndUpdateSubdomain(resultID, entryID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":  "HTTP探测失败",
-			"detail": err.Error(),
-		})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"message": "HTTP探测成功",
-	})
-}
-
-func (h *ResultHandler) BatchProbeSubdomainHandler(c *gin.Context) {
-	resultID := c.Param("id")
 
 	var request struct {
 		EntryIDs []string `json:"entryIds" binding:"required"`
@@ -233,17 +215,17 @@ func (h *ResultHandler) BatchProbeSubdomainHandler(c *gin.Context) {
 		return
 	}
 
-	result, err := h.httpxService.BatchProbeAndUpdateSubdomains(resultID, request.EntryIDs)
+	result, err := h.httpxService.ProbeSubdomains(resultID, request.EntryIDs)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":  "批量HTTP探测失败",
+			"error":  "HTTP探测失败",
 			"detail": err.Error(),
 		})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message": "批量HTTP探测完成",
+		"message": "探测完成",
 		"result":  result,
 	})
 }

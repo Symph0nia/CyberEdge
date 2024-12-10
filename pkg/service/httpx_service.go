@@ -39,127 +39,53 @@ func NewHTTPXService(resultDAO *dao.ResultDAO) *HTTPXService {
 	}
 }
 
-// 探测单个域名
-func (s *HTTPXService) ProbeAndUpdateSubdomain(resultID, entryID string) error {
-	// 获取扫描结果
-	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
-	defer cancel()
-
-	result, err := s.resultDAO.GetResultByID(resultID)
-	if err != nil {
-		logging.Error("获取扫描结果失败: %v", err)
-		return err
-	}
-
-	// 检查任务类型
-	if result.Type != "Subdomain" {
-		return errors.New("任务类型不是子域名扫描")
-	}
-
-	// 解析 SubdomainData
-	var subdomainData models.SubdomainData
-	if err := utils.UnmarshalData(result.Data, &subdomainData); err != nil {
-		logging.Error("解析子域名数据失败: %v", err)
-		return err
-	}
-
-	// 查找指定的子域名
-	var targetSubdomain *models.SubdomainEntry
-	for i := range subdomainData.Subdomains {
-		if subdomainData.Subdomains[i].ID.Hex() == entryID {
-			targetSubdomain = &subdomainData.Subdomains[i]
-			break
-		}
-	}
-
-	if targetSubdomain == nil {
-		return errors.New("未找到指定的子域名")
-	}
-
-	probeResult, err := s.probeWithHTTPX(ctx, targetSubdomain.Domain)
-	if err != nil {
-		logging.Error("HTTPX探测失败: %v", err)
-		return err
-	}
-
-	// 更新数据库
-	err = s.resultDAO.UpdateSubdomainHTTPInfo(resultID, entryID, probeResult.StatusCode, probeResult.Title)
-	if err != nil {
-		logging.Error("更新子域名HTTP信息失败: %v", err)
-		return err
-	}
-
-	logging.Info("成功更新子域名 %s 的HTTP信息: Status=%d, Title=%s",
-		targetSubdomain.Domain, probeResult.StatusCode, probeResult.Title)
-
-	return nil
-}
-
-// 批量探测域名
-func (s *HTTPXService) BatchProbeAndUpdateSubdomains(resultID string, entryIDs []string) (*ResolveResult, error) {
-	logging.Info("开始批量HTTP探测: %v", entryIDs)
+func (s *HTTPXService) ProbeSubdomains(resultID string, entryIDs []string) (*ResolveResult, error) {
+	logging.Info("开始HTTP探测: %v", entryIDs)
 
 	result := &ResolveResult{
 		Success: make([]string, 0),
 		Failed:  make(map[string]string),
 	}
 
-	// 获取扫描结果
+	// 获取和验证扫描结果
 	scanResult, err := s.resultDAO.GetResultByID(resultID)
 	if err != nil {
 		logging.Error("获取扫描结果失败: %v", err)
 		return nil, err
 	}
 
-	// 检查任务类型
 	if scanResult.Type != "Subdomain" {
 		return nil, errors.New("任务类型不是子域名扫描")
 	}
 
-	// 解析 SubdomainData
+	// 解析数据
 	var subdomainData models.SubdomainData
 	if err := utils.UnmarshalData(scanResult.Data, &subdomainData); err != nil {
 		logging.Error("解析子域名数据失败: %v", err)
 		return nil, err
 	}
 
-	// 创建entryID到subdomain的映射
+	// 创建域名映射
 	subdomainMap := make(map[string]*models.SubdomainEntry)
 	for i := range subdomainData.Subdomains {
 		subdomainMap[subdomainData.Subdomains[i].ID.Hex()] = &subdomainData.Subdomains[i]
 	}
 
-	type probeTask struct {
-		entryID  string
-		domain   string
-		resultCh chan *HTTPXResult
-		errCh    chan error
+	// 定义探测任务结构
+	type probeResult struct {
+		EntryID    string
+		Domain     string
+		HTTPResult *HTTPXResult
+		Error      error
 	}
 
-	taskCh := make(chan probeTask, len(entryIDs))
+	// 创建工作池
+	maxWorkers := s.workers
+	resultChan := make(chan probeResult, len(entryIDs))
+	semaphore := make(chan struct{}, maxWorkers)
 	var wg sync.WaitGroup
-	var resultMutex sync.Mutex
 
-	// 启动工作线程
-	for i := 0; i < s.workers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for task := range taskCh {
-				ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
-				probeResult, err := s.probeWithHTTPX(ctx, task.domain)
-				cancel()
-
-				if err != nil {
-					task.errCh <- err
-					continue
-				}
-				task.resultCh <- probeResult
-			}
-		}()
-	}
-
-	// 发送任务
+	// 启动探测协程
 	for _, entryID := range entryIDs {
 		subdomain, exists := subdomainMap[entryID]
 		if !exists {
@@ -167,47 +93,66 @@ func (s *HTTPXService) BatchProbeAndUpdateSubdomains(resultID string, entryIDs [
 			continue
 		}
 
-		resultCh := make(chan *HTTPXResult, 1)
-		errCh := make(chan error, 1)
+		wg.Add(1)
+		go func(entryID string, domain string) {
+			defer wg.Done()
 
-		taskCh <- probeTask{
-			entryID:  entryID,
-			domain:   subdomain.Domain,
-			resultCh: resultCh,
-			errCh:    errCh,
-		}
+			// 获取信号量
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
 
-		// 处理结果
-		go func(entryID string, domain string, resultCh chan *HTTPXResult, errCh chan error) {
-			select {
-			case probeResult := <-resultCh:
-				err := s.resultDAO.UpdateSubdomainHTTPInfo(resultID, entryID, probeResult.StatusCode, probeResult.Title)
-				resultMutex.Lock()
-				if err != nil {
-					result.Failed[entryID] = fmt.Sprintf("更新HTTP信息失败: %v", err)
-				} else {
-					result.Success = append(result.Success, entryID)
-					logging.Info("成功更新子域名 %s 的HTTP信息: Status=%d, Title=%s",
-						domain, probeResult.StatusCode, probeResult.Title)
-				}
-				resultMutex.Unlock()
+			// 创建上下文
+			ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+			defer cancel()
 
-			case err := <-errCh:
-				resultMutex.Lock()
-				result.Failed[entryID] = fmt.Sprintf("HTTP探测失败: %v", err)
-				resultMutex.Unlock()
+			// 执行探测
+			httpResult, err := s.probeWithHTTPX(ctx, domain)
+			resultChan <- probeResult{
+				EntryID:    entryID,
+				Domain:     domain,
+				HTTPResult: httpResult,
+				Error:      err,
 			}
-			close(resultCh)
-			close(errCh)
-		}(entryID, subdomain.Domain, resultCh, errCh)
+		}(entryID, subdomain.Domain)
 	}
 
-	close(taskCh)
-	wg.Wait()
+	// 启动结果收集协程
+	go func() {
+		wg.Wait()
+		close(resultChan)
+	}()
 
-	logging.Info("批量HTTP探测完成，成功: %d, 失败: %d",
+	// 处理结果
+	var mu sync.Mutex
+	for res := range resultChan {
+		if res.Error != nil {
+			mu.Lock()
+			result.Failed[res.EntryID] = fmt.Sprintf("探测失败: %v", res.Error)
+			mu.Unlock()
+			continue
+		}
+
+		// 更新数据库
+		err := s.resultDAO.UpdateSubdomainHTTPInfo(
+			resultID,
+			res.EntryID,
+			res.HTTPResult.StatusCode,
+			res.HTTPResult.Title,
+		)
+
+		mu.Lock()
+		if err != nil {
+			result.Failed[res.EntryID] = fmt.Sprintf("更新HTTP信息失败: %v", err)
+		} else {
+			result.Success = append(result.Success, res.EntryID)
+			logging.Info("成功更新子域名 %s 的HTTP信息: Status=%d, Title=%s",
+				res.Domain, res.HTTPResult.StatusCode, res.HTTPResult.Title)
+		}
+		mu.Unlock()
+	}
+
+	logging.Info("探测完成，成功: %d, 失败: %d",
 		len(result.Success), len(result.Failed))
-
 	return result, nil
 }
 
