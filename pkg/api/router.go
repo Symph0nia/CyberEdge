@@ -16,6 +16,7 @@ type Router struct {
 	configHandler  *handlers.ConfigHandler
 	taskHandler    *handlers.TaskHandler
 	resultHandler  *handlers.ResultHandler
+	targetHandler  *handlers.TargetHandler
 	jwtSecret      string
 	sessionSecret  string
 	allowedOrigins []string
@@ -28,6 +29,7 @@ func NewRouter(
 	resultService *service.ResultService,
 	dnsService *service.DNSService,
 	httpxService *service.HTTPXService,
+	targetService *service.TargetService,
 	jwtSecret string,
 	sessionSecret string,
 	allowedOrigins []string,
@@ -37,6 +39,7 @@ func NewRouter(
 		configHandler:  handlers.NewConfigHandler(configService),
 		taskHandler:    handlers.NewTaskHandler(taskService),
 		resultHandler:  handlers.NewResultHandler(resultService, dnsService, httpxService),
+		targetHandler:  handlers.NewTargetHandler(targetService),
 		jwtSecret:      jwtSecret,
 		sessionSecret:  sessionSecret,
 		allowedOrigins: allowedOrigins,
@@ -90,6 +93,13 @@ func (r *Router) SetupRouter() *gin.Engine {
 		authenticated.GET("/tasks", r.taskHandler.GetAllTasks)       // 获取所有任务
 		authenticated.DELETE("/tasks", r.taskHandler.DeleteTasks)    // 批量删除任务
 		authenticated.POST("/tasks/start", r.taskHandler.StartTasks) // 批量启动任务
+
+		// 目标管理API
+		authenticated.POST("/targets", r.targetHandler.CreateTarget)       // 创建目标
+		authenticated.GET("/targets", r.targetHandler.GetAllTargets)       // 获取所有目标
+		authenticated.GET("/targets/:id", r.targetHandler.GetTargetByID)   // 获取单个目标
+		authenticated.PUT("/targets/:id", r.targetHandler.UpdateTarget)    // 更新目标
+		authenticated.DELETE("/targets/:id", r.targetHandler.DeleteTarget) // 删除目标
 
 		// 扫描结果管理API
 		authenticated.GET("/results/:id", r.resultHandler.GetResultByID)                          // 获取单个扫描结果
