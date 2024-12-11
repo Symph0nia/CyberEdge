@@ -203,6 +203,20 @@ func (dao *TargetDAO) GetTargetDetailsById(id string) (*models.TargetDetails, er
 		vulnCount = 0
 	}
 
+	// 获取端口排名数据
+	topPorts, err := dao.GetTopPortStats(id)
+	if err != nil {
+		logging.Error("获取端口排名失败: %v", err)
+		topPorts = []models.PortStat{}
+	}
+
+	// 获取HTTP状态码统计
+	httpStats, err := dao.GetHTTPStatusStats(id)
+	if err != nil {
+		logging.Error("获取HTTP状态码统计失败: %v", err)
+		httpStats = []models.HTTPStatusStat{}
+	}
+
 	details := &models.TargetDetails{
 		Target: &target,
 		Stats: models.TargetStats{
@@ -210,6 +224,8 @@ func (dao *TargetDAO) GetTargetDetailsById(id string) (*models.TargetDetails, er
 			PortCount:          portCount,
 			PathCount:          pathCount,
 			VulnerabilityCount: vulnCount,
+			TopPorts:           topPorts,  // 添加端口排名
+			HTTPStatusStats:    httpStats, // 添加HTTP状态码统计
 		},
 	}
 
@@ -357,4 +373,201 @@ func (dao *TargetDAO) getPathCount(targetID primitive.ObjectID) (int, error) {
 func (dao *TargetDAO) getVulnerabilityCount(targetID primitive.ObjectID) (int, error) {
 	// TODO: 实现漏洞统计逻辑
 	return 0, nil
+}
+
+// GetTopPortStats 获取目标的前10个最常见端口及其数量
+func (dao *TargetDAO) GetTopPortStats(targetID string) ([]models.PortStat, error) {
+	logging.Info("正在获取目标 %s 的端口统计信息", targetID)
+
+	objID, err := primitive.ObjectIDFromHex(targetID)
+	if err != nil {
+		logging.Error("无效的目标 ID: %s, 错误: %v", targetID, err)
+		return nil, err
+	}
+
+	pipeline := []bson.M{
+		{
+			"$match": bson.M{
+				"target_id": objID,
+				"type":      "Port",
+			},
+		},
+		{
+			"$unwind": "$data.ports",
+		},
+		{
+			"$group": bson.M{
+				"_id":   "$data.ports.number",
+				"count": bson.M{"$sum": 1},
+			},
+		},
+		{
+			"$sort": bson.M{"count": -1},
+		},
+		{
+			"$limit": 10,
+		},
+	}
+
+	cursor, err := dao.resultsCollection.Aggregate(context.Background(), pipeline)
+	if err != nil {
+		logging.Error("聚合端口统计失败: %v", err)
+		return nil, err
+	}
+	defer cursor.Close(context.Background())
+
+	var stats []models.PortStat
+	for cursor.Next(context.Background()) {
+		var result struct {
+			ID    int `bson:"_id"`
+			Count int `bson:"count"`
+		}
+		if err := cursor.Decode(&result); err != nil {
+			logging.Error("解析端口统计结果失败: %v", err)
+			return nil, err
+		}
+		stats = append(stats, models.PortStat{
+			Port:  result.ID,
+			Count: result.Count,
+		})
+	}
+
+	if err := cursor.Err(); err != nil {
+		logging.Error("游标错误: %v", err)
+		return nil, err
+	}
+
+	logging.Info("成功获取目标 %s 的端口统计信息，共 %d 条记录", targetID, len(stats))
+	return stats, nil
+}
+
+// GetHTTPStatusStats 获取目标所有HTTP状态码的统计信息
+func (dao *TargetDAO) GetHTTPStatusStats(targetID string) ([]models.HTTPStatusStat, error) {
+	logging.Info("正在获取目标 %s 的HTTP状态码统计信息", targetID)
+
+	objID, err := primitive.ObjectIDFromHex(targetID)
+	if err != nil {
+		logging.Error("无效的目标 ID: %s, 错误: %v", targetID, err)
+		return nil, err
+	}
+
+	// 构建聚合管道
+	pipeline := []bson.M{
+		{
+			"$match": bson.M{
+				"target_id": objID,
+				"$or": []bson.M{
+					{"type": "Subdomain"},
+					{"type": "Port"},
+					{"type": "Path"},
+				},
+			},
+		},
+		{
+			"$facet": bson.M{
+				"subdomains": []bson.M{
+					{"$match": bson.M{"type": "Subdomain"}},
+					{"$unwind": "$data.subdomains"},
+					{"$group": bson.M{
+						"_id":   "$data.subdomains.http_status",
+						"count": bson.M{"$sum": 1},
+					}},
+				},
+				"ports": []bson.M{
+					{"$match": bson.M{"type": "Port"}},
+					{"$unwind": "$data.ports"},
+					{"$group": bson.M{
+						"_id":   "$data.ports.http_status",
+						"count": bson.M{"$sum": 1},
+					}},
+				},
+				"paths": []bson.M{
+					{"$match": bson.M{"type": "Path"}},
+					{"$unwind": "$data.paths"},
+					{"$group": bson.M{
+						"_id":   "$data.paths.http_status",
+						"count": bson.M{"$sum": 1},
+					}},
+				},
+			},
+		},
+		{
+			"$project": bson.M{
+				"all_stats": bson.M{
+					"$concatArrays": []string{"$subdomains", "$ports", "$paths"},
+				},
+			},
+		},
+		{
+			"$unwind": "$all_stats",
+		},
+		{
+			"$group": bson.M{
+				"_id":   "$all_stats._id",
+				"count": bson.M{"$sum": "$all_stats.count"},
+			},
+		},
+		{
+			"$match": bson.M{
+				"_id": bson.M{"$ne": nil},
+			},
+		},
+		{
+			"$sort": bson.M{"count": -1},
+		},
+	}
+
+	cursor, err := dao.resultsCollection.Aggregate(context.Background(), pipeline)
+	if err != nil {
+		logging.Error("聚合HTTP状态码统计失败: %v", err)
+		return nil, err
+	}
+	defer cursor.Close(context.Background())
+
+	var stats []models.HTTPStatusStat
+	for cursor.Next(context.Background()) {
+		var result struct {
+			ID    int `bson:"_id"`
+			Count int `bson:"count"`
+		}
+		if err := cursor.Decode(&result); err != nil {
+			logging.Error("解析HTTP状态码统计结果失败: %v", err)
+			return nil, err
+		}
+
+		// 生成状态码描述标签
+		label := getHTTPStatusLabel(result.ID)
+
+		stats = append(stats, models.HTTPStatusStat{
+			Status: result.ID,
+			Count:  result.Count,
+			Label:  label,
+		})
+	}
+
+	if err := cursor.Err(); err != nil {
+		logging.Error("游标错误: %v", err)
+		return nil, err
+	}
+
+	logging.Info("成功获取目标 %s 的HTTP状态码统计信息，共 %d 条记录", targetID, len(stats))
+	return stats, nil
+}
+
+// getHTTPStatusLabel 根据状态码生成描述标签
+func getHTTPStatusLabel(status int) string {
+	switch {
+	case status >= 500:
+		return fmt.Sprintf("%d 服务器错误", status)
+	case status >= 400:
+		return fmt.Sprintf("%d 客户端错误", status)
+	case status >= 300:
+		return fmt.Sprintf("%d 重定向", status)
+	case status >= 200:
+		return fmt.Sprintf("%d 成功", status)
+	case status >= 100:
+		return fmt.Sprintf("%d 信息", status)
+	default:
+		return fmt.Sprintf("%d 未知状态", status)
+	}
 }

@@ -36,14 +36,29 @@ func (t *Target) BeforeUpdate() {
 
 // TargetStats 目标统计信息
 type TargetStats struct {
-	SubdomainCount     int `json:"subdomain_count"`
-	PortCount          int `json:"port_count"`
-	PathCount          int `json:"path_count"`
-	VulnerabilityCount int `json:"vulnerability_count"`
+	SubdomainCount     int              `json:"subdomain_count"`
+	PortCount          int              `json:"port_count"`
+	PathCount          int              `json:"path_count"`
+	VulnerabilityCount int              `json:"vulnerability_count"`
+	TopPorts           []PortStat       `json:"top_ports"`         // 新增端口排名
+	HTTPStatusStats    []HTTPStatusStat `json:"http_status_stats"` // 新增HTTP状态码统计
 }
 
 // TargetDetails 目标详细信息
 type TargetDetails struct {
 	Target *Target     `json:"target"`
 	Stats  TargetStats `json:"stats"`
+}
+
+// PortStat 端口统计信息
+type PortStat struct {
+	Port  int `json:"port" bson:"port"`
+	Count int `json:"count" bson:"count"`
+}
+
+// HTTPStatusStat HTTP状态码统计信息
+type HTTPStatusStat struct {
+	Status int    `json:"status" bson:"status"`
+	Count  int    `json:"count" bson:"count"`
+	Label  string `json:"label" bson:"label"` // 用于展示的标签
 }
