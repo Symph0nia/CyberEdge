@@ -56,10 +56,14 @@ func (f *FfufTask) runFfuf(ctx context.Context, t *asynq.Task) error {
 	if err != nil {
 		return fmt.Errorf("创建临时文件失败: %v", err)
 	}
-	defer os.Remove(tempFile.Name()) // 确保在函数结束时删除临时文件
+	defer os.Remove(tempFile.Name())
 
 	// 执行 ffuf 命令，将结果输出到临时文件
-	cmd := exec.Command("ffuf", "-u", payload.Target+"/FUZZ", "-w", "./wordlist/test.txt", "-o", tempFile.Name(), "-of", "json")
+	cmd := exec.Command("ffuf",
+		"-u", payload.Target+"/FUZZ",
+		"-w", "./wordlist/test.txt",
+		"-o", tempFile.Name(),
+		"-of", "json")
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("执行 ffuf 命令失败: %v", err)
 	}
@@ -86,19 +90,22 @@ func (f *FfufTask) runFfuf(ctx context.Context, t *asynq.Task) error {
 		return fmt.Errorf("解析 ffuf 结果失败: %v", err)
 	}
 
-	// 创建 Path 列表
+	// 创建 PathEntry 列表
 	pathData := &models.PathData{
-		Paths: []*models.Path{},
+		Paths: make([]models.PathEntry, 0, len(ffufResult.Results)),
 	}
+
 	for _, r := range ffufResult.Results {
-		pathData.Paths = append(pathData.Paths, &models.Path{
-			ID:     primitive.NewObjectID(),
-			Path:   strings.TrimPrefix(r.URL, payload.Target),
-			Status: r.Status,
-			Length: r.Length,
-			Words:  r.Words,
-			Lines:  r.Lines,
-			IsRead: false, // 默认未读
+		pathData.Paths = append(pathData.Paths, models.PathEntry{
+			ID:         primitive.NewObjectID(),
+			Path:       strings.TrimPrefix(r.URL, payload.Target),
+			Status:     r.Status,
+			Length:     r.Length,
+			Words:      r.Words,
+			Lines:      r.Lines,
+			IsRead:     false, // 默认未读
+			HTTPStatus: 0,     // 初始化为 0
+			HTTPTitle:  "",    // 初始化为空字符串
 		})
 	}
 
@@ -118,7 +125,7 @@ func (f *FfufTask) runFfuf(ctx context.Context, t *asynq.Task) error {
 		Timestamp: time.Now(),
 		Data:      pathData,
 		ParentID:  parentID,
-		IsRead:    false, // 初始任务记录默认未读
+		IsRead:    false,
 	}
 
 	// 存储扫描结果

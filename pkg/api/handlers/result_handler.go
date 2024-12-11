@@ -135,7 +135,7 @@ func (h *ResultHandler) MarkResultAsRead(c *gin.Context) {
 
 	// 从请求体获取新的 isRead 状态
 	var request struct {
-		IsRead bool `json:"isRead"`
+		IsRead bool `json:"is_read"`
 	}
 
 	if err := c.ShouldBindJSON(&request); err != nil {
@@ -159,7 +159,7 @@ func (h *ResultHandler) MarkEntryAsRead(c *gin.Context) {
 
 	// 从请求体获取 isRead 状态
 	var request struct {
-		IsRead bool `json:"isRead"`
+		IsRead bool `json:"is_read"`
 	}
 
 	if err := c.ShouldBindJSON(&request); err != nil {
@@ -203,7 +203,7 @@ func (h *ResultHandler) ResolveSubdomainIPHandler(c *gin.Context) {
 	})
 }
 
-func (h *ResultHandler) ProbeSubdomainHandler(c *gin.Context) {
+func (h *ResultHandler) ProbeHandler(c *gin.Context) {
 	resultID := c.Param("id")
 
 	var request struct {
@@ -215,7 +215,8 @@ func (h *ResultHandler) ProbeSubdomainHandler(c *gin.Context) {
 		return
 	}
 
-	result, err := h.httpxService.ProbeSubdomains(resultID, request.EntryIDs)
+	// 使用通用的 ProbeTargets 方法
+	result, err := h.httpxService.ProbeTargets(resultID, request.EntryIDs)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":  "HTTP探测失败",

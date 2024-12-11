@@ -84,13 +84,13 @@ func (n *NmapTask) runNmap(ctx context.Context, t *asynq.Task) error {
 	}
 
 	// 解析 XML 结果
-	portList, err := parseNmapXML(xmlData)
+	portEntries, err := parseNmapXML(xmlData)
 	if err != nil {
 		return fmt.Errorf("解析 Nmap XML 结果失败: %v", err)
 	}
 
 	portData := &models.PortData{
-		Ports: portList,
+		Ports: portEntries,
 	}
 
 	var parentID *primitive.ObjectID
@@ -115,14 +115,18 @@ func (n *NmapTask) runNmap(ctx context.Context, t *asynq.Task) error {
 		return err
 	}
 
-	logging.Info("Nmap 任务完成，扫描了 %d 个端口", len(portList))
+	logging.Info("Nmap 任务完成，扫描了 %d 个端口", len(portEntries))
 
 	return nil
 }
 
-func parseNmapXML(data []byte) ([]*models.Port, error) {
+func parseNmapXML(data []byte) ([]models.PortEntry, error) {
 	var result struct {
 		Hosts []struct {
+			Addresses []struct {
+				Addr     string `xml:"addr,attr"`
+				AddrType string `xml:"addrtype,attr"`
+			} `xml:"address"`
 			Ports []struct {
 				ID       int    `xml:"portid,attr"`
 				Protocol string `xml:"protocol,attr"`
@@ -143,22 +147,36 @@ func parseNmapXML(data []byte) ([]*models.Port, error) {
 		return nil, err
 	}
 
-	var portList []*models.Port
+	var portEntries []models.PortEntry
 	for _, host := range result.Hosts {
+		// 获取主机 IP 地址
+		var hostAddr string
+		for _, addr := range host.Addresses {
+			if addr.AddrType == "ipv4" {
+				hostAddr = addr.Addr
+				break
+			}
+		}
+
+		// 如果没有找到 IPv4 地址，尝试使用任意类型的地址
+		if hostAddr == "" && len(host.Addresses) > 0 {
+			hostAddr = host.Addresses[0].Addr
+		}
+
 		for _, port := range host.Ports {
-			portList = append(portList, &models.Port{
-				ID:        primitive.NewObjectID(),
-				Number:    port.ID,
-				Protocol:  port.Protocol,
-				State:     port.State.State,
-				Service:   port.Service.Name,
-				Product:   port.Service.Product,
-				Version:   port.Service.Version,
-				ExtraInfo: port.Service.ExtraInfo,
-				IsRead:    false,
+			portEntries = append(portEntries, models.PortEntry{
+				ID:         primitive.NewObjectID(),
+				Host:       hostAddr, // 添加主机地址
+				Number:     port.ID,
+				Protocol:   port.Protocol,
+				State:      port.State.State,
+				Service:    port.Service.Name,
+				IsRead:     false,
+				HTTPStatus: 0,
+				HTTPTitle:  "",
 			})
 		}
 	}
 
-	return portList, nil
+	return portEntries, nil
 }

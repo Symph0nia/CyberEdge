@@ -6,14 +6,30 @@ import (
 	"cyberedge/pkg/models"
 	"cyberedge/pkg/utils"
 	"errors"
+	"fmt"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 	"time"
 )
 
 type ResultDAO struct {
 	collection *mongo.Collection
+}
+
+// getUpdatePath 获取不同类型的更新路径
+func getUpdatePath(taskType string) string {
+	switch taskType {
+	case "Subdomain":
+		return "data.subdomains"
+	case "Port":
+		return "data.ports"
+	case "Path":
+		return "data.paths"
+	default:
+		return ""
+	}
 }
 
 // NewResultDAO 创建一个新的 ResultDAO 实例
@@ -130,114 +146,62 @@ func (dao *ResultDAO) UpdateResult(id string, updatedResult *models.Result) erro
 	return nil
 }
 
-// UpdateEntryReadStatus 更新指定任务中的指定条目的已读状态
 func (dao *ResultDAO) UpdateEntryReadStatus(resultID string, entryID string, isRead bool) error {
 	logging.Info("正在更新任务 %s 中条目 %s 的已读状态", resultID, entryID)
 
-	// 将任务 ID 和条目 ID 转换为 ObjectID
+	// 转换 ObjectID
 	objID, err := primitive.ObjectIDFromHex(resultID)
 	if err != nil {
-		logging.Error("无效的任务 ID: %s, 错误: %v", resultID, err)
-		return err
+		return fmt.Errorf("无效的任务 ID: %v", err)
 	}
 
 	entryObjID, err := primitive.ObjectIDFromHex(entryID)
 	if err != nil {
-		logging.Error("无效的条目 ID: %s, 错误: %v", entryID, err)
-		return err
+		return fmt.Errorf("无效的条目 ID: %v", err)
 	}
 
-	// 获取任务
+	// 获取任务以确定类型
 	result, err := dao.GetResultByID(resultID)
 	if err != nil {
-		logging.Error("无法获取任务: %v", err)
-		return err
+		return fmt.Errorf("无法获取任务: %v", err)
 	}
 
-	// 根据任务类型处理不同的数据结构
-	switch result.Type {
-	case "Port":
-		var portData models.PortData
-		if err := utils.UnmarshalData(result.Data, &portData); err != nil {
-			return err
-		}
-		for _, port := range portData.Ports {
-			if port.ID == entryObjID {
-				port.IsRead = isRead
-				break
-			}
-		}
-		result.Data = portData
-
-	case "Fingerprint":
-		var fingerprints []*models.Fingerprint
-		if err := utils.UnmarshalData(result.Data, &fingerprints); err != nil {
-			return err
-		}
-		for _, fingerprint := range fingerprints {
-			if fingerprint.ID == entryObjID {
-				fingerprint.IsRead = isRead
-				break
-			}
-		}
-		result.Data = fingerprints
-
-	case "Path":
-		var paths []*models.Path
-		if err := utils.UnmarshalData(result.Data, &paths); err != nil {
-			return err
-		}
-		for _, path := range paths {
-			if path.ID == entryObjID {
-				path.IsRead = isRead
-				break
-			}
-		}
-		result.Data = paths
-
-	case "Subdomain":
-		var subdomainData models.SubdomainData
-		if err := utils.UnmarshalData(result.Data, &subdomainData); err != nil {
-			return err
-		}
-		for i, subdomain := range subdomainData.Subdomains {
-			if subdomain.ID == entryObjID {
-				subdomainData.Subdomains[i].IsRead = isRead
-				break
-			}
-		}
-		result.Data = subdomainData
-
-	default:
-		return errors.New("未知的数据类型")
+	// 根据任务类型获取更新路径
+	updatePath := getUpdatePath(result.Type)
+	if updatePath == "" {
+		return fmt.Errorf("不支持的任务类型: %s", result.Type)
 	}
 
-	// 构造 MongoDB 更新操作，更新整个任务
+	// 执行更新
 	update := bson.M{
 		"$set": bson.M{
-			"data":       result.Data,
+			fmt.Sprintf("%s.$[elem].is_read", updatePath): isRead,
 			"updated_at": time.Now(),
 		},
 	}
 
-	// 执行更新操作
+	arrayFilters := []interface{}{
+		bson.M{"elem._id": entryObjID},
+	}
+
 	updateResult, err := dao.collection.UpdateOne(
 		context.Background(),
 		bson.M{"_id": objID},
 		update,
+		options.Update().SetArrayFilters(options.ArrayFilters{
+			Filters: arrayFilters,
+		}),
 	)
 
 	if err != nil {
-		logging.Error("更新任务 %s 的条目 %s 的已读状态失败: %v", resultID, entryID, err)
-		return err
+		return fmt.Errorf("更新失败: %v", err)
 	}
 
 	if updateResult.ModifiedCount == 0 {
-		logging.Warn("未找到匹配的任务 %s 进行更新", resultID)
-	} else {
-		logging.Info("成功更新任务 %s 中条目 %s 的已读状态", resultID, entryID)
+		return fmt.Errorf("未找到匹配的记录")
 	}
 
+	logging.Info("成功更新已读状态")
 	return nil
 }
 
@@ -343,79 +307,57 @@ func (dao *ResultDAO) DeleteResult(id string) error {
 	return nil
 }
 
-// UpdateSubdomainHTTPInfo 更新指定任务中的子域名HTTP探测信息
-func (dao *ResultDAO) UpdateSubdomainHTTPInfo(resultID string, entryID string, statusCode int, title string) error {
-	logging.Info("正在更新任务 %s 中子域名 %s 的HTTP信息", resultID, entryID)
+// UpdateHTTPInfo 通用的 HTTP 信息更新函数
+func (dao *ResultDAO) UpdateHTTPInfo(resultID string, entryID string, taskType string, statusCode int, title string) error {
+	logging.Info("正在更新任务 %s 中 %s 类型条目 %s 的HTTP信息", resultID, taskType, entryID)
 
-	// 将任务 ID 和子域名 ID 转换为 ObjectID
+	// 转换 ObjectID
 	objID, err := primitive.ObjectIDFromHex(resultID)
 	if err != nil {
-		logging.Error("无效的任务 ID: %s, 错误: %v", resultID, err)
-		return err
+		return fmt.Errorf("无效的任务 ID: %v", err)
 	}
 
 	entryObjID, err := primitive.ObjectIDFromHex(entryID)
 	if err != nil {
-		logging.Error("无效的条目 ID: %s, 错误: %v", entryID, err)
-		return err
+		return fmt.Errorf("无效的条目 ID: %v", err)
 	}
 
-	// 获取任务
-	result, err := dao.GetResultByID(resultID)
-	if err != nil {
-		logging.Error("无法获取任务: %v", err)
-		return err
+	// 构造更新操作
+	updatePath := getUpdatePath(taskType)
+	if updatePath == "" {
+		return fmt.Errorf("不支持的任务类型: %s", taskType)
 	}
 
-	// 检查任务类型为 Subdomain
-	if result.Type != "Subdomain" {
-		return errors.New("任务类型不匹配，无法更新子域名HTTP信息")
-	}
-
-	// 解析 result.Data 为 SubdomainData 结构
-	var subdomainData models.SubdomainData
-	if err := utils.UnmarshalData(result.Data, &subdomainData); err != nil {
-		logging.Error("解析子域名数据失败: %v", err)
-		return err
-	}
-
-	// 遍历子域名数据，找到匹配的子域名并更新HTTP信息
-	for i, subdomain := range subdomainData.Subdomains {
-		if subdomain.ID == entryObjID {
-			subdomainData.Subdomains[i].HTTPStatus = statusCode
-			subdomainData.Subdomains[i].HTTPTitle = title
-			break
-		}
-	}
-
-	// 将更新后的数据赋值回 result.Data
-	result.Data = subdomainData
-
-	// 构造 MongoDB 更新操作，更新整个任务
+	// 执行更新
 	update := bson.M{
 		"$set": bson.M{
-			"data":       result.Data,
+			fmt.Sprintf("%s.$[elem].http_status", updatePath): statusCode,
+			fmt.Sprintf("%s.$[elem].http_title", updatePath):  title,
 			"updated_at": time.Now(),
 		},
 	}
 
-	// 执行更新操作
-	updateResult, err := dao.collection.UpdateOne(
+	arrayFilters := []interface{}{
+		bson.M{"elem._id": entryObjID},
+	}
+
+	result, err := dao.collection.UpdateOne(
 		context.Background(),
-		bson.M{"_id": objID},
+		bson.M{"_id": objID, "type": taskType},
 		update,
+		options.Update().SetArrayFilters(options.ArrayFilters{
+			Filters: arrayFilters,
+		}),
 	)
 
 	if err != nil {
-		logging.Error("更新任务 %s 的子域名 %s 的HTTP信息失败: %v", resultID, entryID, err)
-		return err
+		return fmt.Errorf("更新失败: %v", err)
 	}
 
-	if updateResult.ModifiedCount == 0 {
-		logging.Warn("未找到匹配的任务 %s 进行更新", resultID)
-	} else {
-		logging.Info("成功更新任务 %s 中子域名 %s 的HTTP信息", resultID, entryID)
+	if result.ModifiedCount == 0 {
+		return fmt.Errorf("未找到匹配的记录")
 	}
 
+	logging.Info("成功更新HTTP信息")
 	return nil
 }
