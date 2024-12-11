@@ -57,6 +57,9 @@ func main() {
 	// 初始化 DAO
 	taskDAO := dao.NewTaskDAO(db.Collection("tasks"))
 	resultDAO := dao.NewResultDAO(db.Collection("results"))
+	userDAO := dao.NewUserDAO(db.Collection("users"))
+	configDAO := dao.NewConfigDAO(db.Collection("config"))
+	targetDAO := dao.NewTargetDAO(db.Collection("targets"))
 
 	// 初始化任务处理器
 	taskHandler := setup.InitTaskHandler(taskDAO, resultDAO)
@@ -64,16 +67,14 @@ func main() {
 	// 启动 Asynq 服务器
 	setup.StartAsynqServer(asynqServer, taskHandler)
 
-	// 初始化 DAO
-	userDAO := dao.NewUserDAO(db.Collection("users"))
-	configDAO := dao.NewConfigDAO(db.Collection("config"))
-
 	// 初始化 Service
 	jwtSecret := "your-jwt-secret" // 应从配置文件或环境变量中读取
 	userService := service.NewUserService(userDAO, configDAO, jwtSecret)
 	configService := service.NewConfigService(configDAO)
 	resultService := service.NewResultService(resultDAO)
 	dnsService := service.NewDNSService(resultDAO)
+	httpxService := service.NewHTTPXService(resultDAO)
+	targetService := service.NewTargetService(targetDAO)
 
 	// 设置API路由，包括任务管理的路由
 	router := api.NewRouter(
@@ -82,6 +83,8 @@ func main() {
 		taskService,
 		resultService,
 		dnsService,
+		httpxService,
+		targetService,
 		jwtSecret,
 		"your-session-secret",             // 应从配置文件或环境变量中读取
 		[]string{"http://localhost:8080"}, // 允许的源

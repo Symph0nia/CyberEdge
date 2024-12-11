@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"cyberedge/pkg/dao"
 	"cyberedge/pkg/logging"
 	"cyberedge/pkg/models"
@@ -69,35 +70,107 @@ func (s *TaskService) CreateTask(taskType string, payload interface{}, parentID 
 	return nil
 }
 
-func (s *TaskService) StartTask(task *models.Task) error {
-	logging.Info("正在启动任务: ID %s, 类型 %s", task.ID.Hex(), task.Type)
+type StartTaskResult struct {
+	Success []string          `json:"success"`
+	Failed  map[string]string `json:"failed"` // taskId -> error message
+}
 
-	payloadMap := map[string]interface{}{
-		"task_id": task.ID.Hex(),
-		"target":  task.Payload,
+func (s *TaskService) StartTasks(taskIDs []string) (*StartTaskResult, error) {
+	logging.Info("正在批量启动任务: %v", taskIDs)
+
+	result := &StartTaskResult{
+		Success: make([]string, 0),
+		Failed:  make(map[string]string),
 	}
 
-	if task.ParentID != nil {
-		payloadMap["parent_id"] = task.ParentID.Hex()
-	}
-
-	payload, err := json.Marshal(payloadMap)
+	// 批量获取任务信息
+	tasks, err := s.taskDAO.GetTasksByIDs(taskIDs)
 	if err != nil {
-		logging.Error("序列化任务载荷失败: %v", err)
-		return err
+		logging.Error("批量获取任务信息失败: %v", err)
+		return nil, err
 	}
 
-	// 创建 Asynq 任务
-	asynqTask := asynq.NewTask(task.Type, payload)
-
-	// 将任务加入队列
-	_, err = s.asynqClient.Enqueue(asynqTask)
-	if err != nil {
-		logging.Error("将任务加入队列失败: %v", err)
-		return err
+	// 将找到的任务ID映射到任务对象
+	taskMap := make(map[string]*models.Task)
+	for _, task := range tasks {
+		taskMap[task.ID.Hex()] = task
 	}
 
-	logging.Info("成功将任务加入队列: ID %s, 类型 %s", task.ID.Hex(), task.Type)
+	// 创建批量任务
+	taskGroups := make(map[string][]*asynq.Task)
+
+	for _, taskID := range taskIDs {
+		task, exists := taskMap[taskID]
+		if !exists {
+			result.Failed[taskID] = "任务未找到"
+			continue
+		}
+
+		payloadMap := map[string]interface{}{
+			"task_id": task.ID.Hex(),
+			"target":  task.Payload,
+		}
+
+		if task.ParentID != nil {
+			payloadMap["parent_id"] = task.ParentID.Hex()
+		}
+
+		payload, err := json.Marshal(payloadMap)
+		if err != nil {
+			result.Failed[taskID] = "序列化任务载荷失败"
+			continue
+		}
+
+		// 按任务类型分组
+		asynqTask := asynq.NewTask(task.Type, payload)
+		taskGroups[task.Type] = append(taskGroups[task.Type], asynqTask)
+	}
+
+	// 批量提交任务到队列
+	for taskType, tasks := range taskGroups {
+		// 使用事务批量提交同类型的任务
+		err := s.enqueueBatch(context.Background(), tasks)
+		if err != nil {
+			logging.Error("批量提交任务类型 %s 失败: %v", taskType, err)
+			// 查找失败的任务ID
+			for _, task := range tasks {
+				var payloadMap map[string]interface{}
+				if err := json.Unmarshal(task.Payload(), &payloadMap); err != nil {
+					continue
+				}
+				if taskID, ok := payloadMap["task_id"].(string); ok {
+					result.Failed[taskID] = "加入队列失败"
+				}
+			}
+			continue
+		}
+
+		// 记录成功的任务
+		for _, task := range tasks {
+			var payloadMap map[string]interface{}
+			if err := json.Unmarshal(task.Payload(), &payloadMap); err != nil {
+				continue
+			}
+			if taskID, ok := payloadMap["task_id"].(string); ok {
+				result.Success = append(result.Success, taskID)
+			}
+		}
+	}
+
+	logging.Info("批量启动任务完成，成功: %d, 失败: %d",
+		len(result.Success), len(result.Failed))
+
+	return result, nil
+}
+
+// enqueueBatch 批量将任务加入队列
+func (s *TaskService) enqueueBatch(ctx context.Context, tasks []*asynq.Task) error {
+	// 不使用 Pipeline，直接批量提交任务
+	for _, task := range tasks {
+		if _, err := s.asynqClient.EnqueueContext(ctx, task); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -133,17 +206,28 @@ func (s *TaskService) GetAllTasks() ([]models.Task, error) {
 	return tasks, nil
 }
 
-// DeleteTask 删除指定的任务
-func (s *TaskService) DeleteTask(id string) error {
-	logging.Info("正在删除任务: %s", id)
+type DeleteTaskResult struct {
+	Success []string          `json:"success"`
+	Failed  map[string]string `json:"failed"` // taskId -> error message
+}
 
-	// 2. 从数据库中删除任务
-	if err := s.taskDAO.DeleteTask(id); err != nil {
-		logging.Error("从数据库删除任务失败: %s, 错误: %v", id, err)
-		return err
+// DeleteTasks 批量删除任务
+func (s *TaskService) DeleteTasks(ids []string) (*DeleteTaskResult, error) {
+	logging.Info("正在批量删除任务: %v", ids)
+
+	result := &DeleteTaskResult{
+		Success: make([]string, 0),
+		Failed:  make(map[string]string),
 	}
 
-	// 3. 从Asynq队列中删除任务
+	// 1. 从数据库中批量删除任务
+	dbResult, err := s.taskDAO.DeleteTasks(ids)
+	if err != nil {
+		logging.Error("批量删除任务失败: %v", err)
+		return nil, err
+	}
+
+	// 2. 从Asynq队列中删除任务
 	inspector := asynq.NewInspector(asynq.RedisClientOpt{
 		Addr: s.redisAddr,
 	})
@@ -152,52 +236,63 @@ func (s *TaskService) DeleteTask(id string) error {
 	queues, err := inspector.Queues()
 	if err != nil {
 		logging.Error("获取队列列表失败: %v", err)
-		return nil
-	}
-
-	// 遍历所有队列
-	for _, queue := range queues {
-		// 检查各种状态的任务列表
-		taskLists := []struct {
-			name     string
-			listFunc func(string, ...asynq.ListOption) ([]*asynq.TaskInfo, error)
-		}{
-			{"待处理", inspector.ListPendingTasks},
-			{"进行中", inspector.ListActiveTasks},
-			{"已调度", inspector.ListScheduledTasks},
-			{"重试中", inspector.ListRetryTasks},
-			{"已归档", inspector.ListArchivedTasks},
-			{"已完成", inspector.ListCompletedTasks},
-		}
-
-		// 遍历所有状态的任务
-		for _, tl := range taskLists {
-			tasks, err := tl.listFunc(queue)
-			if err != nil {
-				logging.Error("获取队列[%s]%s任务列表失败: %v", queue, tl.name, err)
-				continue
+		// 继续处理，因为数据库删除可能已经成功
+	} else {
+		// 遍历所有队列
+		for _, queue := range queues {
+			// 检查各种状态的任务列表
+			taskLists := []struct {
+				name     string
+				listFunc func(string, ...asynq.ListOption) ([]*asynq.TaskInfo, error)
+			}{
+				{"待处理", inspector.ListPendingTasks},
+				{"进行中", inspector.ListActiveTasks},
+				{"已调度", inspector.ListScheduledTasks},
+				{"重试中", inspector.ListRetryTasks},
+				{"已归档", inspector.ListArchivedTasks},
+				{"已完成", inspector.ListCompletedTasks},
 			}
 
-			// 遍历任务找到匹配的任务ID
-			for _, t := range tasks {
-				var payloadMap map[string]interface{}
-				if err := json.Unmarshal(t.Payload, &payloadMap); err != nil {
+			// 创建任务ID到状态的映射
+			idMap := make(map[string]bool)
+			for _, id := range ids {
+				idMap[id] = true
+			}
+
+			// 遍历所有状态的任务
+			for _, tl := range taskLists {
+				tasks, err := tl.listFunc(queue)
+				if err != nil {
+					logging.Error("获取队列[%s]%s任务列表失败: %v", queue, tl.name, err)
 					continue
 				}
 
-				// 检查任务ID是否匹配
-				if taskID, ok := payloadMap["task_id"].(string); ok && taskID == id {
-					err = inspector.DeleteTask(queue, t.ID)
-					if err != nil {
-						logging.Error("从队列[%s]删除%s任务失败: %v", queue, tl.name, err)
+				// 遍历任务找到匹配的任务ID
+				for _, t := range tasks {
+					var payloadMap map[string]interface{}
+					if err := json.Unmarshal(t.Payload, &payloadMap); err != nil {
 						continue
 					}
-					logging.Info("成功从队列[%s]删除%s任务: %s", queue, tl.name, id)
+
+					if taskID, ok := payloadMap["task_id"].(string); ok && idMap[taskID] {
+						err = inspector.DeleteTask(queue, t.ID)
+						if err != nil {
+							logging.Error("从队列[%s]删除%s任务失败: %v", queue, tl.name, err)
+							continue
+						}
+						logging.Info("成功从队列[%s]删除%s任务: %s", queue, tl.name, taskID)
+					}
 				}
 			}
 		}
 	}
 
-	logging.Info("成功删除任务: %s", id)
-	return nil
+	// 合并数据库删除结果
+	result.Success = dbResult.DeletedIDs
+	result.Failed = dbResult.FailedIDs
+
+	logging.Info("批量删除任务完成，成功: %d, 失败: %d",
+		len(result.Success), len(result.Failed))
+
+	return result, nil
 }

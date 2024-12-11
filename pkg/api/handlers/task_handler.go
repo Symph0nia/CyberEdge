@@ -37,30 +37,28 @@ func (h *TaskHandler) CreateTask(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"message": "任务创建成功"})
 }
 
-// StartTask 启动单个任务
-func (h *TaskHandler) StartTask(c *gin.Context) {
-	// 从URL参数中获取任务ID
-	taskID := c.Param("id")
+// StartTasks 批量启动任务
+func (h *TaskHandler) StartTasks(c *gin.Context) {
+	var request struct {
+		TaskIDs []string `json:"taskIds" binding:"required"`
+	}
 
-	// 从数据库中获取任务
-	task, err := h.taskService.GetTaskByID(taskID)
-	if err != nil {
-		if err.Error() == "task not found" {
-			c.JSON(http.StatusNotFound, gin.H{"error": "任务未找到"})
-		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "获取任务失败"})
-		}
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 		return
 	}
 
-	// 启动任务
-	err = h.taskService.StartTask(task)
+	// 批量启动任务
+	result, err := h.taskService.StartTasks(request.TaskIDs)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "启动任务失败"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "批量启动任务失败"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "任务启动成功"})
+	c.JSON(http.StatusOK, gin.H{
+		"message": "任务启动完成",
+		"result":  result,
+	})
 }
 
 // GetAllTasks 处理获取所有任务的请求
@@ -74,14 +72,25 @@ func (h *TaskHandler) GetAllTasks(c *gin.Context) {
 	c.JSON(http.StatusOK, tasks)
 }
 
-// DeleteTask 处理删除任务的请求
-func (h *TaskHandler) DeleteTask(c *gin.Context) {
-	id := c.Param("id")
+// DeleteTasks 处理批量删除任务的请求
+func (h *TaskHandler) DeleteTasks(c *gin.Context) {
+	var request struct {
+		TaskIDs []string `json:"taskIds" binding:"required"`
+	}
 
-	if err := h.taskService.DeleteTask(id); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "删除任务失败"})
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "任务已删除"})
+	result, err := h.taskService.DeleteTasks(request.TaskIDs)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "批量删除任务失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "任务删除完成",
+		"result":  result,
+	})
 }

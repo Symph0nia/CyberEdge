@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"cyberedge/pkg/logging"
 	"cyberedge/pkg/models"
 	"cyberedge/pkg/service"
 	"github.com/gin-gonic/gin"
@@ -12,13 +11,15 @@ import (
 type ResultHandler struct {
 	resultService *service.ResultService
 	dnsService    *service.DNSService
+	httpxService  *service.HTTPXService
 }
 
 // NewResultHandler 创建一个新的 ResultHandler 实例
-func NewResultHandler(resultService *service.ResultService, dnsService *service.DNSService) *ResultHandler {
+func NewResultHandler(resultService *service.ResultService, dnsService *service.DNSService, httpxService *service.HTTPXService) *ResultHandler {
 	return &ResultHandler{
 		resultService: resultService,
 		dnsService:    dnsService,
+		httpxService:  httpxService,
 	}
 }
 
@@ -176,23 +177,55 @@ func (h *ResultHandler) MarkEntryAsRead(c *gin.Context) {
 
 // ResolveSubdomainIPHandler 处理子域名 IP 解析请求
 func (h *ResultHandler) ResolveSubdomainIPHandler(c *gin.Context) {
-	// 从 URL 参数中获取 resultID 和 entryID
 	resultID := c.Param("id")
-	entryID := c.Param("entry_id")
 
-	// 调用 DNSService 层方法进行子域名 IP 解析和更新
-	err := h.dnsService.ResolveAndUpdateSubdomainIP(resultID, entryID)
+	var request struct {
+		EntryIDs []string `json:"entryIds" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的请求参数"})
+		return
+	}
+
+	result, err := h.dnsService.ResolveSubdomainIPs(resultID, request.EntryIDs)
 	if err != nil {
-		logging.Error("解析子域名 IP 失败: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":  "解析子域名 IP 失败",
+			"error":  "解析子域名IP失败",
 			"detail": err.Error(),
 		})
 		return
 	}
 
-	// 返回成功响应
 	c.JSON(http.StatusOK, gin.H{
-		"message": "子域名 IP 解析成功并更新",
+		"message": "解析完成",
+		"result":  result,
+	})
+}
+
+func (h *ResultHandler) ProbeSubdomainHandler(c *gin.Context) {
+	resultID := c.Param("id")
+
+	var request struct {
+		EntryIDs []string `json:"entryIds" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的请求参数"})
+		return
+	}
+
+	result, err := h.httpxService.ProbeSubdomains(resultID, request.EntryIDs)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":  "HTTP探测失败",
+			"detail": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "探测完成",
+		"result":  result,
 	})
 }

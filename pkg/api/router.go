@@ -16,6 +16,7 @@ type Router struct {
 	configHandler  *handlers.ConfigHandler
 	taskHandler    *handlers.TaskHandler
 	resultHandler  *handlers.ResultHandler
+	targetHandler  *handlers.TargetHandler
 	jwtSecret      string
 	sessionSecret  string
 	allowedOrigins []string
@@ -27,6 +28,8 @@ func NewRouter(
 	taskService *service.TaskService,
 	resultService *service.ResultService,
 	dnsService *service.DNSService,
+	httpxService *service.HTTPXService,
+	targetService *service.TargetService,
 	jwtSecret string,
 	sessionSecret string,
 	allowedOrigins []string,
@@ -35,7 +38,8 @@ func NewRouter(
 		userHandler:    handlers.NewUserHandler(userService),
 		configHandler:  handlers.NewConfigHandler(configService),
 		taskHandler:    handlers.NewTaskHandler(taskService),
-		resultHandler:  handlers.NewResultHandler(resultService, dnsService),
+		resultHandler:  handlers.NewResultHandler(resultService, dnsService, httpxService),
+		targetHandler:  handlers.NewTargetHandler(targetService),
 		jwtSecret:      jwtSecret,
 		sessionSecret:  sessionSecret,
 		allowedOrigins: allowedOrigins,
@@ -79,16 +83,23 @@ func (r *Router) SetupRouter() *gin.Engine {
 		authenticated.GET("/system/tools", r.configHandler.GetToolsStatus) // 获取工具安装状态
 
 		// 用户管理API
-		authenticated.GET("/users", r.userHandler.GetUsers)               // 获取所有用户
-		authenticated.GET("/users/:account", r.userHandler.GetUser)       // 获取单个用户
-		authenticated.POST("/users", r.userHandler.CreateUser)            // 创建新用户
-		authenticated.DELETE("/users/:account", r.userHandler.DeleteUser) // 删除用户
+		authenticated.GET("/users", r.userHandler.GetUsers)         // 获取所有用户
+		authenticated.GET("/users/:account", r.userHandler.GetUser) // 获取单个用户
+		authenticated.POST("/users", r.userHandler.CreateUser)      // 创建新用户
+		authenticated.DELETE("/users", r.userHandler.DeleteUsers)   // 批量删除用户
 
 		// 任务管理API
-		authenticated.POST("/tasks", r.taskHandler.CreateTask)          // 创建任务
-		authenticated.GET("/tasks", r.taskHandler.GetAllTasks)          // 获取所有任务
-		authenticated.DELETE("/tasks/:id", r.taskHandler.DeleteTask)    // 删除任务
-		authenticated.POST("/tasks/:id/start", r.taskHandler.StartTask) // 启动单个任务
+		authenticated.POST("/tasks", r.taskHandler.CreateTask)       // 创建任务
+		authenticated.GET("/tasks", r.taskHandler.GetAllTasks)       // 获取所有任务
+		authenticated.DELETE("/tasks", r.taskHandler.DeleteTasks)    // 批量删除任务
+		authenticated.POST("/tasks/start", r.taskHandler.StartTasks) // 批量启动任务
+
+		// 目标管理API
+		authenticated.POST("/targets", r.targetHandler.CreateTarget)       // 创建目标
+		authenticated.GET("/targets", r.targetHandler.GetAllTargets)       // 获取所有目标
+		authenticated.GET("/targets/:id", r.targetHandler.GetTargetByID)   // 获取单个目标
+		authenticated.PUT("/targets/:id", r.targetHandler.UpdateTarget)    // 更新目标
+		authenticated.DELETE("/targets/:id", r.targetHandler.DeleteTarget) // 删除目标
 
 		// 扫描结果管理API
 		authenticated.GET("/results/:id", r.resultHandler.GetResultByID)                          // 获取单个扫描结果
@@ -97,7 +108,8 @@ func (r *Router) SetupRouter() *gin.Engine {
 		authenticated.DELETE("/results/:id", r.resultHandler.DeleteResult)                        // 删除扫描结果
 		authenticated.PUT("/results/:id/read", r.resultHandler.MarkResultAsRead)                  // 根据任务 ID 修改任务的已读状态
 		authenticated.PUT("/results/:id/entries/:entry_id/read", r.resultHandler.MarkEntryAsRead) // 根据任务 ID 和条目 ID 修改条目的已读状态
-		authenticated.PUT("/results/:id/entries/:entry_id/resolve", r.resultHandler.ResolveSubdomainIPHandler)
+		authenticated.PUT("/results/:id/entries/resolve", r.resultHandler.ResolveSubdomainIPHandler)
+		authenticated.PUT("/results/:id/entries/probe", r.resultHandler.ProbeSubdomainHandler)
 	}
 
 	return router

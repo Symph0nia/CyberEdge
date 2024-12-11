@@ -25,10 +25,12 @@ type SubdomainData struct {
 
 // SubdomainEntry 表示每个子域名的条目
 type SubdomainEntry struct {
-	ID     primitive.ObjectID `json:"id" bson:"_id,omitempty"` // 唯一标识符
-	Domain string             `json:"Domain"`                  // 子域名
-	IP     string             `json:"IP"`                      // 域名解析的 IP 地址
-	IsRead bool               `json:"IsRead" bson:"is_read"`   // 是否已读，默认未读
+	ID         primitive.ObjectID `json:"_id" bson:"_id,omitempty"`
+	Domain     string             `json:"domain" bson:"domain"`
+	IP         string             `json:"ip" bson:"ip"`
+	IsRead     bool               `json:"is_read" bson:"is_read"`
+	HTTPStatus int                `json:"http_status" bson:"http_status"` // 注意字段名变化
+	HTTPTitle  string             `json:"http_title" bson:"http_title"`   // 注意字段名变化
 }
 
 // IPAddressData 表示 IP 地址扫描结果的数据结构
