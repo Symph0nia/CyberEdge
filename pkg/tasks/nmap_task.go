@@ -118,15 +118,7 @@ func (n *NmapTask) runNmap(ctx context.Context, t *asynq.Task) error {
 		logging.Error("存储扫描结果失败: %v", err)
 		return err
 	}
-
-	// 如果有目标ID，更新目标的端口计数
-	if targetID != nil {
-		if err := n.targetDAO.IncrementPortCount(*targetID, len(portEntries)); err != nil {
-			logging.Error("更新目标端口计数失败: %v", err)
-			// 不返回错误，继续执行
-		}
-	}
-
+	
 	logging.Info("Nmap 任务完成，扫描了 %d 个端口", len(portEntries))
 
 	return nil

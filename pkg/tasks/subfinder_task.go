@@ -125,14 +125,6 @@ func (s *SubfinderTask) runSubfinder(ctx context.Context, t *asynq.Task) error {
 		return err
 	}
 
-	// 如果有目标ID，更新目标的子域名计数
-	if targetID != nil {
-		if err := s.targetDAO.IncrementSubdomainCount(*targetID, len(subdomainEntries)); err != nil {
-			logging.Error("更新目标子域名计数失败: %v", err)
-			// 不返回错误，继续执行
-		}
-	}
-
 	logging.Info("成功处理并存储 Subfinder 结果，共找到 %d 个子域名", len(subdomainEntries))
 
 	return nil

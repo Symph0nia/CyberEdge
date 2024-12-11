@@ -4,6 +4,7 @@ import (
 	"context"
 	"cyberedge/pkg/logging"
 	"cyberedge/pkg/models"
+	"fmt"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -11,12 +12,15 @@ import (
 )
 
 type TargetDAO struct {
-	collection *mongo.Collection
+	collection        *mongo.Collection
+	resultsCollection *mongo.Collection // 添加 results 集合
 }
 
-// NewTargetDAO 创建一个新的 TargetDAO 实例
-func NewTargetDAO(collection *mongo.Collection) *TargetDAO {
-	return &TargetDAO{collection: collection}
+func NewTargetDAO(db *mongo.Database) *TargetDAO {
+	return &TargetDAO{
+		collection:        db.Collection("targets"),
+		resultsCollection: db.Collection("results"),
+	}
 }
 
 // CreateTarget 创建新的目标
@@ -156,74 +160,201 @@ func (dao *TargetDAO) DeleteTarget(id string) error {
 	return nil
 }
 
-// IncrementSubdomainCount 增加子域名计数
-func (dao *TargetDAO) IncrementSubdomainCount(targetID primitive.ObjectID, count int) error {
-	filter := bson.M{"_id": targetID}
-	update := bson.M{
-		"$inc": bson.M{"subdomain_count": count},
-	}
-	_, err := dao.collection.UpdateOne(context.Background(), filter, update)
-	return err
-}
-
-// IncrementPortCount 增加端口计数
-func (dao *TargetDAO) IncrementPortCount(targetID primitive.ObjectID, count int) error {
-	filter := bson.M{"_id": targetID}
-	update := bson.M{
-		"$inc": bson.M{"port_count": count},
-	}
-	_, err := dao.collection.UpdateOne(context.Background(), filter, update)
-	return err
-}
-
-// IncrementPathCount 增加路径计数
-func (dao *TargetDAO) IncrementPathCount(targetID primitive.ObjectID, count int) error {
-	filter := bson.M{"_id": targetID}
-	update := bson.M{
-		"$inc": bson.M{"path_count": count},
-	}
-	_, err := dao.collection.UpdateOne(context.Background(), filter, update)
-	return err
-}
-
-// IncrementVulnerabilityCount 增加漏洞计数
-func (dao *TargetDAO) IncrementVulnerabilityCount(targetID primitive.ObjectID, count int) error {
-	filter := bson.M{"_id": targetID}
-	update := bson.M{
-		"$inc": bson.M{"vulnerability_count": count},
-	}
-	_, err := dao.collection.UpdateOne(context.Background(), filter, update)
-	return err
-}
-
-// GetTargetDetailsById 获取目标详情
+// GetTargetDetailsById 获取目标详情，包含实时统计数据
 func (dao *TargetDAO) GetTargetDetailsById(id string) (*models.TargetDetails, error) {
 	logging.Info("正在获取目标详情: %s", id)
 
-	var target models.Target
 	objID, err := primitive.ObjectIDFromHex(id)
 	if err != nil {
 		logging.Error("无效的目标 ID: %s, 错误: %v", id, err)
 		return nil, err
 	}
 
+	// 获取基本目标信息
+	var target models.Target
 	err = dao.collection.FindOne(context.Background(), bson.M{"_id": objID}).Decode(&target)
 	if err != nil {
 		logging.Error("获取目标失败: %s, 错误: %v", id, err)
 		return nil, err
 	}
 
-	// 构建详情对象
+	// 从 results 集合中获取统计数据
+	subdomainCount, err := dao.getSubdomainCount(objID)
+	if err != nil {
+		logging.Error("获取子域名数量失败: %v", err)
+		subdomainCount = 0
+	}
+
+	portCount, err := dao.getPortCount(objID)
+	if err != nil {
+		logging.Error("获取端口数量失败: %v", err)
+		portCount = 0
+	}
+
+	pathCount, err := dao.getPathCount(objID)
+	if err != nil {
+		logging.Error("获取路径数量失败: %v", err)
+		pathCount = 0
+	}
+
+	vulnCount, err := dao.getVulnerabilityCount(objID)
+	if err != nil {
+		logging.Error("获取漏洞数量失败: %v", err)
+		vulnCount = 0
+	}
+
 	details := &models.TargetDetails{
 		Target: &target,
 		Stats: models.TargetStats{
-			SubdomainCount:     target.SubdomainCount,
-			PortCount:          target.PortCount,
-			PathCount:          target.PathCount,
-			VulnerabilityCount: target.VulnerabilityCount,
+			SubdomainCount:     subdomainCount,
+			PortCount:          portCount,
+			PathCount:          pathCount,
+			VulnerabilityCount: vulnCount,
 		},
 	}
 
 	logging.Info("成功获取目标详情: %s", id)
 	return details, nil
+}
+
+// 子域名数量统计
+func (dao *TargetDAO) getSubdomainCount(targetID primitive.ObjectID) (int, error) {
+	pipeline := []bson.M{
+		{
+			"$match": bson.M{
+				"target_id": targetID,
+				"type":      "Subdomain",
+			},
+		},
+		{
+			"$unwind": "$data.subdomains",
+		},
+		{
+			"$count": "count",
+		},
+	}
+
+	var result []bson.M
+	cursor, err := dao.resultsCollection.Aggregate(context.Background(), pipeline)
+	if err != nil {
+		return 0, err
+	}
+	defer cursor.Close(context.Background())
+
+	if err = cursor.All(context.Background(), &result); err != nil {
+		return 0, err
+	}
+
+	if len(result) == 0 {
+		return 0, nil
+	}
+
+	count := result[0]["count"]
+	switch v := count.(type) {
+	case int32:
+		return int(v), nil
+	case int64:
+		return int(v), nil
+	case float64:
+		return int(v), nil
+	default:
+		return 0, fmt.Errorf("unexpected count type: %T", count)
+	}
+}
+
+// 端口数量统计
+func (dao *TargetDAO) getPortCount(targetID primitive.ObjectID) (int, error) {
+	pipeline := []bson.M{
+		{
+			"$match": bson.M{
+				"target_id": targetID,
+				"type":      "Port",
+			},
+		},
+		{
+			"$unwind": "$data.ports",
+		},
+		{
+			"$count": "count",
+		},
+	}
+
+	var result []bson.M
+	cursor, err := dao.resultsCollection.Aggregate(context.Background(), pipeline)
+	if err != nil {
+		return 0, err
+	}
+	defer cursor.Close(context.Background())
+
+	if err = cursor.All(context.Background(), &result); err != nil {
+		return 0, err
+	}
+
+	if len(result) == 0 {
+		return 0, nil
+	}
+
+	// 处理不同的整数类型
+	count := result[0]["count"]
+	switch v := count.(type) {
+	case int32:
+		return int(v), nil
+	case int64:
+		return int(v), nil
+	case float64:
+		return int(v), nil
+	default:
+		return 0, fmt.Errorf("unexpected count type: %T", count)
+	}
+}
+
+// 路径数量统计
+func (dao *TargetDAO) getPathCount(targetID primitive.ObjectID) (int, error) {
+	pipeline := []bson.M{
+		{
+			"$match": bson.M{
+				"target_id": targetID,
+				"type":      "Path",
+			},
+		},
+		{
+			"$unwind": "$data.paths",
+		},
+		{
+			"$count": "count",
+		},
+	}
+
+	var result []bson.M
+	cursor, err := dao.resultsCollection.Aggregate(context.Background(), pipeline)
+	if err != nil {
+		return 0, err
+	}
+	defer cursor.Close(context.Background())
+
+	if err = cursor.All(context.Background(), &result); err != nil {
+		return 0, err
+	}
+
+	if len(result) == 0 {
+		return 0, nil
+	}
+
+	count := result[0]["count"]
+	switch v := count.(type) {
+	case int32:
+		return int(v), nil
+	case int64:
+		return int(v), nil
+	case float64:
+		return int(v), nil
+	default:
+		return 0, fmt.Errorf("unexpected count type: %T", count)
+	}
+}
+
+// 漏洞数量统计（预留）
+func (dao *TargetDAO) getVulnerabilityCount(targetID primitive.ObjectID) (int, error) {
+	// TODO: 实现漏洞统计逻辑
+	return 0, nil
 }

@@ -141,14 +141,6 @@ func (f *FfufTask) runFfuf(ctx context.Context, t *asynq.Task) error {
 		return err
 	}
 
-	// 如果有目标ID，更新目标的路径计数
-	if targetID != nil {
-		if err := f.targetDAO.IncrementPathCount(*targetID, len(pathData.Paths)); err != nil {
-			logging.Error("更新目标路径计数失败: %v", err)
-			// 不返回错误，继续执行
-		}
-	}
-
 	logging.Info("成功处理并存储 ffuf 结果，共找到 %d 个路径", len(pathData.Paths))
 
 	return nil

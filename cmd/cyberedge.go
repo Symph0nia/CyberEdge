@@ -59,7 +59,7 @@ func main() {
 	resultDAO := dao.NewResultDAO(db.Collection("results"))
 	userDAO := dao.NewUserDAO(db.Collection("users"))
 	configDAO := dao.NewConfigDAO(db.Collection("config"))
-	targetDAO := dao.NewTargetDAO(db.Collection("targets"))
+	targetDAO := dao.NewTargetDAO(db)
 
 	// 初始化任务处理器
 	taskHandler := setup.InitTaskHandler(taskDAO, targetDAO, resultDAO)
