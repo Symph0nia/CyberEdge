@@ -155,3 +155,75 @@ func (dao *TargetDAO) DeleteTarget(id string) error {
 	logging.Info("成功删除目标: %s", id)
 	return nil
 }
+
+// IncrementSubdomainCount 增加子域名计数
+func (dao *TargetDAO) IncrementSubdomainCount(targetID primitive.ObjectID, count int) error {
+	filter := bson.M{"_id": targetID}
+	update := bson.M{
+		"$inc": bson.M{"subdomain_count": count},
+	}
+	_, err := dao.collection.UpdateOne(context.Background(), filter, update)
+	return err
+}
+
+// IncrementPortCount 增加端口计数
+func (dao *TargetDAO) IncrementPortCount(targetID primitive.ObjectID, count int) error {
+	filter := bson.M{"_id": targetID}
+	update := bson.M{
+		"$inc": bson.M{"port_count": count},
+	}
+	_, err := dao.collection.UpdateOne(context.Background(), filter, update)
+	return err
+}
+
+// IncrementPathCount 增加路径计数
+func (dao *TargetDAO) IncrementPathCount(targetID primitive.ObjectID, count int) error {
+	filter := bson.M{"_id": targetID}
+	update := bson.M{
+		"$inc": bson.M{"path_count": count},
+	}
+	_, err := dao.collection.UpdateOne(context.Background(), filter, update)
+	return err
+}
+
+// IncrementVulnerabilityCount 增加漏洞计数
+func (dao *TargetDAO) IncrementVulnerabilityCount(targetID primitive.ObjectID, count int) error {
+	filter := bson.M{"_id": targetID}
+	update := bson.M{
+		"$inc": bson.M{"vulnerability_count": count},
+	}
+	_, err := dao.collection.UpdateOne(context.Background(), filter, update)
+	return err
+}
+
+// GetTargetDetailsById 获取目标详情
+func (dao *TargetDAO) GetTargetDetailsById(id string) (*models.TargetDetails, error) {
+	logging.Info("正在获取目标详情: %s", id)
+
+	var target models.Target
+	objID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		logging.Error("无效的目标 ID: %s, 错误: %v", id, err)
+		return nil, err
+	}
+
+	err = dao.collection.FindOne(context.Background(), bson.M{"_id": objID}).Decode(&target)
+	if err != nil {
+		logging.Error("获取目标失败: %s, 错误: %v", id, err)
+		return nil, err
+	}
+
+	// 构建详情对象
+	details := &models.TargetDetails{
+		Target: &target,
+		Stats: models.TargetStats{
+			SubdomainCount:     target.SubdomainCount,
+			PortCount:          target.PortCount,
+			PathCount:          target.PathCount,
+			VulnerabilityCount: target.VulnerabilityCount,
+		},
+	}
+
+	logging.Info("成功获取目标详情: %s", id)
+	return details, nil
+}

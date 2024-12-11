@@ -62,7 +62,7 @@ func main() {
 	targetDAO := dao.NewTargetDAO(db.Collection("targets"))
 
 	// 初始化任务处理器
-	taskHandler := setup.InitTaskHandler(taskDAO, resultDAO)
+	taskHandler := setup.InitTaskHandler(taskDAO, targetDAO, resultDAO)
 
 	// 启动 Asynq 服务器
 	setup.StartAsynqServer(asynqServer, taskHandler)

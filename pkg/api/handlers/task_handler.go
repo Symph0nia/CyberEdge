@@ -21,7 +21,7 @@ func (h *TaskHandler) CreateTask(c *gin.Context) {
 	var request struct {
 		Type     string              `json:"type" binding:"required"`
 		Payload  interface{}         `json:"payload" binding:"required"`
-		ParentID *primitive.ObjectID `json:"parent_id,omitempty"`
+		TargetID *primitive.ObjectID `json:"target_id,omitempty"`
 	}
 
 	if err := c.ShouldBindJSON(&request); err != nil {
@@ -29,7 +29,7 @@ func (h *TaskHandler) CreateTask(c *gin.Context) {
 		return
 	}
 
-	if err := h.taskService.CreateTask(request.Type, request.Payload, request.ParentID); err != nil {
+	if err := h.taskService.CreateTask(request.Type, request.Payload, request.TargetID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建任务失败"})
 		return
 	}

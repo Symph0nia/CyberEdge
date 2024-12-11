@@ -19,12 +19,14 @@ import (
 type NmapTask struct {
 	TaskTemplate
 	resultDAO *dao.ResultDAO
+	targetDAO *dao.TargetDAO
 }
 
-func NewNmapTask(taskDAO *dao.TaskDAO, resultDAO *dao.ResultDAO) *NmapTask {
+func NewNmapTask(taskDAO *dao.TaskDAO, targetDAO *dao.TargetDAO, resultDAO *dao.ResultDAO) *NmapTask {
 	return &NmapTask{
 		TaskTemplate: TaskTemplate{TaskDAO: taskDAO},
 		resultDAO:    resultDAO,
+		targetDAO:    targetDAO,
 	}
 }
 
@@ -36,7 +38,7 @@ func (n *NmapTask) runNmap(ctx context.Context, t *asynq.Task) error {
 	var payload struct {
 		Host     string `json:"target"`
 		TaskID   string `json:"task_id"`
-		ParentID string `json:"parent_id,omitempty"`
+		TargetID string `json:"target_id,omitempty"` // 改为 target_id
 	}
 
 	if err := json.Unmarshal(t.Payload(), &payload); err != nil {
@@ -83,8 +85,17 @@ func (n *NmapTask) runNmap(ctx context.Context, t *asynq.Task) error {
 		return fmt.Errorf("读取 Nmap 结果文件失败: %v", err)
 	}
 
+	// 处理 TargetID
+	var targetID *primitive.ObjectID
+	if payload.TargetID != "" {
+		objID, err := primitive.ObjectIDFromHex(payload.TargetID)
+		if err == nil {
+			targetID = &objID
+		}
+	}
+
 	// 解析 XML 结果
-	portEntries, err := parseNmapXML(xmlData)
+	portEntries, err := parseNmapXML(xmlData, targetID)
 	if err != nil {
 		return fmt.Errorf("解析 Nmap XML 结果失败: %v", err)
 	}
@@ -93,21 +104,14 @@ func (n *NmapTask) runNmap(ctx context.Context, t *asynq.Task) error {
 		Ports: portEntries,
 	}
 
-	var parentID *primitive.ObjectID
-	if payload.ParentID != "" {
-		objID, err := primitive.ObjectIDFromHex(payload.ParentID)
-		if err == nil {
-			parentID = &objID
-		}
-	}
-
 	scanResult := &models.Result{
 		ID:        primitive.NewObjectID(),
 		Type:      "Port",
 		Target:    payload.Host,
 		Timestamp: time.Now(),
 		Data:      portData,
-		ParentID:  parentID,
+		TargetID:  targetID, // 使用 TargetID
+		IsRead:    false,
 	}
 
 	if err := n.resultDAO.CreateResult(scanResult); err != nil {
@@ -115,12 +119,21 @@ func (n *NmapTask) runNmap(ctx context.Context, t *asynq.Task) error {
 		return err
 	}
 
+	// 如果有目标ID，更新目标的端口计数
+	if targetID != nil {
+		if err := n.targetDAO.IncrementPortCount(*targetID, len(portEntries)); err != nil {
+			logging.Error("更新目标端口计数失败: %v", err)
+			// 不返回错误，继续执行
+		}
+	}
+
 	logging.Info("Nmap 任务完成，扫描了 %d 个端口", len(portEntries))
 
 	return nil
 }
 
-func parseNmapXML(data []byte) ([]models.PortEntry, error) {
+// 修改 parseNmapXML 函数，添加 targetID 参数
+func parseNmapXML(data []byte, targetID *primitive.ObjectID) ([]models.PortEntry, error) {
 	var result struct {
 		Hosts []struct {
 			Addresses []struct {
@@ -158,15 +171,14 @@ func parseNmapXML(data []byte) ([]models.PortEntry, error) {
 			}
 		}
 
-		// 如果没有找到 IPv4 地址，尝试使用任意类型的地址
 		if hostAddr == "" && len(host.Addresses) > 0 {
 			hostAddr = host.Addresses[0].Addr
 		}
 
 		for _, port := range host.Ports {
-			portEntries = append(portEntries, models.PortEntry{
+			entry := models.PortEntry{
 				ID:         primitive.NewObjectID(),
-				Host:       hostAddr, // 添加主机地址
+				Host:       hostAddr,
 				Number:     port.ID,
 				Protocol:   port.Protocol,
 				State:      port.State.State,
@@ -174,7 +186,14 @@ func parseNmapXML(data []byte) ([]models.PortEntry, error) {
 				IsRead:     false,
 				HTTPStatus: 0,
 				HTTPTitle:  "",
-			})
+			}
+
+			// 如果有目标ID，则设置它
+			if targetID != nil {
+				entry.TargetID = targetID
+			}
+
+			portEntries = append(portEntries, entry)
 		}
 	}
 

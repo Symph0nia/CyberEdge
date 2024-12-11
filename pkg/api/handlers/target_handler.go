@@ -109,3 +109,20 @@ func (h *TargetHandler) DeleteTarget(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"message": "目标已删除"})
 }
+
+// GetTargetDetails 获取目标详情
+func (h *TargetHandler) GetTargetDetails(c *gin.Context) {
+	id := c.Param("id")
+
+	details, err := h.targetService.GetTargetDetails(id)
+	if err != nil {
+		if err.Error() == "mongo: no documents in result" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "未找到该目标"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取目标详情失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, details)
+}

@@ -98,3 +98,20 @@ func (s *TargetService) DeleteTarget(id string) error {
 	logging.Info("通过 Service 成功删除目标: %s", id)
 	return nil
 }
+
+// GetTargetDetails 获取目标详情
+func (s *TargetService) GetTargetDetails(id string) (*models.TargetDetails, error) {
+	if id == "" {
+		return nil, errors.New("无效的 ID")
+	}
+
+	logging.Info("正在通过 Service 获取目标详情: %s", id)
+	details, err := s.targetDAO.GetTargetDetailsById(id)
+	if err != nil {
+		logging.Error("通过 Service 获取目标详情失败: %v", err)
+		return nil, err
+	}
+
+	logging.Info("通过 Service 成功获取目标详情: %s", id)
+	return details, nil
+}

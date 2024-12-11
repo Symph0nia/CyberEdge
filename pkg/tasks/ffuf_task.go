@@ -20,12 +20,14 @@ import (
 type FfufTask struct {
 	TaskTemplate
 	resultDAO *dao.ResultDAO
+	targetDAO *dao.TargetDAO
 }
 
-func NewFfufTask(taskDAO *dao.TaskDAO, resultDAO *dao.ResultDAO) *FfufTask {
+func NewFfufTask(taskDAO *dao.TaskDAO, targetDAO *dao.TargetDAO, resultDAO *dao.ResultDAO) *FfufTask {
 	return &FfufTask{
 		TaskTemplate: TaskTemplate{TaskDAO: taskDAO},
 		resultDAO:    resultDAO,
+		targetDAO:    targetDAO,
 	}
 }
 
@@ -37,7 +39,7 @@ func (f *FfufTask) runFfuf(ctx context.Context, t *asynq.Task) error {
 	var payload struct {
 		Target   string `json:"target"`
 		TaskID   string `json:"task_id"`
-		ParentID string `json:"parent_id,omitempty"`
+		TargetID string `json:"target_id,omitempty"` // 改为 target_id
 	}
 
 	// 解析任务载荷
@@ -90,31 +92,36 @@ func (f *FfufTask) runFfuf(ctx context.Context, t *asynq.Task) error {
 		return fmt.Errorf("解析 ffuf 结果失败: %v", err)
 	}
 
+	// 处理 TargetID
+	var targetID *primitive.ObjectID
+	if payload.TargetID != "" {
+		objID, err := primitive.ObjectIDFromHex(payload.TargetID)
+		if err == nil {
+			targetID = &objID
+		}
+	}
+
 	// 创建 PathEntry 列表
 	pathData := &models.PathData{
 		Paths: make([]models.PathEntry, 0, len(ffufResult.Results)),
 	}
 
 	for _, r := range ffufResult.Results {
-		pathData.Paths = append(pathData.Paths, models.PathEntry{
+		entry := models.PathEntry{
 			ID:         primitive.NewObjectID(),
 			Path:       strings.TrimPrefix(r.URL, payload.Target),
 			Status:     r.Status,
 			Length:     r.Length,
 			Words:      r.Words,
 			Lines:      r.Lines,
-			IsRead:     false, // 默认未读
-			HTTPStatus: 0,     // 初始化为 0
-			HTTPTitle:  "",    // 初始化为空字符串
-		})
-	}
-
-	var parentID *primitive.ObjectID
-	if payload.ParentID != "" {
-		objID, err := primitive.ObjectIDFromHex(payload.ParentID)
-		if err == nil {
-			parentID = &objID
+			IsRead:     false,
+			HTTPStatus: 0,
+			HTTPTitle:  "",
 		}
+		if targetID != nil {
+			entry.TargetID = targetID
+		}
+		pathData.Paths = append(pathData.Paths, entry)
 	}
 
 	// 创建扫描结果记录
@@ -124,7 +131,7 @@ func (f *FfufTask) runFfuf(ctx context.Context, t *asynq.Task) error {
 		Target:    payload.Target,
 		Timestamp: time.Now(),
 		Data:      pathData,
-		ParentID:  parentID,
+		TargetID:  targetID,
 		IsRead:    false,
 	}
 
@@ -132,6 +139,14 @@ func (f *FfufTask) runFfuf(ctx context.Context, t *asynq.Task) error {
 	if err := f.resultDAO.CreateResult(scanResult); err != nil {
 		logging.Error("存储扫描结果失败: %v", err)
 		return err
+	}
+
+	// 如果有目标ID，更新目标的路径计数
+	if targetID != nil {
+		if err := f.targetDAO.IncrementPathCount(*targetID, len(pathData.Paths)); err != nil {
+			logging.Error("更新目标路径计数失败: %v", err)
+			// 不返回错误，继续执行
+		}
 	}
 
 	logging.Info("成功处理并存储 ffuf 结果，共找到 %d 个路径", len(pathData.Paths))

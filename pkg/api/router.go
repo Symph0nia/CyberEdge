@@ -100,6 +100,8 @@ func (r *Router) SetupRouter() *gin.Engine {
 		authenticated.GET("/targets/:id", r.targetHandler.GetTargetByID)   // 获取单个目标
 		authenticated.PUT("/targets/:id", r.targetHandler.UpdateTarget)    // 更新目标
 		authenticated.DELETE("/targets/:id", r.targetHandler.DeleteTarget) // 删除目标
+		// 添加获取目标详情的路由
+		authenticated.GET("/targets/:id/details", r.targetHandler.GetTargetDetails)
 
 		// 扫描结果管理API
 		authenticated.GET("/results/:id", r.resultHandler.GetResultByID)                          // 获取单个扫描结果
