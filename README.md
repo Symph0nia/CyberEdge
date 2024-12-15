@@ -4,21 +4,11 @@
 
 CyberEdge 是一款精心设计的互联网资产测绘工具，为网络安全专业人士提供精准、高效的扫描体验。
 
-版本：V1.0.1
+版本：V1.0.4
 
 **更新日志：**
 
-Perf: 优化图标
-
-Perf: 优化UI显示
-
-Refactor: 合并多个单个与批量接口
-
-Perf: 增加多线程
-
-Fix: 修复多个已知的Bug
-
-Feat: 新增目标管理功能
+feat: 更新Docker部署
 
 TODO：
 
@@ -48,6 +38,58 @@ TODO：
 - 子域名扫描: Subfinder
 - 端口扫描: Nmap
 - 路径扫描: Ffuf
+
+## 搭建指南
+
+### 快速部署
+
+1. 克隆项目
+```bash
+git clone https://github.com/Symph0nia/CyberEdge.git
+cd CyberEdge
+```
+
+2. 启动服务
+```bash
+docker-compose up -d
+```
+
+### 访问服务
+
+- 前端界面: `http://localhost:47808`
+- 后端 API: `http://localhost:31337`
+
+### 首次使用
+
+1. 通过前端界面注册账号:
+   - 注册过程需要使用 Google Authenticator 进行二次验证
+   - 扫描二维码后会得到用户名和一次性密码
+
+2. 安全建议:
+   - 完成初始账号注册后，建议立即关闭注册通道以提升系统安全性
+   - 确保修改默认密码和其他默认配置
+
+### 系统组件
+
+该部署包含以下服务:
+- MongoDB: 数据存储
+- Redis: 任务队列
+- CyberEdge 后端: 核心服务
+- CyberEdge 前端: Web 界面
+- 集成工具: Subfinder、Nmap、Ffuf、HTTPx
+
+### 问题排查
+
+如果遇到服务启动问题，可以通过以下命令查看日志:
+```bash
+docker-compose logs -f
+```
+
+### 注意事项
+
+- 确保部署环境的端口 47808 和 31337 未被占用
+- 首次部署可能需要几分钟时间来下载和初始化所有组件
+- 建议在生产环境中配置 HTTPS 和其他安全措施
 
 ## 界面预览
 
