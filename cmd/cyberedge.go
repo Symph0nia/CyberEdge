@@ -9,6 +9,8 @@ import (
 	"cyberedge/pkg/logging"
 	"cyberedge/pkg/service"
 	"cyberedge/pkg/setup"
+	"flag"
+	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 	"log"
 	"net/http"
@@ -38,6 +40,9 @@ func main() {
 	if err := godotenv.Load(); err != nil {
 		log.Fatalf("加载 .env 文件失败: %v", err)
 	}
+
+	env := flag.String("env", "dev", "运行环境 (dev/prod)")
+	flag.Parse()
 
 	// 连接MongoDB数据库
 	client, err := setup.ConnectToMongoDB("mongodb://localhost:27017")
@@ -83,6 +88,23 @@ func main() {
 	httpxService := service.NewHTTPXService(resultDAO)
 	targetService := service.NewTargetService(targetDAO)
 
+	if *env == "prod" {
+		gin.SetMode(gin.ReleaseMode)
+	} else {
+		gin.SetMode(gin.DebugMode)
+	}
+
+	// 根据环境设置 CORS 配置
+	var allowedOrigins []string
+	if *env == "prod" {
+		allowedOrigins = []string{"*"} // 替换为实际的生产环境域名
+	} else {
+		allowedOrigins = []string{
+			"http://localhost:8080",
+			"http://127.0.0.1:8080",
+		}
+	}
+
 	// 设置API路由，包括任务管理的路由
 	router := api.NewRouter(
 		userService,
@@ -94,7 +116,7 @@ func main() {
 		targetService,
 		jwtSecret,
 		sessionSecret,
-		[]string{"*"}, // 允许的源
+		allowedOrigins,
 	)
 	engine := router.SetupRouter()
 	logging.Info("API路由设置完成")
