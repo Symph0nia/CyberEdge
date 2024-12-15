@@ -94,7 +94,7 @@ func main() {
 		targetService,
 		jwtSecret,
 		sessionSecret,
-		[]string{"http://localhost:47808"}, // 允许的源
+		[]string{"*"}, // 允许的源
 	)
 	engine := router.SetupRouter()
 	logging.Info("API路由设置完成")
