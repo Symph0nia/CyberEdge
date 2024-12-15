@@ -4,7 +4,7 @@
 
 CyberEdge 是一款精心设计的互联网资产测绘工具，为网络安全专业人士提供精准、高效的扫描体验。
 
-版本：V1.0.5
+版本：V1.0.6
 
 **更新日志：**
 
@@ -51,15 +51,17 @@ git clone https://github.com/Symph0nia/CyberEdge.git
 cd CyberEdge
 ```
 
-2. 启动服务
+2. 设置脚本权限并启动服务
 ```bash
-docker-compose up -d
+chmod +x start.sh generate_env.sh
+./start.sh
 ```
 
 ### 访问服务
+* 前端界面: `http://localhost:47808`
+* 后端 API: `http://localhost:31337`
 
-- 前端界面: `http://localhost:47808`
-- 后端 API: `http://localhost:31337`
+**注意：确保你的系统已安装 Docker 和 Docker Compose。**
 
 ### 首次使用
 
