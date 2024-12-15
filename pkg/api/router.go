@@ -100,6 +100,8 @@ func (r *Router) SetupRouter() *gin.Engine {
 		authenticated.GET("/targets/:id", r.targetHandler.GetTargetByID)   // 获取单个目标
 		authenticated.PUT("/targets/:id", r.targetHandler.UpdateTarget)    // 更新目标
 		authenticated.DELETE("/targets/:id", r.targetHandler.DeleteTarget) // 删除目标
+		// 添加获取目标详情的路由
+		authenticated.GET("/targets/:id/details", r.targetHandler.GetTargetDetails)
 
 		// 扫描结果管理API
 		authenticated.GET("/results/:id", r.resultHandler.GetResultByID)                          // 获取单个扫描结果
@@ -109,7 +111,7 @@ func (r *Router) SetupRouter() *gin.Engine {
 		authenticated.PUT("/results/:id/read", r.resultHandler.MarkResultAsRead)                  // 根据任务 ID 修改任务的已读状态
 		authenticated.PUT("/results/:id/entries/:entry_id/read", r.resultHandler.MarkEntryAsRead) // 根据任务 ID 和条目 ID 修改条目的已读状态
 		authenticated.PUT("/results/:id/entries/resolve", r.resultHandler.ResolveSubdomainIPHandler)
-		authenticated.PUT("/results/:id/entries/probe", r.resultHandler.ProbeSubdomainHandler)
+		authenticated.PUT("/results/:id/entries/probe", r.resultHandler.ProbeHandler)
 	}
 
 	return router

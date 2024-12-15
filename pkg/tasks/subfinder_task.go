@@ -20,12 +20,14 @@ import (
 type SubfinderTask struct {
 	TaskTemplate
 	resultDAO *dao.ResultDAO
+	targetDAO *dao.TargetDAO
 }
 
-func NewSubfinderTask(taskDAO *dao.TaskDAO, resultDAO *dao.ResultDAO) *SubfinderTask {
+func NewSubfinderTask(taskDAO *dao.TaskDAO, targetDAO *dao.TargetDAO, resultDAO *dao.ResultDAO) *SubfinderTask {
 	return &SubfinderTask{
 		TaskTemplate: TaskTemplate{TaskDAO: taskDAO},
 		resultDAO:    resultDAO,
+		targetDAO:    targetDAO,
 	}
 }
 
@@ -37,7 +39,7 @@ func (s *SubfinderTask) runSubfinder(ctx context.Context, t *asynq.Task) error {
 	var payload struct {
 		Domain   string `json:"target"`
 		TaskID   string `json:"task_id"`
-		ParentID string `json:"parent_id,omitempty"`
+		TargetID string `json:"target_id,omitempty"`
 	}
 
 	// 解析任务载荷
@@ -72,30 +74,38 @@ func (s *SubfinderTask) runSubfinder(ctx context.Context, t *asynq.Task) error {
 
 	logging.Info("Subfinder 任务完成，结果已保存到文件: %s", tempFile.Name())
 
-	// 解析子域名并创建 SubdomainEntry 列表
+	// 解析子域名列表
 	subdomains := strings.Split(strings.TrimSpace(string(result)), "\n")
+
+	// 处理 TargetID
+	var targetID *primitive.ObjectID
+	if payload.TargetID != "" {
+		objID, err := primitive.ObjectIDFromHex(payload.TargetID)
+		if err == nil {
+			targetID = &objID
+		}
+	}
+
+	// 创建子域名条目
 	var subdomainEntries []models.SubdomainEntry
 	for _, subdomain := range subdomains {
 		if subdomain != "" {
-			subdomainEntries = append(subdomainEntries, models.SubdomainEntry{
+			entry := models.SubdomainEntry{
 				ID:     primitive.NewObjectID(),
 				Domain: subdomain,
-				IsRead: false, // 默认未读
-			})
+				IsRead: false,
+			}
+			// 只有在 targetID 存在时才设置 TargetID
+			if targetID != nil {
+				entry.TargetID = targetID
+			}
+			subdomainEntries = append(subdomainEntries, entry)
 		}
 	}
 
 	// 创建 SubdomainData 对象
 	subdomainData := &models.SubdomainData{
 		Subdomains: subdomainEntries,
-	}
-
-	var parentID *primitive.ObjectID
-	if payload.ParentID != "" {
-		objID, err := primitive.ObjectIDFromHex(payload.ParentID)
-		if err == nil {
-			parentID = &objID
-		}
 	}
 
 	// 创建扫描结果记录
@@ -105,8 +115,8 @@ func (s *SubfinderTask) runSubfinder(ctx context.Context, t *asynq.Task) error {
 		Target:    payload.Domain,
 		Timestamp: time.Now(),
 		Data:      subdomainData,
-		ParentID:  parentID,
-		IsRead:    false, // 初始任务记录默认未读
+		TargetID:  targetID,
+		IsRead:    false,
 	}
 
 	// 存储扫描结果

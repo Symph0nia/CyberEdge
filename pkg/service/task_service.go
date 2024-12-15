@@ -34,7 +34,7 @@ func (s *TaskService) Close() {
 }
 
 // CreateTask 创建一个新的通用任务并保存到数据库
-func (s *TaskService) CreateTask(taskType string, payload interface{}, parentID *primitive.ObjectID) error {
+func (s *TaskService) CreateTask(taskType string, payload interface{}, targetID *primitive.ObjectID) error {
 	logging.Info("正在创建任务: 类型 %s", taskType)
 
 	var payloadBytes []byte
@@ -57,7 +57,7 @@ func (s *TaskService) CreateTask(taskType string, payload interface{}, parentID 
 		Type:     taskType,
 		Payload:  string(payloadBytes),
 		Status:   models.TaskStatusPending,
-		ParentID: parentID,
+		TargetID: targetID,
 	}
 
 	// 将任务保存到数据库
@@ -111,8 +111,8 @@ func (s *TaskService) StartTasks(taskIDs []string) (*StartTaskResult, error) {
 			"target":  task.Payload,
 		}
 
-		if task.ParentID != nil {
-			payloadMap["parent_id"] = task.ParentID.Hex()
+		if task.TargetID != nil {
+			payloadMap["target_id"] = task.TargetID.Hex()
 		}
 
 		payload, err := json.Marshal(payloadMap)

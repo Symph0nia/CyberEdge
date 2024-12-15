@@ -18,6 +18,20 @@ import (
 	"time"
 )
 
+// 补充获取目标类型名称的方法
+func (s *HTTPXService) getTargetTypeName(taskType string) string {
+	switch taskType {
+	case "Subdomain":
+		return "子域名"
+	case "Port":
+		return "端口"
+	case "Path":
+		return "路径"
+	default:
+		return "目标"
+	}
+}
+
 type HTTPXService struct {
 	resultDAO *dao.ResultDAO
 	workers   int           // 工作线程数
@@ -39,7 +53,54 @@ func NewHTTPXService(resultDAO *dao.ResultDAO) *HTTPXService {
 	}
 }
 
-func (s *HTTPXService) ProbeSubdomains(resultID string, entryIDs []string) (*ResolveResult, error) {
+// 定义通用接口
+type ProbeTarget interface {
+	GetID() string       // 获取目标的 ID
+	GetProbeURL() string // 获取探测 URL
+}
+
+// HTTPXService 的方法
+func (s *HTTPXService) getTargetMap(result *models.Result) (map[string]ProbeTarget, error) {
+	switch result.Type {
+	case "Subdomain":
+		var data models.SubdomainData
+		if err := utils.UnmarshalData(result.Data, &data); err != nil {
+			return nil, err
+		}
+		targetMap := make(map[string]ProbeTarget, len(data.Subdomains))
+		for i := range data.Subdomains {
+			targetMap[data.Subdomains[i].ID.Hex()] = data.Subdomains[i]
+		}
+		return targetMap, nil
+
+	case "Port":
+		var data models.PortData
+		if err := utils.UnmarshalData(result.Data, &data); err != nil {
+			return nil, err
+		}
+		targetMap := make(map[string]ProbeTarget, len(data.Ports))
+		for i := range data.Ports {
+			targetMap[data.Ports[i].ID.Hex()] = data.Ports[i]
+		}
+		return targetMap, nil
+
+	case "Path":
+		var data models.PathData
+		if err := utils.UnmarshalData(result.Data, &data); err != nil {
+			return nil, err
+		}
+		targetMap := make(map[string]ProbeTarget, len(data.Paths))
+		for i := range data.Paths {
+			targetMap[data.Paths[i].ID.Hex()] = data.Paths[i]
+		}
+		return targetMap, nil
+
+	default:
+		return nil, fmt.Errorf("不支持的任务类型: %s", result.Type)
+	}
+}
+
+func (s *HTTPXService) ProbeTargets(resultID string, entryIDs []string) (*ResolveResult, error) {
 	logging.Info("开始HTTP探测: %v", entryIDs)
 
 	result := &ResolveResult{
@@ -54,66 +115,49 @@ func (s *HTTPXService) ProbeSubdomains(resultID string, entryIDs []string) (*Res
 		return nil, err
 	}
 
-	if scanResult.Type != "Subdomain" {
-		return nil, errors.New("任务类型不是子域名扫描")
-	}
-
-	// 解析数据
-	var subdomainData models.SubdomainData
-	if err := utils.UnmarshalData(scanResult.Data, &subdomainData); err != nil {
-		logging.Error("解析子域名数据失败: %v", err)
+	// 获取目标映射
+	targetMap, err := s.getTargetMap(scanResult)
+	if err != nil {
 		return nil, err
-	}
-
-	// 创建域名映射
-	subdomainMap := make(map[string]*models.SubdomainEntry)
-	for i := range subdomainData.Subdomains {
-		subdomainMap[subdomainData.Subdomains[i].ID.Hex()] = &subdomainData.Subdomains[i]
-	}
-
-	// 定义探测任务结构
-	type probeResult struct {
-		EntryID    string
-		Domain     string
-		HTTPResult *HTTPXResult
-		Error      error
 	}
 
 	// 创建工作池
 	maxWorkers := s.workers
-	resultChan := make(chan probeResult, len(entryIDs))
+	resultChan := make(chan struct {
+		entryID string
+		target  ProbeTarget
+		result  *HTTPXResult
+		err     error
+	}, len(entryIDs))
 	semaphore := make(chan struct{}, maxWorkers)
 	var wg sync.WaitGroup
 
 	// 启动探测协程
 	for _, entryID := range entryIDs {
-		subdomain, exists := subdomainMap[entryID]
+		target, exists := targetMap[entryID]
 		if !exists {
-			result.Failed[entryID] = "未找到指定的子域名"
+			result.Failed[entryID] = fmt.Sprintf("未找到指定的%s", s.getTargetTypeName(scanResult.Type))
 			continue
 		}
 
 		wg.Add(1)
-		go func(entryID string, domain string) {
+		go func(entryID string, target ProbeTarget) {
 			defer wg.Done()
 
-			// 获取信号量
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
 
-			// 创建上下文
 			ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
 			defer cancel()
 
-			// 执行探测
-			httpResult, err := s.probeWithHTTPX(ctx, domain)
-			resultChan <- probeResult{
-				EntryID:    entryID,
-				Domain:     domain,
-				HTTPResult: httpResult,
-				Error:      err,
-			}
-		}(entryID, subdomain.Domain)
+			httpResult, err := s.probeWithHTTPX(ctx, target.GetProbeURL())
+			resultChan <- struct {
+				entryID string
+				target  ProbeTarget
+				result  *HTTPXResult
+				err     error
+			}{entryID, target, httpResult, err}
+		}(entryID, target)
 	}
 
 	// 启动结果收集协程
@@ -125,28 +169,32 @@ func (s *HTTPXService) ProbeSubdomains(resultID string, entryIDs []string) (*Res
 	// 处理结果
 	var mu sync.Mutex
 	for res := range resultChan {
-		if res.Error != nil {
+		if res.err != nil {
 			mu.Lock()
-			result.Failed[res.EntryID] = fmt.Sprintf("探测失败: %v", res.Error)
+			result.Failed[res.entryID] = fmt.Sprintf("探测失败: %v", res.err)
 			mu.Unlock()
 			continue
 		}
 
 		// 更新数据库
-		err := s.resultDAO.UpdateSubdomainHTTPInfo(
+		err := s.resultDAO.UpdateHTTPInfo(
 			resultID,
-			res.EntryID,
-			res.HTTPResult.StatusCode,
-			res.HTTPResult.Title,
+			res.entryID,
+			scanResult.Type,
+			res.result.StatusCode,
+			res.result.Title,
 		)
 
 		mu.Lock()
 		if err != nil {
-			result.Failed[res.EntryID] = fmt.Sprintf("更新HTTP信息失败: %v", err)
+			result.Failed[res.entryID] = fmt.Sprintf("更新HTTP信息失败: %v", err)
 		} else {
-			result.Success = append(result.Success, res.EntryID)
-			logging.Info("成功更新子域名 %s 的HTTP信息: Status=%d, Title=%s",
-				res.Domain, res.HTTPResult.StatusCode, res.HTTPResult.Title)
+			result.Success = append(result.Success, res.entryID)
+			logging.Info("成功更新%s的HTTP信息: Target=%s, Status=%d, Title=%s",
+				s.getTargetTypeName(scanResult.Type),
+				res.target.GetProbeURL(),
+				res.result.StatusCode,
+				res.result.Title)
 		}
 		mu.Unlock()
 	}

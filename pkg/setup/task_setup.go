@@ -7,20 +7,24 @@ import (
 	"cyberedge/pkg/tasks"
 	"github.com/hibiken/asynq"
 	"go.mongodb.org/mongo-driver/mongo"
+	"os"
 )
 
 // InitTaskComponents 初始化任务相关组件
-func InitTaskComponents(db *mongo.Database, redisAddr string) (*service.TaskService, *asynq.Server, error) {
+func InitTaskComponents(db *mongo.Database, defaultRedisAddr string) (*service.TaskService, *asynq.Server, error) {
 	taskDAO := dao.NewTaskDAO(db.Collection("tasks"))
 
-	asynqClient, err := InitAsynqClient(redisAddr)
+	asynqClient, err := InitAsynqClient(defaultRedisAddr)
 	if err != nil {
 		logging.Error("初始化 Asynq 客户端失败: %v", err)
 		return nil, nil, err
 	}
 	logging.Info("Asynq 客户端初始化成功")
 
-	// 传入 redisAddr
+	redisAddr := os.Getenv("REDIS_ADDR")
+	if redisAddr == "" {
+		redisAddr = defaultRedisAddr
+	}
 	taskService := service.NewTaskService(taskDAO, asynqClient, redisAddr)
 
 	asynqServer, err := InitAsynqServer(redisAddr)

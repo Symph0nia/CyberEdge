@@ -1,17 +1,12 @@
-# 使用官方 Nginx 镜像作为基础镜像
-FROM nginx:latest
+FROM nginx:alpine
 
-# 将构建的静态文件复制到 Nginx 服务器的目录
-COPY ./dist /usr/share/nginx/html
+RUN apk add --no-cache wget unzip
 
-# 删除默认的 Nginx 配置文件
-RUN rm /etc/nginx/conf.d/default.conf
+# 添加 -o 参数来强制覆盖
+RUN wget https://github.com/Symph0nia/CyberEdge-Front/releases/download/v1.0.1/cyberedge-front.zip -O /tmp/frontend.zip && \
+    unzip -o /tmp/frontend.zip -d /usr/share/nginx/html/ && \
+    rm /tmp/frontend.zip
 
-# 添加自定义的 Nginx 配置文件
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-# 暴露 4567 端口
-EXPOSE 4567
-
-# 使用默认的Nginx启动命令
-CMD ["nginx", "-g", "daemon off;"]
+EXPOSE 47808

@@ -7,10 +7,15 @@ import (
 	"github.com/hibiken/asynq"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"os"
 )
 
 // ConnectToMongoDB 连接到MongoDB
-func ConnectToMongoDB(uri string) (*mongo.Client, error) {
+func ConnectToMongoDB(defaultURI string) (*mongo.Client, error) {
+	uri := os.Getenv("MONGODB_URI")
+	if uri == "" {
+		uri = defaultURI
+	}
 	logging.Info("尝试连接到 MongoDB: %s", uri)
 	client, err := mongo.Connect(context.Background(), options.Client().ApplyURI(uri))
 	if err != nil {
@@ -33,7 +38,11 @@ func DisconnectMongoDB(client *mongo.Client) error {
 }
 
 // InitAsynqClient 初始化Asynq客户端
-func InitAsynqClient(redisAddr string) (*asynq.Client, error) {
+func InitAsynqClient(defaultRedisAddr string) (*asynq.Client, error) {
+	redisAddr := os.Getenv("REDIS_ADDR")
+	if redisAddr == "" {
+		redisAddr = defaultRedisAddr
+	}
 	logging.Info("初始化 Asynq 客户端，Redis 地址: %s", redisAddr)
 	client := asynq.NewClient(asynq.RedisClientOpt{Addr: redisAddr})
 	logging.Info("成功初始化 Asynq 客户端")
@@ -41,7 +50,11 @@ func InitAsynqClient(redisAddr string) (*asynq.Client, error) {
 }
 
 // InitAsynqServer 初始化Asynq服务器
-func InitAsynqServer(redisAddr string) (*asynq.Server, error) {
+func InitAsynqServer(defaultRedisAddr string) (*asynq.Server, error) {
+	redisAddr := os.Getenv("REDIS_ADDR")
+	if redisAddr == "" {
+		redisAddr = defaultRedisAddr
+	}
 	logging.Info("初始化 Asynq 服务器，Redis 地址: %s", redisAddr)
 	server := asynq.NewServer(
 		asynq.RedisClientOpt{Addr: redisAddr},
