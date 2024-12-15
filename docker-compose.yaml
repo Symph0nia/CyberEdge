@@ -24,6 +24,8 @@ services:
     environment:
       - MONGODB_URI=mongodb://mongodb:27017
       - REDIS_ADDR=redis:6379
+    volumes:
+      - ./.env:/app/.env
     depends_on:
       - mongodb
       - redis
