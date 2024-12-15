@@ -9,6 +9,7 @@ import (
 	"cyberedge/pkg/logging"
 	"cyberedge/pkg/service"
 	"cyberedge/pkg/setup"
+	"github.com/joho/godotenv"
 	"log"
 	"net/http"
 	"os"
@@ -33,6 +34,10 @@ func main() {
 	// 创建一个用于优雅关闭的 context
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	if err := godotenv.Load(); err != nil {
+		log.Fatalf("加载 .env 文件失败: %v", err)
+	}
 
 	// 连接MongoDB数据库
 	client, err := setup.ConnectToMongoDB("mongodb://localhost:27017")
@@ -68,7 +73,9 @@ func main() {
 	setup.StartAsynqServer(asynqServer, taskHandler)
 
 	// 初始化 Service
-	jwtSecret := "your-jwt-secret" // 应从配置文件或环境变量中读取
+	jwtSecret := os.Getenv("JWT_SECRET")
+	sessionSecret := os.Getenv("SESSION_SECRET")
+
 	userService := service.NewUserService(userDAO, configDAO, jwtSecret)
 	configService := service.NewConfigService(configDAO)
 	resultService := service.NewResultService(resultDAO)
@@ -86,15 +93,15 @@ func main() {
 		httpxService,
 		targetService,
 		jwtSecret,
-		"your-session-secret",             // 应从配置文件或环境变量中读取
-		[]string{"http://localhost:8080"}, // 允许的源
+		sessionSecret,
+		[]string{"http://localhost:47808"}, // 允许的源
 	)
 	engine := router.SetupRouter()
 	logging.Info("API路由设置完成")
 
 	// 创建 HTTP 服务器
 	srv := &http.Server{
-		Addr:    ":8081",
+		Addr:    ":31337",
 		Handler: engine,
 	}
 
