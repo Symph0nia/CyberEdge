@@ -8,7 +8,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # 下载和安装 CyberEdge
-RUN wget https://github.com/Symph0nia/CyberEdge/releases/download/v1.0.2/cyberedge-linux-amd64 -O cyberedge && \
+RUN wget https://github.com/Symph0nia/CyberEdge/releases/download/v1.0.4/cyberedge-linux-amd64 -O cyberedge && \
     chmod +x cyberedge
 
 # 安装 httpx

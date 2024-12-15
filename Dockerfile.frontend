@@ -3,7 +3,7 @@ FROM nginx:alpine
 RUN apk add --no-cache wget unzip
 
 # 添加 -o 参数来强制覆盖
-RUN wget https://github.com/Symph0nia/CyberEdge-Front/releases/download/v1.0.2/cyberedge-front.zip -O /tmp/frontend.zip && \
+RUN wget https://github.com/Symph0nia/CyberEdge-Front/releases/download/v1.0.4/cyberedge-front.zip -O /tmp/frontend.zip && \
     unzip -o /tmp/frontend.zip -d /usr/share/nginx/html/ && \
     rm /tmp/frontend.zip
 
