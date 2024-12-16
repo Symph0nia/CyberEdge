@@ -22,15 +22,19 @@ jobs:
       - name: Build
         run: |
           GOOS=linux GOARCH=amd64 go build -o bin/cyberedge-linux-amd64 ./cmd/cyberedge.go
+          GOOS=linux GOARCH=arm64 go build -o bin/cyberedge-linux-arm64 ./cmd/cyberedge.go
           GOOS=windows GOARCH=amd64 go build -o bin/cyberedge-windows-amd64.exe ./cmd/cyberedge.go
           GOOS=darwin GOARCH=amd64 go build -o bin/cyberedge-darwin-amd64 ./cmd/cyberedge.go
+          GOOS=darwin GOARCH=arm64 go build -o bin/cyberedge-darwin-arm64 ./cmd/cyberedge.go
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
             bin/cyberedge-linux-amd64
+            bin/cyberedge-linux-arm64
             bin/cyberedge-windows-amd64.exe
             bin/cyberedge-darwin-amd64
+            bin/cyberedge-darwin-arm64
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
