@@ -5,6 +5,7 @@ package handlers
 import (
 	"cyberedge/pkg/models"
 	"cyberedge/pkg/service"
+	"encoding/base64"
 	"github.com/gin-gonic/gin"
 	"net/http"
 )
@@ -20,12 +21,17 @@ func NewUserHandler(userService *service.UserService) *UserHandler {
 }
 
 func (h *UserHandler) GenerateQRCode(c *gin.Context) {
-	qrCode, err := h.userService.GenerateQRCode()
+	qrCode, accountName, err := h.userService.GenerateQRCode()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.Data(http.StatusOK, "image/png", qrCode)
+
+	// 使用multipart响应返回二维码图片和账户名称
+	c.JSON(http.StatusOK, gin.H{
+		"qrcode":  base64.StdEncoding.EncodeToString(qrCode), // 将二维码图片转为base64
+		"account": accountName,
+	})
 }
 
 func (h *UserHandler) ValidateTOTP(c *gin.Context) {
@@ -59,8 +65,6 @@ func (h *UserHandler) CheckAuth(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"authenticated": authenticated, "account": account})
 }
-
-// User management handlers
 
 func (h *UserHandler) GetUsers(c *gin.Context) {
 	users, err := h.userService.GetAllUsers()

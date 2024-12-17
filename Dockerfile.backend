@@ -17,7 +17,7 @@ else \n\
 fi \n\
 \n\
 # 下载和安装 CyberEdge \n\
-wget https://github.com/Symph0nia/CyberEdge/releases/download/v1.0.7/cyberedge-linux-${ARCH} -O cyberedge \n\
+wget https://github.com/Symph0nia/CyberEdge/releases/download/v1.0.8/cyberedge-linux-${ARCH} -O cyberedge \n\
 chmod +x cyberedge \n\
 \n\
 # 安装 httpx \n\
@@ -44,4 +44,4 @@ RUN /app/install.sh
 
 EXPOSE 31337
 
-CMD ["./cyberedge"]
+CMD ["./cyberedge", "-env", "prod"]
