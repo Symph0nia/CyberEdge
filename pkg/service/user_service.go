@@ -96,26 +96,24 @@ func (s *UserService) DeleteUsers(accounts []string) (*DeleteResult, error) {
 	return result, nil
 }
 
-// Authentication methods
-
-func (s *UserService) GenerateQRCode() ([]byte, error) {
+func (s *UserService) GenerateQRCode() ([]byte, string, error) { // 修改返回值
 	logging.Info("开始生成二维码")
 
 	qrcodeEnabled, err := s.configDAO.GetQRCodeStatus()
 	if err != nil {
 		logging.Error("获取二维码状态失败: %v", err)
-		return nil, errors.New("无法获取二维码状态")
+		return nil, "", errors.New("无法获取二维码状态")
 	}
 
 	if !qrcodeEnabled {
 		logging.Warn("二维码接口已关闭")
-		return nil, errors.New("二维码接口已关闭")
+		return nil, "", errors.New("二维码接口已关闭")
 	}
 
 	accountName, err := generateRandomString(16)
 	if err != nil {
 		logging.Error("生成账户名称失败: %v", err)
-		return nil, errors.New("无法生成账户名称")
+		return nil, "", errors.New("无法生成账户名称")
 	}
 
 	key, err := totp.Generate(totp.GenerateOpts{
@@ -124,7 +122,7 @@ func (s *UserService) GenerateQRCode() ([]byte, error) {
 	})
 	if err != nil {
 		logging.Error("生成TOTP密钥失败: %v", err)
-		return nil, errors.New("无法生成密钥")
+		return nil, "", errors.New("无法生成密钥")
 	}
 
 	newUser := &models.User{
@@ -134,23 +132,23 @@ func (s *UserService) GenerateQRCode() ([]byte, error) {
 	err = s.CreateUser(newUser)
 	if err != nil {
 		logging.Error("存储用户信息失败: %v", err)
-		return nil, errors.New("无法存储密钥")
+		return nil, "", errors.New("无法存储密钥")
 	}
 
 	img, err := key.Image(200, 200)
 	if err != nil {
 		logging.Error("生成二维码图像失败: %v", err)
-		return nil, errors.New("无法生成二维码")
+		return nil, "", errors.New("无法生成二维码")
 	}
 
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, img); err != nil {
 		logging.Error("编码二维码图像失败: %v", err)
-		return nil, errors.New("无法编码二维码")
+		return nil, "", errors.New("无法编码二维码")
 	}
 
 	logging.Info("二维码生成成功")
-	return buf.Bytes(), nil
+	return buf.Bytes(), accountName, nil
 }
 
 func (s *UserService) ValidateTOTP(code, account string) (string, int, error) {
