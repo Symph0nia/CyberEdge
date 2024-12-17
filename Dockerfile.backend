@@ -44,4 +44,4 @@ RUN /app/install.sh
 
 EXPOSE 31337
 
-CMD ["./cyberedge"]
+CMD ["./cyberedge", "-env", "prod"]
