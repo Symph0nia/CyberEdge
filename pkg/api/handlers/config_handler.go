@@ -116,20 +116,6 @@ func (h *ConfigHandler) GetToolsStatus(c *gin.Context) {
 		return
 	}
 
-	// 创建工具版本信息映射
-	toolVersions := make(map[string]string)
-	tools := []string{"nmap", "ffuf", "subfinder", "httpx"}
-
-	// 尝试获取已安装工具的版本信息
-	for _, tool := range tools {
-		if toolStatus.GetToolStatus(tool) {
-			version, err := h.configService.GetToolVersion(tool)
-			if err == nil {
-				toolVersions[tool] = version
-			}
-		}
-	}
-
 	// 构造响应数据
 	toolsInfo := map[string]interface{}{
 		"installedStatus": map[string]bool{
@@ -137,12 +123,8 @@ func (h *ConfigHandler) GetToolsStatus(c *gin.Context) {
 			"Ffuf":      toolStatus.Ffuf,
 			"Subfinder": toolStatus.Subfinder,
 			"HttpX":     toolStatus.HttpX,
+			"Fscan":     toolStatus.Fscan,
 		},
-	}
-
-	// 如果有版本信息，添加到响应中
-	if len(toolVersions) > 0 {
-		toolsInfo["versions"] = toolVersions
 	}
 
 	// 返回响应

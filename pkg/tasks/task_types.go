@@ -6,8 +6,6 @@ package tasks
 type TaskType string
 
 const (
-	TaskTypePing      TaskType = "ping"
-	TaskTypeHttpx     TaskType = "httpx"
 	TaskTypeSubfinder TaskType = "subfinder"
 	TaskTypeNmap      TaskType = "nmap"
 	TaskTypeFfuf      TaskType = "ffuf"

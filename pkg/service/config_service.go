@@ -18,10 +18,11 @@ type ConfigService struct {
 
 // ToolStatus 存储工具的安装状态
 type ToolStatus struct {
-	Nmap      bool `json:"nmap"`
-	Ffuf      bool `json:"ffuf"`
-	Subfinder bool `json:"subfinder"`
-	HttpX     bool `json:"httpx"`
+	Nmap      bool
+	Ffuf      bool
+	Subfinder bool
+	HttpX     bool
+	Fscan     bool // 新增
 }
 
 func NewConfigService(configDAO *dao.ConfigDAO) *ConfigService {
@@ -115,7 +116,8 @@ func (s *ConfigService) GetCurrentDirectory() (string, error) {
 func (s *ConfigService) GetKernelVersion() (string, error) {
 	logging.Info("正在获取系统内核版本")
 
-	if runtime.GOOS == "windows" {
+	switch runtime.GOOS {
+	case "windows":
 		cmd := exec.Command("powershell", "-Command", "(Get-WmiObject Win32_OperatingSystem).Version")
 		output, err := cmd.Output()
 		if err != nil {
@@ -135,8 +137,19 @@ func (s *ConfigService) GetKernelVersion() (string, error) {
 
 		logging.Info("成功获取Windows系统版本: %s", version)
 		return version, nil
-	} else {
-		// Linux/Unix 系统
+
+	case "darwin": // macOS
+		cmd := exec.Command("uname", "-r")
+		output, err := cmd.Output()
+		if err != nil {
+			logging.Error("获取macOS内核版本失败: %v", err)
+			return "", err
+		}
+		version := strings.TrimSpace(string(output))
+		logging.Info("成功获取macOS内核版本: %s", version)
+		return version, nil
+
+	default: // Linux 和其他 Unix 系统
 		cmd := exec.Command("uname", "-r")
 		output, err := cmd.Output()
 		if err != nil {
@@ -153,7 +166,8 @@ func (s *ConfigService) GetKernelVersion() (string, error) {
 func (s *ConfigService) GetOSDistribution() (string, error) {
 	logging.Info("正在获取系统发行版信息")
 
-	if runtime.GOOS == "windows" {
+	switch runtime.GOOS {
+	case "windows":
 		// 获取操作系统名称
 		captionCmd := exec.Command("powershell", "-Command", "(Get-WmiObject Win32_OperatingSystem).Caption")
 		captionOutput, err := captionCmd.Output()
@@ -184,8 +198,41 @@ func (s *ConfigService) GetOSDistribution() (string, error) {
 		info := fmt.Sprintf("%s %s (%s)", caption, version, arch)
 		logging.Info("成功获取Windows系统信息: %s", info)
 		return info, nil
-	} else {
-		// Linux/Unix 系统代码保持不变
+
+	case "darwin":
+		// 获取 macOS 版本名称
+		productCmd := exec.Command("sw_vers", "-productName")
+		productOutput, err := productCmd.Output()
+		if err != nil {
+			logging.Error("获取macOS产品名称失败: %v", err)
+			return "", err
+		}
+		productName := strings.TrimSpace(string(productOutput))
+
+		// 获取 macOS 版本号
+		versionCmd := exec.Command("sw_vers", "-productVersion")
+		versionOutput, err := versionCmd.Output()
+		if err != nil {
+			logging.Error("获取macOS版本号失败: %v", err)
+			return "", err
+		}
+		version := strings.TrimSpace(string(versionOutput))
+
+		// 获取系统架构
+		archCmd := exec.Command("uname", "-m")
+		archOutput, err := archCmd.Output()
+		if err != nil {
+			logging.Error("获取macOS架构信息失败: %v", err)
+			return "", err
+		}
+		arch := strings.TrimSpace(string(archOutput))
+
+		info := fmt.Sprintf("%s %s (%s)", productName, version, arch)
+		logging.Info("成功获取macOS系统信息: %s", info)
+		return info, nil
+
+	default: // Linux 和其他 Unix 系统
+		// 首先尝试读取 /etc/os-release
 		content, err := os.ReadFile("/etc/os-release")
 		if err == nil {
 			lines := strings.Split(string(content), "\n")
@@ -198,6 +245,7 @@ func (s *ConfigService) GetOSDistribution() (string, error) {
 			}
 		}
 
+		// 如果读取 /etc/os-release 失败，尝试 lsb_release
 		cmd := exec.Command("lsb_release", "-d")
 		output, err := cmd.Output()
 		if err != nil {
@@ -262,16 +310,18 @@ func (s *ConfigService) CheckToolsInstallation() (*ToolStatus, error) {
 		status.Ffuf = s.checkWindowsToolExists("ffuf.exe")
 		status.Subfinder = s.checkWindowsToolExists("subfinder.exe")
 		status.HttpX = s.checkWindowsToolExists("httpx.exe")
+		status.Fscan = s.checkWindowsToolExists("fscan.exe") // 新增
 	} else {
 		// Unix-based系统使用which命令检查
 		status.Nmap = s.checkUnixToolExists("nmap")
 		status.Ffuf = s.checkUnixToolExists("ffuf")
 		status.Subfinder = s.checkUnixToolExists("subfinder")
 		status.HttpX = s.checkUnixToolExists("httpx")
+		status.Fscan = s.checkUnixToolExists("fscan") // 新增
 	}
 
-	logging.Info("工具安装状态检查完成: Nmap=%v, Ffuf=%v, Subfinder=%v, HttpX=%v",
-		status.Nmap, status.Ffuf, status.Subfinder, status.HttpX)
+	logging.Info("工具安装状态检查完成: Nmap=%v, Ffuf=%v, Subfinder=%v, HttpX=%v, Fscan=%v",
+		status.Nmap, status.Ffuf, status.Subfinder, status.HttpX, status.Fscan)
 
 	return status, nil
 }
@@ -313,33 +363,6 @@ func (s *ConfigService) checkUnixToolExists(toolName string) bool {
 	return false
 }
 
-// GetToolVersion 获取指定工具的版本信息
-func (s *ConfigService) GetToolVersion(toolName string) (string, error) {
-	var cmd *exec.Cmd
-
-	switch toolName {
-	case "nmap":
-		cmd = exec.Command("nmap", "--version")
-	case "ffuf":
-		cmd = exec.Command("ffuf", "-V")
-	case "subfinder":
-		cmd = exec.Command("subfinder", "-version")
-	case "httpx":
-		cmd = exec.Command("httpx", "-version")
-	default:
-		return "", fmt.Errorf("unsupported tool: %s", toolName)
-	}
-
-	output, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("failed to get version: %v", err)
-	}
-
-	// 提取第一行作为版本信息
-	version := strings.Split(string(output), "\n")[0]
-	return strings.TrimSpace(version), nil
-}
-
 // 为HTTP处理程序准备的辅助方法
 func (s *ConfigService) GetToolsStatus() (map[string]interface{}, error) {
 	status, err := s.CheckToolsInstallation()
@@ -353,23 +376,8 @@ func (s *ConfigService) GetToolsStatus() (map[string]interface{}, error) {
 			"Ffuf":      status.Ffuf,
 			"Subfinder": status.Subfinder,
 			"HttpX":     status.HttpX,
+			"Fscan":     status.Fscan,
 		},
-	}
-
-	// 获取已安装工具的版本信息
-	versions := make(map[string]string)
-	tools := []string{"nmap", "ffuf", "subfinder", "httpx"}
-
-	for _, tool := range tools {
-		if status.GetToolStatus(tool) {
-			if version, err := s.GetToolVersion(tool); err == nil {
-				versions[tool] = version
-			}
-		}
-	}
-
-	if len(versions) > 0 {
-		result["versions"] = versions
 	}
 
 	return result, nil
@@ -386,6 +394,8 @@ func (ts *ToolStatus) GetToolStatus(toolName string) bool {
 		return ts.Subfinder
 	case "httpx":
 		return ts.HttpX
+	case "fscan":
+		return ts.Fscan
 	default:
 		return false
 	}

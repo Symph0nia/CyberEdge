@@ -61,7 +61,7 @@ func (n *NmapTask) runNmap(ctx context.Context, t *asynq.Task) error {
 
 	// 构建 Nmap 命令
 	cmd := exec.CommandContext(ctx, "nmap",
-		"-n", "--unique", "--resolve-all", "-Pn",
+		"-n", "--resolve-all", "-Pn",
 		"--min-hostgroup", "64",
 		"--max-retries", "0",
 		"--host-timeout", "10m",
@@ -118,7 +118,7 @@ func (n *NmapTask) runNmap(ctx context.Context, t *asynq.Task) error {
 		logging.Error("存储扫描结果失败: %v", err)
 		return err
 	}
-	
+
 	logging.Info("Nmap 任务完成，扫描了 %d 个端口", len(portEntries))
 
 	return nil
