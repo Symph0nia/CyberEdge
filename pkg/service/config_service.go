@@ -18,10 +18,11 @@ type ConfigService struct {
 
 // ToolStatus 存储工具的安装状态
 type ToolStatus struct {
-	Nmap      bool `json:"nmap"`
-	Ffuf      bool `json:"ffuf"`
-	Subfinder bool `json:"subfinder"`
-	HttpX     bool `json:"httpx"`
+	Nmap      bool
+	Ffuf      bool
+	Subfinder bool
+	HttpX     bool
+	Fscan     bool // 新增
 }
 
 func NewConfigService(configDAO *dao.ConfigDAO) *ConfigService {
@@ -309,16 +310,18 @@ func (s *ConfigService) CheckToolsInstallation() (*ToolStatus, error) {
 		status.Ffuf = s.checkWindowsToolExists("ffuf.exe")
 		status.Subfinder = s.checkWindowsToolExists("subfinder.exe")
 		status.HttpX = s.checkWindowsToolExists("httpx.exe")
+		status.Fscan = s.checkWindowsToolExists("fscan.exe") // 新增
 	} else {
 		// Unix-based系统使用which命令检查
 		status.Nmap = s.checkUnixToolExists("nmap")
 		status.Ffuf = s.checkUnixToolExists("ffuf")
 		status.Subfinder = s.checkUnixToolExists("subfinder")
 		status.HttpX = s.checkUnixToolExists("httpx")
+		status.Fscan = s.checkUnixToolExists("fscan") // 新增
 	}
 
-	logging.Info("工具安装状态检查完成: Nmap=%v, Ffuf=%v, Subfinder=%v, HttpX=%v",
-		status.Nmap, status.Ffuf, status.Subfinder, status.HttpX)
+	logging.Info("工具安装状态检查完成: Nmap=%v, Ffuf=%v, Subfinder=%v, HttpX=%v, Fscan=%v",
+		status.Nmap, status.Ffuf, status.Subfinder, status.HttpX, status.Fscan)
 
 	return status, nil
 }
@@ -360,33 +363,6 @@ func (s *ConfigService) checkUnixToolExists(toolName string) bool {
 	return false
 }
 
-// GetToolVersion 获取指定工具的版本信息
-func (s *ConfigService) GetToolVersion(toolName string) (string, error) {
-	var cmd *exec.Cmd
-
-	switch toolName {
-	case "nmap":
-		cmd = exec.Command("nmap", "--version")
-	case "ffuf":
-		cmd = exec.Command("ffuf", "-V")
-	case "subfinder":
-		cmd = exec.Command("subfinder", "-version")
-	case "httpx":
-		cmd = exec.Command("httpx", "-version")
-	default:
-		return "", fmt.Errorf("unsupported tool: %s", toolName)
-	}
-
-	output, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("failed to get version: %v", err)
-	}
-
-	// 提取第一行作为版本信息
-	version := strings.Split(string(output), "\n")[0]
-	return strings.TrimSpace(version), nil
-}
-
 // 为HTTP处理程序准备的辅助方法
 func (s *ConfigService) GetToolsStatus() (map[string]interface{}, error) {
 	status, err := s.CheckToolsInstallation()
@@ -400,23 +376,8 @@ func (s *ConfigService) GetToolsStatus() (map[string]interface{}, error) {
 			"Ffuf":      status.Ffuf,
 			"Subfinder": status.Subfinder,
 			"HttpX":     status.HttpX,
+			"Fscan":     status.Fscan,
 		},
-	}
-
-	// 获取已安装工具的版本信息
-	versions := make(map[string]string)
-	tools := []string{"nmap", "ffuf", "subfinder", "httpx"}
-
-	for _, tool := range tools {
-		if status.GetToolStatus(tool) {
-			if version, err := s.GetToolVersion(tool); err == nil {
-				versions[tool] = version
-			}
-		}
-	}
-
-	if len(versions) > 0 {
-		result["versions"] = versions
 	}
 
 	return result, nil
@@ -433,6 +394,8 @@ func (ts *ToolStatus) GetToolStatus(toolName string) bool {
 		return ts.Subfinder
 	case "httpx":
 		return ts.HttpX
+	case "fscan":
+		return ts.Fscan
 	default:
 		return false
 	}
