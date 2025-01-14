@@ -36,4 +36,13 @@ tar -xf /tmp/ffuf.tar.gz -C /tmp
 mv /tmp/ffuf /usr/local/bin/
 rm /tmp/ffuf.tar.gz
 
+# 安装 fscan
+echo "Installing fscan..."
+git clone --depth=1 https://github.com/shadow1ng/fscan.git
+cd fscan
+go mod tidy
+go build -o fscan
+mv fscan /usr/local/bin/
+cd ..
+
 echo "Installation complete."
