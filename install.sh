@@ -2,6 +2,7 @@
 
 # 获取系统架构
 ARCH=$(uname -m)
+OS=$(uname -s)
 
 # 判断系统架构并设置变量
 if [[ "$ARCH" == "aarch64" ]] || [[ "$ARCH" == "arm64" ]]; then
@@ -35,5 +36,46 @@ wget -q https://github.com/ffuf/ffuf/releases/download/v2.1.0/ffuf_2.1.0_linux_$
 tar -xf /tmp/ffuf.tar.gz -C /tmp
 mv /tmp/ffuf /usr/local/bin/
 rm /tmp/ffuf.tar.gz
+
+# 安装 fscan
+echo "Installing fscan..."
+FSCAN_VERSION="latest"
+FSCAN_URL="https://github.com/shadow1ng/fscan/releases/$FSCAN_VERSION/download"
+
+case "$OS" in
+Linux)
+    case "$ARCH" in
+    x86_64) BIN="fscan" ;;
+    i386 | i686) BIN="fscan32" ;;
+    arm64 | aarch64) BIN="fscan_arm64" ;;
+    armv6l) BIN="fscan_armv6" ;;
+    armv7l) BIN="fscan_armv7" ;;
+    mips) BIN="fscan_mips" ;;
+    mips64) BIN="fscan_mips64" ;;
+    mipsle) BIN="fscan_mipsle" ;;
+    solaris) BIN="fscan_solaris" ;;
+    freebsd) BIN="fscan_freebsd" ;;
+    freebsd32) BIN="fscan_freebsd32" ;;
+    freebsd_arm64) BIN="fscan_freebsd_arm64" ;;
+    freebsd_armv6) BIN="fscan_freebsd_armv6" ;;
+    freebsd_armv7) BIN="fscan_freebsd_armv7" ;;
+    *) echo "Unsupported Linux architecture: $ARCH" && exit 1 ;;
+    esac
+    ;;
+Darwin)
+    case "$ARCH" in
+    x86_64) BIN="fscan_mac" ;;
+    arm64) BIN="fscan_mac_arm64" ;;
+    *) echo "Unsupported macOS architecture: $ARCH" && exit 1 ;;
+    esac
+    ;;
+*)
+    echo "Unsupported OS: $OS" && exit 1
+    ;;
+esac
+
+wget -q "$FSCAN_URL/$BIN" -O /tmp/fscan
+chmod +x /tmp/fscan
+mv /tmp/fscan /usr/local/bin/
 
 echo "Installation complete."
