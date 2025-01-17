@@ -78,4 +78,41 @@ wget -q "$FSCAN_URL/$BIN" -O /tmp/fscan
 chmod +x /tmp/fscan
 mv /tmp/fscan /usr/local/bin/
 
+# 安装 afrog
+echo "Installing afrog..."
+AFROG_VERSION="3.1.5"
+AFROG_BASE_URL="https://github.com/zan8in/afrog/releases/download/v$AFROG_VERSION"
+
+case "$OS" in
+Linux)
+    case "$ARCH" in
+    x86_64) BIN="afrog_${AFROG_VERSION}_linux_amd64.zip" ;;
+    arm64 | aarch64) BIN="afrog_${AFROG_VERSION}_linux_arm64.zip" ;;
+    *) echo "Unsupported Linux architecture: $ARCH" && exit 1 ;;
+    esac
+    ;;
+Darwin)
+    case "$ARCH" in
+    x86_64) BIN="afrog_${AFROG_VERSION}_macOS_amd64.zip" ;;
+    arm64) BIN="afrog_${AFROG_VERSION}_macOS_arm64.zip" ;;
+    *) echo "Unsupported macOS architecture: $ARCH" && exit 1 ;;
+    esac
+    ;;
+WindowsNT)
+    case "$ARCH" in
+    x86_64) BIN="afrog_${AFROG_VERSION}_windows_amd64.zip" ;;
+    arm64) BIN="afrog_${AFROG_VERSION}_windows_arm64.zip" ;;
+    *) echo "Unsupported Windows architecture: $ARCH" && exit 1 ;;
+    esac
+    ;;
+*)
+    echo "Unsupported OS: $OS" && exit 1
+    ;;
+esac
+
+wget -q "$AFROG_BASE_URL/$BIN" -O /tmp/afrog.zip
+unzip /tmp/afrog.zip -d /tmp
+mv /tmp/afrog /usr/local/bin/
+rm -f /tmp/afrog.zip
+
 echo "Installation complete."
