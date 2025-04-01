@@ -21,13 +21,15 @@ type FfufTask struct {
 	TaskTemplate
 	resultDAO *dao.ResultDAO
 	targetDAO *dao.TargetDAO
+	configDAO *dao.ConfigDAO // 新增配置DAO
 }
 
-func NewFfufTask(taskDAO *dao.TaskDAO, targetDAO *dao.TargetDAO, resultDAO *dao.ResultDAO) *FfufTask {
+func NewFfufTask(taskDAO *dao.TaskDAO, targetDAO *dao.TargetDAO, resultDAO *dao.ResultDAO, configDAO *dao.ConfigDAO) *FfufTask {
 	return &FfufTask{
 		TaskTemplate: TaskTemplate{TaskDAO: taskDAO},
 		resultDAO:    resultDAO,
 		targetDAO:    targetDAO,
+		configDAO:    configDAO, // 初始化配置DAO
 	}
 }
 
@@ -53,6 +55,19 @@ func (f *FfufTask) runFfuf(ctx context.Context, t *asynq.Task) error {
 
 	logging.Info("开始执行 ffuf 任务: %s", payload.Target)
 
+	// 从数据库获取默认工具配置
+	toolConfig, err := f.configDAO.GetDefaultToolConfig()
+	if err != nil {
+		logging.Error("获取默认工具配置失败: %v", err)
+		return fmt.Errorf("获取默认工具配置失败: %v", err)
+	}
+
+	// 检查 Ffuf 是否启用
+	if !toolConfig.FfufConfig.Enabled {
+		logging.Warn("Ffuf 工具未启用，跳过任务执行")
+		return nil
+	}
+
 	// 创建临时文件
 	tempFile, err := ioutil.TempFile("", "ffuf-result-*.json")
 	if err != nil {
@@ -60,12 +75,35 @@ func (f *FfufTask) runFfuf(ctx context.Context, t *asynq.Task) error {
 	}
 	defer os.Remove(tempFile.Name())
 
-	// 执行 ffuf 命令，将结果输出到临时文件
-	cmd := exec.Command("ffuf",
-		"-u", payload.Target+"/FUZZ",
-		"-w", "./wordlist/test.txt",
+	// 准备 Ffuf 命令参数，使用配置中的设置
+	ffufArgs := []string{
+		"-u", payload.Target + "/FUZZ",
+		"-w", toolConfig.FfufConfig.WordlistPath, // 使用配置中的字典路径
 		"-o", tempFile.Name(),
-		"-of", "json")
+		"-of", "json",
+	}
+
+	// 如果有指定 HTTP 状态码，添加参数
+	if toolConfig.FfufConfig.MatchHttpCode != "" {
+		ffufArgs = append(ffufArgs, "-mc", toolConfig.FfufConfig.MatchHttpCode)
+	}
+
+	// 如果有指定扩展名，添加参数
+	if toolConfig.FfufConfig.Extensions != "" {
+		ffufArgs = append(ffufArgs, "-e", toolConfig.FfufConfig.Extensions)
+	}
+
+	// 如果有指定线程数，添加参数
+	if toolConfig.FfufConfig.Threads > 0 {
+		ffufArgs = append(ffufArgs, "-t", fmt.Sprintf("%d", toolConfig.FfufConfig.Threads))
+	}
+
+	logging.Info("执行 ffuf 命令，参数: %v", ffufArgs)
+
+	// 执行 ffuf 命令，将结果输出到临时文件
+	cmd := exec.Command("ffuf", ffufArgs...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("执行 ffuf 命令失败: %v", err)
 	}
@@ -142,6 +180,6 @@ func (f *FfufTask) runFfuf(ctx context.Context, t *asynq.Task) error {
 	}
 
 	logging.Info("成功处理并存储 ffuf 结果，共找到 %d 个路径", len(pathData.Paths))
-
+	
 	return nil
 }

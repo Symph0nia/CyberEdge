@@ -20,13 +20,15 @@ type NmapTask struct {
 	TaskTemplate
 	resultDAO *dao.ResultDAO
 	targetDAO *dao.TargetDAO
+	configDAO *dao.ConfigDAO // 新增配置DAO
 }
 
-func NewNmapTask(taskDAO *dao.TaskDAO, targetDAO *dao.TargetDAO, resultDAO *dao.ResultDAO) *NmapTask {
+func NewNmapTask(taskDAO *dao.TaskDAO, targetDAO *dao.TargetDAO, resultDAO *dao.ResultDAO, configDAO *dao.ConfigDAO) *NmapTask {
 	return &NmapTask{
 		TaskTemplate: TaskTemplate{TaskDAO: taskDAO},
 		resultDAO:    resultDAO,
 		targetDAO:    targetDAO,
+		configDAO:    configDAO, // 初始化配置DAO
 	}
 }
 
@@ -51,6 +53,19 @@ func (n *NmapTask) runNmap(ctx context.Context, t *asynq.Task) error {
 
 	logging.Info("开始执行 Nmap 任务: %s", payload.Host)
 
+	// 从数据库获取默认工具配置
+	toolConfig, err := n.configDAO.GetDefaultToolConfig()
+	if err != nil {
+		logging.Error("获取默认工具配置失败: %v", err)
+		return fmt.Errorf("获取默认工具配置失败: %v", err)
+	}
+
+	// 检查 Nmap 是否启用
+	if !toolConfig.NmapConfig.Enabled {
+		logging.Warn("Nmap 工具未启用，跳过任务执行")
+		return nil
+	}
+
 	// 创建临时文件来存储 Nmap 结果
 	tempFile, err := os.CreateTemp("", "nmap-result-*.xml")
 	if err != nil {
@@ -59,21 +74,45 @@ func (n *NmapTask) runNmap(ctx context.Context, t *asynq.Task) error {
 	defer os.Remove(tempFile.Name())
 	tempFile.Close()
 
-	// 构建 Nmap 命令
-	cmd := exec.CommandContext(ctx, "nmap",
+	// 构建 Nmap 命令基本参数
+	nmapArgs := []string{
 		"-n", "--resolve-all", "-Pn",
 		"--min-hostgroup", "64",
 		"--max-retries", "0",
-		"--host-timeout", "10m",
-		"--script-timeout", "3m",
 		"-oX", tempFile.Name(),
 		"--version-intensity", "9",
-		"--min-rate", "10000",
-		"-T4",
-		payload.Host,
-	)
+	}
+
+	// 添加端口参数，如果配置中有指定
+	if toolConfig.NmapConfig.Ports != "" {
+		nmapArgs = append(nmapArgs, "-p", toolConfig.NmapConfig.Ports)
+	}
+
+	// 添加超时参数，如果配置中有指定
+	if toolConfig.NmapConfig.ScanTimeout > 0 {
+		timeout := fmt.Sprintf("%dm", toolConfig.NmapConfig.ScanTimeout/60)
+		nmapArgs = append(nmapArgs, "--host-timeout", timeout)
+		nmapArgs = append(nmapArgs, "--script-timeout", "3m")
+	} else {
+		nmapArgs = append(nmapArgs, "--host-timeout", "10m")
+		nmapArgs = append(nmapArgs, "--script-timeout", "3m")
+	}
+
+	// 添加并发参数，如果配置中有指定
+	if toolConfig.NmapConfig.Concurrency > 0 {
+		nmapArgs = append(nmapArgs, "--min-rate", fmt.Sprintf("%d", toolConfig.NmapConfig.Concurrency))
+	} else {
+		nmapArgs = append(nmapArgs, "--min-rate", "10000")
+	}
+
+	nmapArgs = append(nmapArgs, "-T4", payload.Host)
+
+	logging.Info("执行 Nmap 命令，参数: %v", nmapArgs)
 
 	// 执行 Nmap 命令
+	cmd := exec.CommandContext(ctx, "nmap", nmapArgs...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("执行 Nmap 命令失败: %v, 输出: %s", err, string(output))

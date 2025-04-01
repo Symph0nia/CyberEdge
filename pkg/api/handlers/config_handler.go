@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"cyberedge/pkg/models"
 	"cyberedge/pkg/service"
 	"github.com/gin-gonic/gin"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"net/http"
 )
 
@@ -124,6 +126,8 @@ func (h *ConfigHandler) GetToolsStatus(c *gin.Context) {
 			"Subfinder": toolStatus.Subfinder,
 			"HttpX":     toolStatus.HttpX,
 			"Fscan":     toolStatus.Fscan,
+			"Afrog":     toolStatus.Afrog,  // 新增 Afrog
+			"Nuclei":    toolStatus.Nuclei, // 新增 Nuclei
 		},
 	}
 
@@ -134,5 +138,222 @@ func (h *ConfigHandler) GetToolsStatus(c *gin.Context) {
 			"toolsInfo": toolsInfo,
 		},
 		"message": "工具状态检测成功",
+	})
+}
+
+// GetToolConfigs 获取所有工具配置
+func (h *ConfigHandler) GetToolConfigs(c *gin.Context) {
+	configs, err := h.configService.GetToolConfigs()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"status":  "error",
+			"message": "获取工具配置列表失败",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":  "success",
+		"data":    configs,
+		"message": "获取工具配置列表成功",
+	})
+}
+
+// GetDefaultToolConfig 获取默认工具配置
+func (h *ConfigHandler) GetDefaultToolConfig(c *gin.Context) {
+	config, err := h.configService.GetDefaultToolConfig()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"status":  "error",
+			"message": "获取默认工具配置失败",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":  "success",
+		"data":    config,
+		"message": "获取默认工具配置成功",
+	})
+}
+
+// GetToolConfigByID 根据ID获取工具配置
+func (h *ConfigHandler) GetToolConfigByID(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status":  "error",
+			"message": "缺少ID参数",
+		})
+		return
+	}
+
+	config, err := h.configService.GetToolConfigByID(id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"status":  "error",
+			"message": "获取工具配置失败",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":  "success",
+		"data":    config,
+		"message": "获取工具配置成功",
+	})
+}
+
+// CreateToolConfig 创建工具配置
+func (h *ConfigHandler) CreateToolConfig(c *gin.Context) {
+	var config models.ToolConfig
+	if err := c.ShouldBindJSON(&config); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status":  "error",
+			"message": "请求格式错误",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// 验证配置有效性
+	if err := h.configService.ValidateToolConfig(&config); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status":  "error",
+			"message": "配置验证失败",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// 创建新配置
+	createdConfig, err := h.configService.CreateToolConfig(&config)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"status":  "error",
+			"message": "创建工具配置失败",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{
+		"status":  "success",
+		"data":    createdConfig,
+		"message": "创建工具配置成功",
+	})
+}
+
+// UpdateToolConfig 更新工具配置
+func (h *ConfigHandler) UpdateToolConfig(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status":  "error",
+			"message": "缺少ID参数",
+		})
+		return
+	}
+
+	var config models.ToolConfig
+	if err := c.ShouldBindJSON(&config); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status":  "error",
+			"message": "请求格式错误",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// 确保ID一致
+	objID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status":  "error",
+			"message": "无效的ID格式",
+			"error":   err.Error(),
+		})
+		return
+	}
+	config.ID = objID
+
+	// 验证配置有效性
+	if err := h.configService.ValidateToolConfig(&config); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status":  "error",
+			"message": "配置验证失败",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// 更新配置
+	if err := h.configService.UpdateToolConfig(&config); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"status":  "error",
+			"message": "更新工具配置失败",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":  "success",
+		"message": "更新工具配置成功",
+	})
+}
+
+// DeleteToolConfig 删除工具配置
+func (h *ConfigHandler) DeleteToolConfig(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status":  "error",
+			"message": "缺少ID参数",
+		})
+		return
+	}
+
+	if err := h.configService.DeleteToolConfig(id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"status":  "error",
+			"message": "删除工具配置失败",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":  "success",
+		"message": "删除工具配置成功",
+	})
+}
+
+// SetDefaultToolConfig 设置默认工具配置
+func (h *ConfigHandler) SetDefaultToolConfig(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status":  "error",
+			"message": "缺少ID参数",
+		})
+		return
+	}
+
+	if err := h.configService.SetDefaultToolConfig(id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"status":  "error",
+			"message": "设置默认工具配置失败",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":  "success",
+		"message": "设置默认工具配置成功",
 	})
 }

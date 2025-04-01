@@ -3,6 +3,7 @@ package service
 import (
 	"cyberedge/pkg/dao"
 	"cyberedge/pkg/logging"
+	"cyberedge/pkg/models"
 	"fmt"
 	"net"
 	"os"
@@ -22,7 +23,9 @@ type ToolStatus struct {
 	Ffuf      bool
 	Subfinder bool
 	HttpX     bool
-	Fscan     bool // 新增
+	Fscan     bool
+	Afrog     bool // 新增
+	Nuclei    bool // 新增
 }
 
 func NewConfigService(configDAO *dao.ConfigDAO) *ConfigService {
@@ -310,18 +313,22 @@ func (s *ConfigService) CheckToolsInstallation() (*ToolStatus, error) {
 		status.Ffuf = s.checkWindowsToolExists("ffuf.exe")
 		status.Subfinder = s.checkWindowsToolExists("subfinder.exe")
 		status.HttpX = s.checkWindowsToolExists("httpx.exe")
-		status.Fscan = s.checkWindowsToolExists("fscan.exe") // 新增
+		status.Fscan = s.checkWindowsToolExists("fscan.exe")
+		status.Afrog = s.checkWindowsToolExists("afrog.exe")   // 新增
+		status.Nuclei = s.checkWindowsToolExists("nuclei.exe") // 新增
 	} else {
 		// Unix-based系统使用which命令检查
 		status.Nmap = s.checkUnixToolExists("nmap")
 		status.Ffuf = s.checkUnixToolExists("ffuf")
 		status.Subfinder = s.checkUnixToolExists("subfinder")
 		status.HttpX = s.checkUnixToolExists("httpx")
-		status.Fscan = s.checkUnixToolExists("fscan") // 新增
+		status.Fscan = s.checkUnixToolExists("fscan")
+		status.Afrog = s.checkUnixToolExists("afrog")   // 新增
+		status.Nuclei = s.checkUnixToolExists("nuclei") // 新增
 	}
 
-	logging.Info("工具安装状态检查完成: Nmap=%v, Ffuf=%v, Subfinder=%v, HttpX=%v, Fscan=%v",
-		status.Nmap, status.Ffuf, status.Subfinder, status.HttpX, status.Fscan)
+	logging.Info("工具安装状态检查完成: Nmap=%v, Ffuf=%v, Subfinder=%v, HttpX=%v, Fscan=%v, Afrog=%v, Nuclei=%v",
+		status.Nmap, status.Ffuf, status.Subfinder, status.HttpX, status.Fscan, status.Afrog, status.Nuclei)
 
 	return status, nil
 }
@@ -377,6 +384,8 @@ func (s *ConfigService) GetToolsStatus() (map[string]interface{}, error) {
 			"Subfinder": status.Subfinder,
 			"HttpX":     status.HttpX,
 			"Fscan":     status.Fscan,
+			"Afrog":     status.Afrog,  // 新增
+			"Nuclei":    status.Nuclei, // 新增
 		},
 	}
 
@@ -396,7 +405,234 @@ func (ts *ToolStatus) GetToolStatus(toolName string) bool {
 		return ts.HttpX
 	case "fscan":
 		return ts.Fscan
+	case "afrog": // 新增
+		return ts.Afrog
+	case "nuclei": // 新增
+		return ts.Nuclei
 	default:
 		return false
+	}
+}
+
+// 添加到 ConfigService 中的工具配置管理方法
+
+// GetToolConfigs 获取所有工具配置
+func (s *ConfigService) GetToolConfigs() ([]*models.ToolConfig, error) {
+	logging.Info("正在获取所有工具配置")
+	configs, err := s.configDAO.GetToolConfigs()
+	if err != nil {
+		logging.Error("获取工具配置列表失败: %v", err)
+		return nil, err
+	}
+	logging.Info("成功获取工具配置列表，共 %d 条记录", len(configs))
+	return configs, nil
+}
+
+// GetDefaultToolConfig 获取默认工具配置
+func (s *ConfigService) GetDefaultToolConfig() (*models.ToolConfig, error) {
+	logging.Info("正在获取默认工具配置")
+	config, err := s.configDAO.GetDefaultToolConfig()
+	if err != nil {
+		logging.Error("获取默认工具配置失败: %v", err)
+		return nil, err
+	}
+	logging.Info("成功获取默认工具配置: %s", config.Name)
+	return config, nil
+}
+
+// GetToolConfigByID 根据ID获取工具配置
+func (s *ConfigService) GetToolConfigByID(id string) (*models.ToolConfig, error) {
+	logging.Info("正在获取ID为 %s 的工具配置", id)
+	config, err := s.configDAO.GetToolConfigByID(id)
+	if err != nil {
+		logging.Error("获取工具配置失败: %v", err)
+		return nil, err
+	}
+	logging.Info("成功获取ID为 %s 的工具配置", id)
+	return config, nil
+}
+
+// CreateToolConfig 创建工具配置
+func (s *ConfigService) CreateToolConfig(config *models.ToolConfig) (*models.ToolConfig, error) {
+	logging.Info("正在创建工具配置: %s", config.Name)
+
+	// 验证配置基本字段
+	if config.Name == "" {
+		err := fmt.Errorf("配置名称不能为空")
+		logging.Error("创建工具配置失败: %v", err)
+		return nil, err
+	}
+
+	// 调用DAO层创建配置
+	createdConfig, err := s.configDAO.CreateToolConfig(config)
+	if err != nil {
+		logging.Error("创建工具配置失败: %v", err)
+		return nil, err
+	}
+
+	logging.Info("成功创建工具配置: %s, ID: %s", createdConfig.Name, createdConfig.ID.Hex())
+	return createdConfig, nil
+}
+
+// UpdateToolConfig 更新工具配置
+func (s *ConfigService) UpdateToolConfig(config *models.ToolConfig) error {
+	logging.Info("正在更新ID为 %s 的工具配置", config.ID.Hex())
+
+	// 验证配置基本字段
+	if config.Name == "" {
+		err := fmt.Errorf("配置名称不能为空")
+		logging.Error("更新工具配置失败: %v", err)
+		return err
+	}
+
+	// 检查配置是否存在
+	_, err := s.configDAO.GetToolConfigByID(config.ID.Hex())
+	if err != nil {
+		logging.Error("更新工具配置失败，配置不存在: %v", err)
+		return fmt.Errorf("配置不存在: %v", err)
+	}
+
+	// 调用DAO层更新配置
+	if err := s.configDAO.UpdateToolConfig(config); err != nil {
+		logging.Error("更新工具配置失败: %v", err)
+		return err
+	}
+
+	logging.Info("成功更新ID为 %s 的工具配置", config.ID.Hex())
+	return nil
+}
+
+// DeleteToolConfig 删除工具配置
+func (s *ConfigService) DeleteToolConfig(id string) error {
+	logging.Info("正在删除ID为 %s 的工具配置", id)
+
+	// 检查配置是否存在
+	config, err := s.configDAO.GetToolConfigByID(id)
+	if err != nil {
+		logging.Error("删除工具配置失败，配置不存在: %v", err)
+		return fmt.Errorf("配置不存在: %v", err)
+	}
+
+	// 不允许删除默认配置
+	if config.IsDefault {
+		err := fmt.Errorf("无法删除默认工具配置")
+		logging.Error("删除工具配置失败: %v", err)
+		return err
+	}
+
+	// 调用DAO层删除配置
+	if err := s.configDAO.DeleteToolConfig(id); err != nil {
+		logging.Error("删除工具配置失败: %v", err)
+		return err
+	}
+
+	logging.Info("成功删除ID为 %s 的工具配置", id)
+	return nil
+}
+
+// SetDefaultToolConfig 设置默认工具配置
+func (s *ConfigService) SetDefaultToolConfig(id string) error {
+	logging.Info("正在将ID为 %s 的工具配置设置为默认配置", id)
+
+	// 检查配置是否存在
+	_, err := s.configDAO.GetToolConfigByID(id)
+	if err != nil {
+		logging.Error("设置默认工具配置失败，配置不存在: %v", err)
+		return fmt.Errorf("配置不存在: %v", err)
+	}
+
+	// 调用DAO层设置默认配置
+	if err := s.configDAO.SetDefaultToolConfig(id); err != nil {
+		logging.Error("设置默认工具配置失败: %v", err)
+		return err
+	}
+
+	logging.Info("成功将ID为 %s 的工具配置设置为默认配置", id)
+	return nil
+}
+
+// ValidateToolConfig 验证工具配置是否有效
+func (s *ConfigService) ValidateToolConfig(config *models.ToolConfig) error {
+	logging.Info("正在验证工具配置的有效性")
+
+	if config.Name == "" {
+		return fmt.Errorf("配置名称不能为空")
+	}
+
+	// 验证Nmap配置
+	if config.NmapConfig.Enabled {
+		if config.NmapConfig.Ports == "" {
+			return fmt.Errorf("Nmap端口配置不能为空")
+		}
+		// 可以添加更多端口格式验证逻辑
+	}
+
+	// 验证Ffuf配置
+	if config.FfufConfig.Enabled {
+		if config.FfufConfig.WordlistPath == "" {
+			return fmt.Errorf("Ffuf字典路径不能为空")
+		}
+		// 可以添加文件存在性检查
+	}
+
+	// 验证Subfinder配置
+	if config.SubfinderConfig.Enabled && config.SubfinderConfig.ConfigPath != "" {
+		// 可以添加配置文件存在性检查
+	}
+
+	logging.Info("工具配置验证通过")
+	return nil
+}
+
+// GetToolConfigForTask 根据任务类型获取相应的工具配置
+func (s *ConfigService) GetToolConfigForTask(taskType string) (interface{}, error) {
+	logging.Info("正在获取 %s 类型任务的工具配置", taskType)
+
+	// 获取默认工具配置
+	config, err := s.configDAO.GetDefaultToolConfig()
+	if err != nil {
+		logging.Error("获取默认工具配置失败: %v", err)
+		return nil, err
+	}
+
+	// 根据任务类型返回对应的工具配置
+	switch strings.ToLower(taskType) {
+	case "nmap":
+		if !config.NmapConfig.Enabled {
+			return nil, fmt.Errorf("Nmap工具未启用")
+		}
+		return config.NmapConfig, nil
+	case "ffuf":
+		if !config.FfufConfig.Enabled {
+			return nil, fmt.Errorf("Ffuf工具未启用")
+		}
+		return config.FfufConfig, nil
+	case "subfinder":
+		if !config.SubfinderConfig.Enabled {
+			return nil, fmt.Errorf("Subfinder工具未启用")
+		}
+		return config.SubfinderConfig, nil
+	case "httpx":
+		if !config.HttpxConfig.Enabled {
+			return nil, fmt.Errorf("HttpX工具未启用")
+		}
+		return config.HttpxConfig, nil
+	case "fscan":
+		if !config.FscanConfig.Enabled {
+			return nil, fmt.Errorf("Fscan工具未启用")
+		}
+		return config.FscanConfig, nil
+	case "afrog":
+		if !config.AfrogConfig.Enabled {
+			return nil, fmt.Errorf("Afrog工具未启用")
+		}
+		return config.AfrogConfig, nil
+	case "nuclei":
+		if !config.NucleiConfig.Enabled {
+			return nil, fmt.Errorf("Nuclei工具未启用")
+		}
+		return config.NucleiConfig, nil
+	default:
+		return nil, fmt.Errorf("不支持的任务类型: %s", taskType)
 	}
 }

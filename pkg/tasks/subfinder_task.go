@@ -11,6 +11,7 @@ import (
 	"io/ioutil"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,13 +22,15 @@ type SubfinderTask struct {
 	TaskTemplate
 	resultDAO *dao.ResultDAO
 	targetDAO *dao.TargetDAO
+	configDAO *dao.ConfigDAO // 新增配置DAO
 }
 
-func NewSubfinderTask(taskDAO *dao.TaskDAO, targetDAO *dao.TargetDAO, resultDAO *dao.ResultDAO) *SubfinderTask {
+func NewSubfinderTask(taskDAO *dao.TaskDAO, targetDAO *dao.TargetDAO, resultDAO *dao.ResultDAO, configDAO *dao.ConfigDAO) *SubfinderTask {
 	return &SubfinderTask{
 		TaskTemplate: TaskTemplate{TaskDAO: taskDAO},
 		resultDAO:    resultDAO,
 		targetDAO:    targetDAO,
+		configDAO:    configDAO, // 初始化配置DAO
 	}
 }
 
@@ -53,6 +56,19 @@ func (s *SubfinderTask) runSubfinder(ctx context.Context, t *asynq.Task) error {
 
 	logging.Info("开始执行 Subfinder 任务: %s", payload.Domain)
 
+	// 从数据库获取默认工具配置
+	toolConfig, err := s.configDAO.GetDefaultToolConfig()
+	if err != nil {
+		logging.Error("获取默认工具配置失败: %v", err)
+		return fmt.Errorf("获取默认工具配置失败: %v", err)
+	}
+
+	// 检查 Subfinder 是否启用
+	if !toolConfig.SubfinderConfig.Enabled {
+		logging.Warn("Subfinder 工具未启用，跳过任务执行")
+		return nil
+	}
+
 	// 创建临时文件
 	tempFile, err := ioutil.TempFile("", "subfinder-result-*.txt")
 	if err != nil {
@@ -60,8 +76,34 @@ func (s *SubfinderTask) runSubfinder(ctx context.Context, t *asynq.Task) error {
 	}
 	defer os.Remove(tempFile.Name()) // 确保在函数结束时删除临时文件
 
+	// 准备 Subfinder 命令参数
+	subfinderArgs := []string{
+		"-d", payload.Domain,
+		"-silent",
+		"-o", tempFile.Name(),
+	}
+
+	// 如果配置了配置文件路径，添加参数
+	if toolConfig.SubfinderConfig.ConfigPath != "" {
+		subfinderArgs = append(subfinderArgs, "-config", toolConfig.SubfinderConfig.ConfigPath)
+	}
+
+	// 如果配置了线程数，添加参数
+	if toolConfig.SubfinderConfig.Threads > 0 {
+		subfinderArgs = append(subfinderArgs, "-t", strconv.Itoa(toolConfig.SubfinderConfig.Threads))
+	}
+
+	// 如果配置了超时时间，添加参数
+	if toolConfig.SubfinderConfig.Timeout > 0 {
+		subfinderArgs = append(subfinderArgs, "-timeout", strconv.Itoa(toolConfig.SubfinderConfig.Timeout))
+	}
+
+	logging.Info("执行 Subfinder 命令，参数: %v", subfinderArgs)
+
 	// 执行 Subfinder 命令，将结果输出到临时文件
-	cmd := exec.Command("subfinder", "-d", payload.Domain, "-silent", "-o", tempFile.Name())
+	cmd := exec.Command("subfinder", subfinderArgs...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("执行 subfinder 命令失败: %v", err)
 	}

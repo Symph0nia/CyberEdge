@@ -82,6 +82,15 @@ func (r *Router) SetupRouter() *gin.Engine {
 		authenticated.GET("/system/info", r.configHandler.GetSystemInfo)   // 获取系统信息
 		authenticated.GET("/system/tools", r.configHandler.GetToolsStatus) // 获取工具安装状态
 
+		// 工具配置相关API
+		authenticated.GET("/tools/configs", r.configHandler.GetToolConfigs)                   // 获取所有工具配置
+		authenticated.GET("/tools/configs/default", r.configHandler.GetDefaultToolConfig)     // 获取默认工具配置
+		authenticated.GET("/tools/configs/:id", r.configHandler.GetToolConfigByID)            // 根据ID获取工具配置
+		authenticated.POST("/tools/configs", r.configHandler.CreateToolConfig)                // 创建工具配置
+		authenticated.PUT("/tools/configs/:id", r.configHandler.UpdateToolConfig)             // 更新工具配置
+		authenticated.DELETE("/tools/configs/:id", r.configHandler.DeleteToolConfig)          // 删除工具配置
+		authenticated.PUT("/tools/configs/:id/default", r.configHandler.SetDefaultToolConfig) // 设置默认工具配置
+
 		// 用户管理API
 		authenticated.GET("/users", r.userHandler.GetUsers)         // 获取所有用户
 		authenticated.GET("/users/:account", r.userHandler.GetUser) // 获取单个用户
