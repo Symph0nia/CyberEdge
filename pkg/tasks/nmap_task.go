@@ -20,7 +20,7 @@ type NmapTask struct {
 	TaskTemplate
 	resultDAO *dao.ResultDAO
 	targetDAO *dao.TargetDAO
-	configDAO *dao.ConfigDAO // 新增配置DAO
+	configDAO *dao.ConfigDAO
 }
 
 func NewNmapTask(taskDAO *dao.TaskDAO, targetDAO *dao.TargetDAO, resultDAO *dao.ResultDAO, configDAO *dao.ConfigDAO) *NmapTask {
@@ -28,7 +28,7 @@ func NewNmapTask(taskDAO *dao.TaskDAO, targetDAO *dao.TargetDAO, resultDAO *dao.
 		TaskTemplate: TaskTemplate{TaskDAO: taskDAO},
 		resultDAO:    resultDAO,
 		targetDAO:    targetDAO,
-		configDAO:    configDAO, // 初始化配置DAO
+		configDAO:    configDAO,
 	}
 }
 
@@ -40,7 +40,7 @@ func (n *NmapTask) runNmap(ctx context.Context, t *asynq.Task) error {
 	var payload struct {
 		Host     string `json:"target"`
 		TaskID   string `json:"task_id"`
-		TargetID string `json:"target_id,omitempty"` // 改为 target_id
+		TargetID string `json:"target_id,omitempty"`
 	}
 
 	if err := json.Unmarshal(t.Payload(), &payload); err != nil {
@@ -109,14 +109,22 @@ func (n *NmapTask) runNmap(ctx context.Context, t *asynq.Task) error {
 
 	logging.Info("执行 Nmap 命令，参数: %v", nmapArgs)
 
-	// 执行 Nmap 命令
+	// 执行 Nmap 命令 - 修复冲突的输出设置
 	cmd := exec.CommandContext(ctx, "nmap", nmapArgs...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	// 方法一：只使用CombinedOutput而不设置Stdout和Stderr
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("执行 Nmap 命令失败: %v, 输出: %s", err, string(output))
 	}
+
+	/*
+		// 方法二：使用Run而不是CombinedOutput
+		// cmd.Stdout = os.Stdout
+		// cmd.Stderr = os.Stderr
+		// if err := cmd.Run(); err != nil {
+		//     return fmt.Errorf("执行 Nmap 命令失败: %v", err)
+		// }
+	*/
 
 	// 读取 XML 结果
 	xmlData, err := os.ReadFile(tempFile.Name())
@@ -149,7 +157,7 @@ func (n *NmapTask) runNmap(ctx context.Context, t *asynq.Task) error {
 		Target:    payload.Host,
 		Timestamp: time.Now(),
 		Data:      portData,
-		TargetID:  targetID, // 使用 TargetID
+		TargetID:  targetID,
 		IsRead:    false,
 	}
 
@@ -163,7 +171,7 @@ func (n *NmapTask) runNmap(ctx context.Context, t *asynq.Task) error {
 	return nil
 }
 
-// 修改 parseNmapXML 函数，添加 targetID 参数
+// parseNmapXML 函数保持不变
 func parseNmapXML(data []byte, targetID *primitive.ObjectID) ([]models.PortEntry, error) {
 	var result struct {
 		Hosts []struct {
