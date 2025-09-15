@@ -1,116 +1,67 @@
 <template>
-  <div
-    class="from-gray-900 via-gray-800 to-gray-900 min-"
-  >
+  <a-layout class="homepage-layout">
     <HeaderPage />
-    <div >
-      <!-- 欢迎信息区域 - 移除底部线条，改用更精致的设计 -->
-      <div >
-        <div
-          class="inset-0 from-cyan-500/5 via-purple-500/5 to-cyan-500/5 blur-3xl -"
-        ></div>
-        <h1 >
-          CyberEdge 综合扫描器
-        </h1>
-        <p
-          class="max-"
-        >
-          简单、高效、专业的资产扫描工具
-        </p>
+    <a-layout-content class="homepage-content">
+      <div class="content-container">
+        <!-- 欢迎信息区域 -->
+        <div class="welcome-section">
+          <h1 class="welcome-title">CyberEdge 综合扫描器</h1>
+          <p class="welcome-description">简单、高效、专业的资产扫描工具</p>
 
-        <!-- 添加行动按钮 -->
-        <div >
-          <button
-            class=".5 hover: duration-300"
-          >
-            <i class="ri-rocket-line"></i>
-            开始使用
-          </button>
-          <button
-            class=".5 hover: border duration-300"
-          >
-            <i class="ri-information-line"></i>
-            了解更多
-          </button>
+          <div class="action-buttons">
+            <a-button type="primary" size="large" class="start-btn">
+              <i class="ri-rocket-line"></i>
+              开始使用
+            </a-button>
+            <a-button size="large" class="info-btn">
+              <i class="ri-information-line"></i>
+              了解更多
+            </a-button>
+          </div>
         </div>
-      </div>
 
-      <!-- 功能分类标题 - 重新设计，移除底部线条 -->
-      <div >
-        <h2
-          
-        >
-          <span
-            
-          >
+        <!-- 功能分类 -->
+        <div class="feature-header">
+          <h2 class="feature-title">
             <i class="ri-apps-line"></i>
-          </span>
-          主要功能
-        </h2>
-      </div>
-
-      <!-- 功能卡片网格 - 优化布局和动效 -->
-      <div class="md: lg:">
-        <div
-          v-for="(card, index) in cards"
-          :key="index"
-          class="feature-card group"
-        >
-          <!-- 背景光晕效果 -->
-          <div
-            class="inset-0 from-gray-800/0 to-gray-700/0 group- group- duration-500"
-          ></div>
-
-          <div >
-            <div class="feature-icon-wrapper">
-              <i :class="card.icon" class="feature-icon"></i>
-            </div>
-            <div >
-              <h3
-                class="group-hover: duration-300"
-              >
-                {{ card.title }}
-              </h3>
-              <p
-                class="group-hover: duration-300"
-              >
-                {{ card.description }}
-              </p>
-            </div>
-          </div>
+            主要功能
+          </h2>
         </div>
-      </div>
 
-      <!-- 添加底部技术特点部分 - 重新设计标题 -->
-      <div
-        class="border"
-      >
-        <h2
-          
-        >
-          <span
-            
-          >
+        <!-- 功能卡片网格 -->
+        <a-row :gutter="[24, 24]" class="feature-grid">
+          <a-col :xs="24" :sm="12" :lg="6" v-for="(card, index) in cards" :key="index">
+            <a-card class="feature-card" hoverable>
+              <div class="feature-content">
+                <div class="feature-icon">
+                  <i :class="card.icon"></i>
+                </div>
+                <h3 class="card-title">{{ card.title }}</h3>
+                <p class="card-description">{{ card.description }}</p>
+              </div>
+            </a-card>
+          </a-col>
+        </a-row>
+
+        <!-- 技术优势 -->
+        <div class="stats-section">
+          <h2 class="stats-title">
             <i class="ri-line-chart-line"></i>
-          </span>
-          技术优势
-        </h2>
-        <div class="md:">
-          <div
-            v-for="(stat, index) in stats"
-            :key="index"
-            class="hover: duration-300 border"
-          >
-            <div >
-              {{ stat.value }}
-            </div>
-            <div >{{ stat.label }}</div>
-          </div>
+            技术优势
+          </h2>
+          <a-row :gutter="[24, 24]" class="stats-grid">
+            <a-col :xs="12" :sm="6" v-for="(stat, index) in stats" :key="index">
+              <div class="stat-card">
+                <div class="stat-value">{{ stat.value }}</div>
+                <div class="stat-label">{{ stat.label }}</div>
+              </div>
+            </a-col>
+          </a-row>
         </div>
       </div>
-    </div>
+    </a-layout-content>
     <FooterPage />
-  </div>
+  </a-layout>
 </template>
 
 <script>
@@ -145,40 +96,14 @@ export default {
         icon: "ri-fingerprint-line",
         title: "指纹识别",
         description: "准确识别技术组件和版本，提供详细分析。",
-      },
-      {
-        icon: "ri-bug-line",
-        title: "漏洞扫描",
-        description: "检测常见安全漏洞，提前发现潜在风险。",
-      },
-      {
-        icon: "ri-shield-keyhole-line",
-        title: "漏洞利用",
-        description: "验证漏洞可利用性，评估实际安全风险。",
-      },
-      {
-        icon: "ri-dashboard-3-line",
-        title: "可视化面板",
-        description: "直观的数据展示，清晰的扫描进度管理。",
-      },
-      {
-        icon: "ri-task-line",
-        title: "任务管理",
-        description: "灵活的任务调度系统，高效利用资源。",
-      },
-      {
-        icon: "ri-settings-3-line",
-        title: "系统配置",
-        description: "全面的配置选项，按需调整扫描参数。",
-      },
+      }
     ]);
 
-    // 新增技术指标数据
     const stats = ref([
-      { value: "99.8%", label: "扫描准确率" },
-      { value: "2000+", label: "并发扫描能力" },
-      { value: "15+", label: "集成工具" },
-      { value: "24/7", label: "全天候运行" },
+      { value: "99%", label: "准确率" },
+      { value: "< 1s", label: "响应时间" },
+      { value: "24/7", label: "运行时间" },
+      { value: "100+", label: "支持工具" }
     ]);
 
     return {
@@ -190,66 +115,182 @@ export default {
 </script>
 
 <style scoped>
-/* 功能卡片样式 */
+.homepage-layout {
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+  min-height: 100vh;
+}
+
+.homepage-content {
+  background: transparent;
+  margin-top: 64px;
+  padding: 0;
+}
+
+.content-container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 48px 24px;
+}
+
+.welcome-section {
+  text-align: center;
+  margin-bottom: 80px;
+  padding: 60px 0;
+}
+
+.welcome-title {
+  font-size: 48px;
+  font-weight: 700;
+  color: #f1f5f9;
+  margin-bottom: 16px;
+  background: linear-gradient(135deg, #3b82f6, #06b6d4);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.welcome-description {
+  font-size: 18px;
+  color: #94a3b8;
+  margin-bottom: 32px;
+  max-width: 600px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.feature-header {
+  text-align: center;
+  margin-bottom: 48px;
+}
+
+.feature-title {
+  font-size: 32px;
+  font-weight: 600;
+  color: #f1f5f9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.feature-grid {
+  margin-bottom: 80px;
+}
+
 .feature-card {
-  @apply bg-gray-800/30 backdrop-blur-lg p-6 rounded-2xl shadow-lg hover:shadow-xl transition-all duration-300 ease-out border border-gray-700/30;
-  transform: translateY(0);
+  height: 100%;
+  background: rgba(30, 41, 59, 0.8);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(51, 65, 85, 0.3);
+  border-radius: 16px;
+  transition: all 0.3s ease;
 }
 
 .feature-card:hover {
-  @apply bg-gray-800/40 border-gray-600/40;
-  transform: translateY(-2px);
+  transform: translateY(-8px);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+  border-color: rgba(59, 130, 246, 0.5);
 }
 
-/* 图标样式 */
-.feature-icon-wrapper {
-  @apply flex-shrink-0 p-2.5 bg-gray-700/40 rounded-lg;
+.feature-content {
+  text-align: center;
+  padding: 24px 16px;
 }
 
 .feature-icon {
-  @apply text-xl text-gray-300 group-hover:text-cyan-400 transition-colors duration-300;
+  font-size: 48px;
+  color: #3b82f6;
+  margin-bottom: 16px;
+  display: flex;
+  justify-content: center;
 }
 
-/* 添加波纹动画效果 */
-@keyframes pulse-border {
-  0% {
-    box-shadow: 0 0 0 0 rgba(103, 232, 249, 0.1);
+.card-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: #f1f5f9;
+  margin-bottom: 12px;
+}
+
+.card-description {
+  color: #94a3b8;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.stats-section {
+  text-align: center;
+}
+
+.stats-title {
+  font-size: 32px;
+  font-weight: 600;
+  color: #f1f5f9;
+  margin-bottom: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.stat-card {
+  background: rgba(30, 41, 59, 0.8);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(51, 65, 85, 0.3);
+  border-radius: 12px;
+  padding: 32px 16px;
+  text-align: center;
+  transition: all 0.3s ease;
+}
+
+.stat-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.3);
+}
+
+.stat-value {
+  font-size: 36px;
+  font-weight: 700;
+  color: #3b82f6;
+  margin-bottom: 8px;
+}
+
+.stat-label {
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .welcome-title {
+    font-size: 36px;
   }
-  70% {
-    box-shadow: 0 0 0 10px rgba(103, 232, 249, 0);
+
+  .content-container {
+    padding: 32px 16px;
   }
-  100% {
-    box-shadow: 0 0 0 0 rgba(103, 232, 249, 0);
+
+  .welcome-section {
+    margin-bottom: 60px;
+    padding: 40px 0;
   }
-}
 
-.feature-card:hover .feature-icon-wrapper {
-  animation: pulse-border 2s infinite;
-}
+  .feature-title,
+  .stats-title {
+    font-size: 24px;
+    flex-direction: column;
+    gap: 8px;
+  }
 
-/* 按钮悬停效果 */
-button:active {
-  transform: scale(0.98);
-}
-
-/* 整体渐变光效 */
-.container {
-  position: relative;
-}
-
-.container::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 300px;
-  background: radial-gradient(
-    circle at 50% 0%,
-    rgba(22, 78, 99, 0.1),
-    transparent 70%
-  );
-  pointer-events: none;
-  z-index: -1;
+  .stat-value {
+    font-size: 28px;
+  }
 }
 </style>
