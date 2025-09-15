@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(git subtree:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ],
     "deny": [],
     "ask": []
