@@ -52,23 +52,14 @@ func main() {
 	}
 	logging.Info("MySQL连接成功")
 
-	// 初始化 DAO
+	// 初始化 DAO - 只保留用户相关
 	userDAO := dao.NewUserDAO(db)
-	configDAO := dao.NewConfigDAO(db)
-	targetDAO := dao.NewTargetDAO(db)
-	taskDAO := dao.NewTaskDAO(db)
-	subdomainDAO := dao.NewSubdomainDAO(db)
-	portDAO := dao.NewPortDAO(db)
-	pathDAO := dao.NewPathDAO(db)
 
-	// 初始化 Service
+	// 初始化 Service - 只保留用户服务
 	jwtSecret := os.Getenv("JWT_SECRET")
 	sessionSecret := os.Getenv("SESSION_SECRET")
 
-	userService := service.NewUserService(userDAO, configDAO, jwtSecret)
-	configService := service.NewConfigService(configDAO)
-	taskService := service.NewTaskService(taskDAO, subdomainDAO, portDAO, pathDAO)
-	targetService := service.NewTargetService(targetDAO)
+	userService := service.NewUserService(userDAO, jwtSecret)
 
 	if *env == "prod" {
 		gin.SetMode(gin.ReleaseMode)
@@ -92,12 +83,9 @@ func main() {
 		}
 	}
 
-	// 设置API路由
+	// 设置API路由 - 只保留用户相关
 	router := api.NewRouter(
 		userService,
-		configService,
-		taskService,
-		targetService,
 		jwtSecret,
 		sessionSecret,
 		allowedOrigins,

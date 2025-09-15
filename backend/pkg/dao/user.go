@@ -22,10 +22,20 @@ func (d *UserDAO) Create(user *models.User) error {
 	return d.db.Create(user).Error
 }
 
-// GetByAccount 根据账户名获取用户
-func (d *UserDAO) GetByAccount(account string) (*models.User, error) {
+// GetByUsername 根据用户名获取用户
+func (d *UserDAO) GetByUsername(username string) (*models.User, error) {
 	var user models.User
-	err := d.db.Where("account = ?", account).First(&user).Error
+	err := d.db.Where("username = ?", username).First(&user).Error
+	if err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+// GetByEmail 根据邮箱获取用户
+func (d *UserDAO) GetByEmail(email string) (*models.User, error) {
+	var user models.User
+	err := d.db.Where("email = ?", email).First(&user).Error
 	if err != nil {
 		return nil, err
 	}
@@ -47,22 +57,15 @@ func (d *UserDAO) Update(user *models.User) error {
 	return d.db.Save(user).Error
 }
 
-// UpdateLoginCount 更新登录次数
-func (d *UserDAO) UpdateLoginCount(account string) error {
-	return d.db.Model(&models.User{}).
-		Where("account = ?", account).
-		Update("login_count", gorm.Expr("login_count + 1")).Error
-}
-
 // Delete 删除用户
 func (d *UserDAO) Delete(id uint) error {
 	return d.db.Delete(&models.User{}, id).Error
 }
 
-// List 获取用户列表
-func (d *UserDAO) List(limit, offset int) ([]*models.User, error) {
+// GetAll 获取所有用户
+func (d *UserDAO) GetAll() ([]*models.User, error) {
 	var users []*models.User
-	err := d.db.Limit(limit).Offset(offset).Find(&users).Error
+	err := d.db.Find(&users).Error
 	return users, err
 }
 
