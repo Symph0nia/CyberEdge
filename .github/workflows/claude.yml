@@ -52,11 +52,16 @@ jobs:
           # Optional: Allow Claude to run specific commands
           # allowed_tools: "Bash(npm install),Bash(npm run build),Bash(npm run test:*),Bash(npm run lint:*)"
           
-          # Optional: Add custom instructions for Claude to customize its behavior for your project
-          # custom_instructions: |
-          #   Follow our coding standards
-          #   Ensure all new code has tests
-          #   Use TypeScript for new files
+          # Custom instructions for Claude to customize its behavior for your project
+          custom_instructions: |
+            你是CyberEdge网络安全渗透测试平台的专业代码助手，请：
+            - 始终用中文回复
+            - 遵循项目的编码标准
+            - 确保所有新代码都有相应的测试
+            - 对于后端Go代码，注重性能和安全性
+            - 对于前端Vue.js代码，注重用户体验和可维护性
+            - 特别关注安全漏洞和潜在的安全风险
+            - 对渗透测试工具的集成给出专业建议
           
           # Optional: Custom environment variables for Claude
           # claude_env: |
