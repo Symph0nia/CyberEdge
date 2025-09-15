@@ -31,8 +31,15 @@ print_error() {
 
 # 检查命令是否存在
 check_command() {
-    if ! command -v $1 &> /dev/null; then
-        print_error "$1 未安装"
+    local cmd=$1
+    if [ "$cmd" = "go" ]; then
+        # 检查Go是否可用
+        if ! /usr/local/go/bin/go version &> /dev/null; then
+            print_error "Go 未安装或不可用"
+            exit 1
+        fi
+    elif ! command -v $cmd &> /dev/null; then
+        print_error "$cmd 未安装"
         exit 1
     fi
 }
@@ -49,7 +56,7 @@ wait_for_service() {
 
     while [ $attempt -le $max_attempts ]; do
         if nc -z $host $port 2>/dev/null; then
-            print_success "$service_name 已启动"
+            print_success "$service_name 端口已开放"
             return 0
         fi
 
@@ -59,6 +66,28 @@ wait_for_service() {
     done
 
     print_error "$service_name 启动超时"
+    return 1
+}
+
+# 等待MySQL完全准备好
+wait_for_mysql() {
+    local max_attempts=30
+    local attempt=1
+
+    print_info "等待 MySQL 完全准备好..."
+
+    while [ $attempt -le $max_attempts ]; do
+        if docker exec cyberedge-mysql mysqladmin ping -uroot -ppassword --silent 2>/dev/null; then
+            print_success "MySQL 已完全准备好"
+            return 0
+        fi
+
+        print_info "等待 MySQL 准备 ($attempt/$max_attempts)..."
+        sleep 3
+        attempt=$((attempt + 1))
+    done
+
+    print_error "MySQL 准备超时"
     return 1
 }
 
@@ -111,14 +140,39 @@ docker run -d \
     --character-set-server=utf8mb4 \
     --collation-server=utf8mb4_unicode_ci
 
-# 等待MySQL启动
+# 等待MySQL端口开放
 wait_for_service localhost 3306 "MySQL"
 
-# 导入数据库schema
+# 等待MySQL完全准备好接受连接
+wait_for_mysql
+
+# 创建数据库和表
 print_info "初始化数据库..."
-sleep 5  # 等待MySQL完全准备好
-docker exec -i cyberedge-mysql mysql -uroot -ppassword cyberedge < backend/schema.sql
-print_success "数据库初始化完成"
+# 首先确保数据库存在，然后创建表
+MYSQL_PWD=password docker exec cyberedge-mysql mysql -uroot -e "
+CREATE DATABASE IF NOT EXISTS cyberedge CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE cyberedge;
+CREATE TABLE IF NOT EXISTS users (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(50) UNIQUE NOT NULL,
+    email VARCHAR(100) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    is_2fa_enabled BOOLEAN DEFAULT FALSE,
+    totp_secret VARCHAR(32),
+    role ENUM('admin', 'user') DEFAULT 'user',
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL,
+    INDEX idx_username (username),
+    INDEX idx_email (email),
+    INDEX idx_role (role),
+    INDEX idx_created_at (created_at)
+) ENGINE=InnoDB;"
+
+if [ $? -eq 0 ]; then
+    print_success "数据库初始化完成"
+else
+    print_warning "数据库初始化失败，但继续启动..."
+fi
 
 # 2. 启动后端
 print_info "启动后端服务..."
@@ -131,7 +185,7 @@ export SESSION_SECRET="your-super-secret-session-key-change-this-in-production"
 export PORT="31337"
 
 # 编译并启动后端
-go build -o cyberedge cmd/cyberedge.go
+/usr/local/go/bin/go build -o cyberedge cmd/cyberedge.go
 ./cyberedge &
 BACKEND_PID=$!
 
