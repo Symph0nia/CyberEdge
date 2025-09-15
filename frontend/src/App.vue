@@ -1,71 +1,71 @@
 <template>
-  <div class="min- overflow-">
-    <!-- 侧边栏菜单 -->
-    <LeftSidebarMenu
-      :isVisible="isMenuVisible"
-      @close="isMenuVisible = false"
-    />
+  <a-config-provider :theme="theme">
+    <div class="app-container">
+      <!-- 侧边栏菜单 -->
+      <LeftSidebarMenu
+        :isVisible="isMenuVisible"
+        @close="isMenuVisible = false"
+      />
 
-    <!-- 主内容区域 -->
-    <div class="duration-300">
-      <router-view />
-    </div>
+      <!-- 主内容区域 -->
+      <div class="main-content">
+        <router-view />
+      </div>
 
-    <!-- 右侧边栏菜单 -->
-    <RightSidebarMenu
-      :isVisible="isRequestToolVisible"
-      @close="isRequestToolVisible = false"
-    />
+      <!-- 右侧边栏菜单 -->
+      <RightSidebarMenu
+        :isVisible="isRequestToolVisible"
+        @close="isRequestToolVisible = false"
+      />
 
-    <!-- 左侧工具箱按钮区域 - 添加事件修饰符 -->
-    <div class="z-[2000]" @click.stop>
-      <button
-        v-if="isAuthenticated"
-        @click.stop="toggleMenu"
-        class="tool-button group"
-        :class="{ 'active-tool': isMenuVisible }"
-        type="button"
-      >
-        <span >
-          <i
-            class="ri-lock-unlock-line group-hover: duration-300"
-          ></i>
+      <!-- 左侧工具箱按钮区域 -->
+      <div class="left-tool-container" @click.stop>
+        <a-button
+          v-if="isAuthenticated"
+          @click.stop="toggleMenu"
+          class="tool-button"
+          :class="{ 'active-tool': isMenuVisible }"
+          type="default"
+          size="large"
+        >
+          <template #icon>
+            <i class="ri-lock-unlock-line"></i>
+          </template>
           加密解密工具箱
-        </span>
-      </button>
-    </div>
+        </a-button>
+      </div>
 
-    <!-- 右侧工具箱按钮区域 - 添加事件修饰符 -->
-    <div class="z-[2000]" @click.stop>
-      <button
-        v-if="isAuthenticated"
-        @click.stop="toggleRequestTools"
-        class="tool-button group"
-        :class="{ 'active-tool': isRequestToolVisible }"
-        type="button"
-      >
-        <span >
-          <i
-            class="ri-global-line group-hover: duration-300"
-          ></i>
+      <!-- 右侧工具箱按钮区域 -->
+      <div class="right-tool-container" @click.stop>
+        <a-button
+          v-if="isAuthenticated"
+          @click.stop="toggleRequestTools"
+          class="tool-button"
+          :class="{ 'active-tool': isRequestToolVisible }"
+          type="default"
+          size="large"
+        >
+          <template #icon>
+            <i class="ri-global-line"></i>
+          </template>
           网络请求工具箱
-        </span>
-      </button>
-    </div>
+        </a-button>
+      </div>
 
-    <!-- 全屏遮罩层，阻止事件穿透 -->
-    <div
-      v-if="isMenuVisible || isRequestToolVisible"
-      class="inset-0 z-[999]"
-      @click.stop="closeAllTools"
-    ></div>
-  </div>
+      <!-- 全屏遮罩层 -->
+      <div
+        v-if="isMenuVisible || isRequestToolVisible"
+        class="overlay"
+        @click.stop="closeAllTools"
+      ></div>
+    </div>
+  </a-config-provider>
 </template>
 
 <script>
 import LeftSidebarMenu from "./components/LeftSidebarMenu.vue";
 import RightSidebarMenu from "./components/RightSidebarMenu.vue";
-import { ref, computed } from "vue";
+import { ref, computed, inject } from "vue";
 import { useStore } from "vuex";
 
 export default {
@@ -76,6 +76,7 @@ export default {
   },
   setup() {
     const store = useStore();
+    const theme = inject('antdTheme');
     const isAuthenticated = computed(() => store.state.isAuthenticated);
     const isMenuVisible = ref(false);
     const isRequestToolVisible = ref(false);
@@ -113,6 +114,7 @@ export default {
     };
 
     return {
+      theme,
       isAuthenticated,
       isMenuVisible,
       isRequestToolVisible,
@@ -125,50 +127,78 @@ export default {
 </script>
 
 <style scoped>
-/* 工具按钮基础样式 */
+.app-container {
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+.main-content {
+  transition: all 0.3s ease;
+}
+
+.left-tool-container,
+.right-tool-container {
+  position: fixed;
+  z-index: 2000;
+}
+
+.left-tool-container {
+  left: 20px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.right-tool-container {
+  right: 20px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+/* 工具按钮样式 */
 .tool-button {
-  @apply bg-gray-800/80 backdrop-blur-md text-white text-sm font-medium px-6 py-3 rounded-2xl
-  hover:bg-gray-700/80 transition-all duration-300 border border-gray-600/30 focus:outline-none
-  shadow-lg hover:shadow-xl tracking-wide flex items-center justify-center;
+  background: rgba(30, 41, 59, 0.8) !important;
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(51, 65, 85, 0.3) !important;
+  color: #e2e8f0 !important;
   min-width: 180px;
+  border-radius: 16px !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  transition: all 0.3s ease;
 }
 
-/* 活跃状态的工具按钮 */
-.active-tool {
-  @apply bg-gray-700/90 border-cyan-600/30 shadow-cyan-900/10;
-  box-shadow: 0 0 15px rgba(8, 145, 178, 0.2);
+.tool-button:hover {
+  background: rgba(51, 65, 85, 0.8) !important;
+  border-color: rgba(34, 211, 238, 0.4) !important;
+  color: #22d3ee !important;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
 }
 
-/* 按钮按下效果 */
-button:active {
+.tool-button.active-tool {
+  background: rgba(51, 65, 85, 0.9) !important;
+  border-color: rgba(34, 211, 238, 0.6) !important;
+  color: #22d3ee !important;
+  box-shadow: 0 0 15px rgba(34, 211, 238, 0.2);
+}
+
+.tool-button:active {
   transform: scale(0.98);
 }
 
-/* 添加按钮悬停时的轻微提升效果 */
-.tool-button:hover:not(.active-tool) {
-  transform: translateY(-2px);
-}
-
-/* 创建渐变光晕效果 */
-.tool-button::before {
-  content: "";
-  position: absolute;
+.overlay {
+  position: fixed;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  background: radial-gradient(
-    circle at center,
-    rgba(103, 232, 249, 0.1) 0%,
-    transparent 70%
-  );
-  border-radius: inherit;
-  opacity: 0;
-  transition: opacity 0.3s ease;
-  pointer-events: none;
+  z-index: 999;
+  backdrop-filter: blur(2px);
 }
 
-.tool-button:hover::before {
-  opacity: 1;
+/* 工具按钮图标样式 */
+.tool-button i {
+  margin-right: 8px;
+  font-size: 16px;
+  transition: color 0.3s ease;
 }
 </style>

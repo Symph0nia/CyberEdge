@@ -49,7 +49,7 @@
         <!-- 端口数量列 -->
         <template v-else-if="column.key === 'port_count'">
           <a-tag color="blue" class="port-count-tag">
-            {{ getPortCount(record.ports) }} 个端口
+            {{ getPortCount(record) }} 个端口
           </a-tag>
         </template>
 
@@ -64,7 +64,7 @@
         <template v-else-if="column.key === 'scan_time'">
           <div class="time-cell">
             <i class="ri-time-line time-icon"></i>
-            <span class="time-text">{{ formatDate(record.scan_time) }}</span>
+            <span class="time-text">{{ formatDate(record) }}</span>
           </div>
         </template>
 
@@ -162,7 +162,7 @@ export default {
         title: '端口数量',
         key: 'port_count',
         width: 120,
-        sorter: (a, b) => getPortCount(a.ports) - getPortCount(b.ports),
+        sorter: (a, b) => getPortCount(a) - getPortCount(b),
       },
       {
         title: '状态',
@@ -222,11 +222,20 @@ export default {
     };
 
     // 工具函数
-    const getPortCount = (ports) => {
-      return ports ? (Array.isArray(ports) ? ports.length : 0) : 0;
+    const getPortCount = (record) => {
+      // 兼容两种数据结构: record.ports 和 record.data
+      if (record.ports) {
+        return Array.isArray(record.ports) ? record.ports.length : 0;
+      }
+      if (record.data) {
+        return Array.isArray(record.data) ? record.data.length : 0;
+      }
+      return 0;
     };
 
-    const formatDate = (dateStr) => {
+    const formatDate = (record) => {
+      // 兼容两种时间字段: scan_time 和 timestamp
+      const dateStr = record.scan_time || record.timestamp || record.Timestamp;
       if (!dateStr) return '-';
       const date = new Date(dateStr);
       return date.toLocaleString('zh-CN', {
@@ -254,7 +263,7 @@ export default {
 
     // 事件处理
     const handleViewDetails = (record) => {
-      emit('view-details', record);
+      emit('view-details', record.id);
     };
 
     const handleDelete = (id) => {
@@ -263,7 +272,7 @@ export default {
     };
 
     const handleToggleRead = (record) => {
-      emit('toggle-read-status', record);
+      emit('toggle-read-status', record.id, !record.is_read);
       message.success(record.is_read ? '已标记为未读' : '已标记为已读');
     };
 
