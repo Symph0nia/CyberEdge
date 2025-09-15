@@ -1,16 +1,16 @@
 <template>
-  <div class="space-y-6">
+  <div >
     <!-- 结果表格 -->
-    <div v-if="pathScanResults?.length > 0" class="flex flex-col gap-6">
+    <div v-if="pathScanResults?.length > 0" >
       <!-- 数据表格 -->
       <div
-        class="relative overflow-hidden rounded-xl border border-gray-700/30 bg-gray-800/30"
+        class="overflow- border"
       >
-        <div class="overflow-x-auto custom-scrollbar">
-          <table class="w-full">
+        <div class="custom-scrollbar">
+          <table >
             <thead>
-              <tr class="bg-gray-800/60 border-b border-gray-700/50">
-                <th class="py-3 px-4 text-left w-10">
+              <tr >
+                <th >
                   <input
                     type="checkbox"
                     @change="toggleSelectAll"
@@ -27,10 +27,7 @@
                 <th
                   v-for="header in tableHeaders"
                   :key="header.key"
-                  :class="[
-                    'py-3 px-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider',
-                    header.width,
-                  ]"
+                  :class="[ ' ', header.width, ]"
                 >
                   {{ header.label }}
                 </th>
@@ -40,10 +37,10 @@
               <tr
                 v-for="(result, index) in pathScanResults"
                 :key="result.id"
-                class="border-b border-gray-700/30 transition-all duration-200 hover:bg-gray-700/40"
-                :class="index % 2 === 0 ? 'bg-gray-800/20' : ''"
+                class="duration-200 hover:"
+                :class="index % 2 === 0 ? '' : ''"
               >
-                <td class="py-3 px-4">
+                <td >
                   <input
                     type="checkbox"
                     v-model="selectedResults"
@@ -55,78 +52,65 @@
                     >选择此结果</label
                   >
                 </td>
-                <td class="py-3 px-4 text-sm font-mono text-gray-300">
+                <td >
                   {{ result.id }}
                 </td>
-                <td class="py-3 px-4 text-sm text-gray-200">
-                  <span class="flex items-center">
-                    <i class="ri-global-line mr-2 text-blue-400"></i>
+                <td >
+                  <span >
+                    <i class="ri-global-line"></i>
                     {{ result.target }}
                   </span>
                 </td>
-                <td class="py-3 px-4 text-sm text-gray-300">
-                  <span class="flex items-center">
-                    <i class="ri-time-line mr-2 text-gray-500"></i>
+                <td >
+                  <span >
+                    <i class="ri-time-line"></i>
                     {{ formatDate(result.timestamp) }}
                   </span>
                 </td>
-                <td class="py-3 px-4 text-sm text-gray-200">
+                <td >
                   <span
-                    class="px-2 py-1 rounded-md bg-blue-500/10 text-blue-300 border border-blue-500/20 inline-flex items-center"
+                    class="border"
                   >
-                    <i class="ri-folders-line mr-1.5"></i>
+                    <i class="ri-folders-line .5"></i>
                     {{ getPathCount(result) }} 个
                   </span>
                 </td>
-                <td class="py-3 px-4">
+                <td >
                   <span
-                    class="px-2 py-1 rounded-md text-xs font-medium inline-flex items-center"
-                    :class="
-                      result.is_read
-                        ? 'bg-green-500/20 text-green-300 border border-green-500/30'
-                        : 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/30'
-                    "
+                    
+                    :class="result.is_read ? ' border ' : ' border '"
                   >
                     <i
-                      :class="
-                        result.is_read ? 'ri-eye-line' : 'ri-eye-off-line'
-                      "
-                      class="mr-1.5"
+                      :class="result.is_read ? 'ri-eye-line' : 'ri-eye-off-line'"
+                      class=".5"
                     ></i>
                     {{ result.is_read ? "已读" : "未读" }}
                   </span>
                 </td>
-                <td class="py-3 px-4">
-                  <div class="flex gap-2 flex-wrap">
+                <td >
+                  <div >
                     <button
                       @click="handleViewDetails(result.id)"
-                      class="action-button bg-blue-500/20 text-blue-300 border border-blue-500/30 hover:bg-blue-500/30"
+                      class="action-button border hover:"
                     >
-                      <i class="ri-eye-line mr-1.5"></i>
+                      <i class="ri-eye-line .5"></i>
                       查看
                     </button>
                     <button
                       @click="handleToggleRead(result)"
                       class="action-button"
-                      :class="
-                        result.is_read
-                          ? 'bg-gray-700/50 text-gray-300 border border-gray-600/30'
-                          : 'bg-green-500/20 text-green-300 border border-green-500/30 hover:bg-green-500/30'
-                      "
+                      :class="result.is_read ? ' border ' : ' border hover:'"
                     >
                       <i
-                        :class="[
-                          result.is_read ? 'ri-eye-off-line' : 'ri-eye-line',
-                          'mr-1.5',
-                        ]"
+                        :class="[ result.is_read ? 'ri-eye-off-line' : 'ri-eye-line', '.5', ]"
                       ></i>
                       {{ result.is_read ? "标为未读" : "标为已读" }}
                     </button>
                     <button
                       @click="handleDelete(result.id)"
-                      class="action-button bg-red-500/20 text-red-300 border border-red-500/30 hover:bg-red-500/30"
+                      class="action-button border hover:"
                     >
-                      <i class="ri-delete-bin-line mr-1.5"></i>
+                      <i class="ri-delete-bin-line .5"></i>
                       删除
                     </button>
                   </div>
@@ -139,13 +123,13 @@
 
       <!-- 批量操作工具栏 -->
       <div
-        class="flex items-center justify-between flex-wrap gap-4 p-4 rounded-xl border border-gray-700/30 bg-gray-800/30"
+        class="border"
       >
-        <div class="flex items-center gap-3">
-          <span class="text-sm text-gray-400">
+        <div >
+          <span >
             <template v-if="hasSelected">
               已选择
-              <span class="text-white font-medium">{{
+              <span >{{
                 selectedResults.length
               }}</span>
               项
@@ -154,18 +138,14 @@
           </span>
         </div>
 
-        <div class="flex flex-wrap gap-3">
+        <div >
           <button
             @click="handleBatchRead"
             :disabled="!hasSelected"
             class="batch-button"
-            :class="[
-              !hasSelected
-                ? 'bg-gray-700/50 text-gray-400 border-gray-600/30 cursor-not-allowed'
-                : 'bg-green-500/20 text-green-300 border-green-500/30 hover:bg-green-500/30',
-            ]"
+            :class="[ !hasSelected ? ' ' : ' hover:', ]"
           >
-            <i class="ri-eye-line mr-2"></i>
+            <i class="ri-eye-line"></i>
             标记已读
             <span v-if="hasSelected">({{ selectedResults.length }})</span>
           </button>
@@ -173,13 +153,9 @@
             @click="handleBatchDelete"
             :disabled="!hasSelected"
             class="batch-button"
-            :class="[
-              !hasSelected
-                ? 'bg-gray-700/50 text-gray-400 border-gray-600/30 cursor-not-allowed'
-                : 'bg-red-500/20 text-red-300 border-red-500/30 hover:bg-red-500/30',
-            ]"
+            :class="[ !hasSelected ? ' ' : ' hover:', ]"
           >
-            <i class="ri-delete-bin-line mr-2"></i>
+            <i class="ri-delete-bin-line"></i>
             批量删除
             <span v-if="hasSelected">({{ selectedResults.length }})</span>
           </button>

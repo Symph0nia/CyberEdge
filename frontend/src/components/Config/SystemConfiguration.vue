@@ -1,30 +1,30 @@
 <template>
-  <div class="bg-gray-900 text-white flex flex-col min-h-screen">
+  <div class="min-">
     <HeaderPage />
 
-    <div class="container mx-auto px-6 py-8 flex-1 mt-16">
+    <div >
       <!-- 系统运行信息卡片 -->
       <div
-        class="bg-gray-800/40 backdrop-blur-xl p-8 rounded-2xl shadow-2xl border border-gray-700/30"
+        class="border"
       >
         <!-- 标题和刷新按钮 -->
-        <div class="flex items-center justify-between mb-8">
-          <div class="flex items-center space-x-3">
+        <div >
+          <div >
             <div
-              class="h-10 w-10 flex items-center justify-center bg-blue-500/20 rounded-lg"
+              
             >
-              <i class="ri-dashboard-3-line text-blue-400 text-xl"></i>
+              <i class="ri-dashboard-3-line"></i>
             </div>
-            <h2 class="text-xl font-medium tracking-wide text-gray-200">
+            <h2 >
               系统状态
             </h2>
           </div>
           <button
             @click="fetchSystemInfo"
-            class="px-4 py-2.5 rounded-xl text-sm font-medium bg-gray-700/50 hover:bg-gray-600/50 text-gray-200 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-gray-600/50 flex items-center group"
+            class=".5 hover: duration-200 group"
           >
             <i
-              class="ri-refresh-line mr-2 group-hover:rotate-180 transition-transform duration-500"
+              class="ri-refresh-line group- duration-500"
             ></i>
             刷新信息
           </button>
@@ -32,34 +32,34 @@
 
         <!-- 系统信息概览 -->
         <div
-          class="mb-10 flex items-center justify-between bg-gray-900/40 p-4 rounded-xl border border-gray-700/30"
+          class="border"
         >
-          <div class="flex items-center">
+          <div >
             <div
-              class="h-12 w-12 flex items-center justify-center bg-green-500/20 rounded-full mr-4"
+              
             >
-              <i class="ri-server-line text-green-400 text-xl"></i>
+              <i class="ri-server-line"></i>
             </div>
             <div>
-              <p class="text-sm text-gray-400">系统概览</p>
-              <h3 class="text-lg font-medium text-white">
+              <p >系统概览</p>
+              <h3 >
                 {{ systemInfo?.osDistribution || "加载中..." }}
               </h3>
             </div>
           </div>
 
-          <div class="flex space-x-6">
+          <div >
             <div>
-              <p class="text-sm text-gray-400">内核版本</p>
-              <p class="text-lg font-medium text-white">
+              <p >内核版本</p>
+              <p >
                 {{ systemInfo?.kernelVersion || "加载中..." }}
               </p>
             </div>
             <div>
-              <p class="text-sm text-gray-400">运行权限</p>
+              <p >运行权限</p>
               <p
-                class="text-lg font-medium text-white"
-                :class="{ 'text-green-400': systemInfo?.privileges === 'root' }"
+                
+                :class="{ '': systemInfo?.privileges === 'root' }"
               >
                 {{ systemInfo?.privileges || "加载中..." }}
               </p>
@@ -69,104 +69,104 @@
 
         <!-- 系统信息卡片 -->
         <div v-if="systemInfo">
-          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div class="md: lg:">
             <!-- 当前路径卡片 -->
-            <div class="info-card flex flex-col">
-              <div class="flex items-center mb-3">
+            <div class="info-card">
+              <div >
                 <div
-                  class="h-8 w-8 rounded-md bg-indigo-500/20 flex items-center justify-center mr-3"
+                  
                 >
-                  <i class="ri-folder-line text-indigo-400"></i>
+                  <i class="ri-folder-line"></i>
                 </div>
-                <h3 class="text-sm font-medium text-gray-400">程序运行目录</h3>
+                <h3 >程序运行目录</h3>
               </div>
-              <div class="flex-1 flex items-center">
-                <p class="text-sm text-gray-200 overflow-hidden text-ellipsis">
+              <div >
+                <p class="overflow-">
                   {{ systemInfo.currentDirectory }}
                 </p>
               </div>
               <button
                 @click="copyToClipboard(systemInfo.currentDirectory)"
-                class="mt-3 text-xs text-gray-400 hover:text-gray-200 flex items-center self-end"
+                class="hover:"
               >
-                <i class="ri-file-copy-line mr-1"></i> 复制路径
+                <i class="ri-file-copy-line"></i> 复制路径
               </button>
             </div>
 
             <!-- 本机IP卡片 -->
             <div class="info-card">
-              <div class="flex items-center mb-3">
+              <div >
                 <div
-                  class="h-8 w-8 rounded-md bg-blue-500/20 flex items-center justify-center mr-3"
+                  
                 >
-                  <i class="ri-computer-line text-blue-400"></i>
+                  <i class="ri-computer-line"></i>
                 </div>
-                <h3 class="text-sm font-medium text-gray-400">本机 IP</h3>
+                <h3 >本机 IP</h3>
               </div>
-              <div class="flex items-center">
-                <p class="text-xl font-medium text-gray-200">
+              <div >
+                <p >
                   {{ systemInfo.localIP }}
                 </p>
               </div>
-              <div class="mt-3 text-xs text-gray-500">内部网络地址</div>
+              <div >内部网络地址</div>
             </div>
 
             <!-- 外网IP卡片 -->
             <div class="info-card">
-              <div class="flex items-center mb-3">
+              <div >
                 <div
-                  class="h-8 w-8 rounded-md bg-purple-500/20 flex items-center justify-center mr-3"
+                  
                 >
-                  <i class="ri-global-line text-purple-400"></i>
+                  <i class="ri-global-line"></i>
                 </div>
-                <h3 class="text-sm font-medium text-gray-400">外网 IP</h3>
+                <h3 >外网 IP</h3>
               </div>
-              <div class="flex items-center">
-                <p class="text-xl font-medium text-gray-200">
+              <div >
+                <p >
                   {{ systemInfo.publicIP }}
                 </p>
               </div>
-              <div class="mt-3 text-xs text-gray-500">公网访问地址</div>
+              <div >公网访问地址</div>
             </div>
           </div>
 
           <!-- 系统信息图表部分 -->
-          <div class="mt-8 grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div class="md:">
             <!-- CPU使用率图表（示例） -->
             <div
-              class="bg-gray-900/50 backdrop-blur-sm border border-gray-700/30 rounded-xl p-6 transition-all duration-200"
+              class="border duration-200"
             >
-              <div class="flex items-center justify-between mb-4">
-                <h3 class="text-sm font-medium text-gray-400">CPU 使用率</h3>
-                <span class="text-sm text-gray-400">最近24小时</span>
+              <div >
+                <h3 >CPU 使用率</h3>
+                <span >最近24小时</span>
               </div>
-              <div class="h-40 flex items-end space-x-1">
+              <div >
                 <div
                   v-for="i in 24"
                   :key="i"
-                  class="bg-blue-500/60 h-[80%] w-full rounded-t-sm"
+                  class="%]"
                   :style="`height: ${Math.floor(Math.random() * 80 + 10)}%`"
                 ></div>
               </div>
-              <div class="mt-2 grid grid-cols-4 text-xs text-gray-500">
+              <div >
                 <span>24h前</span>
-                <span class="text-center">18h前</span>
-                <span class="text-center">12h前</span>
-                <span class="text-right">现在</span>
+                <span >18h前</span>
+                <span >12h前</span>
+                <span >现在</span>
               </div>
             </div>
 
             <!-- 内存使用图表（示例） -->
             <div
-              class="bg-gray-900/50 backdrop-blur-sm border border-gray-700/30 rounded-xl p-6 transition-all duration-200"
+              class="border duration-200"
             >
-              <div class="flex items-center justify-between mb-4">
-                <h3 class="text-sm font-medium text-gray-400">内存使用情况</h3>
-                <span class="text-green-400 text-sm font-medium">68% 可用</span>
+              <div >
+                <h3 >内存使用情况</h3>
+                <span >68% 可用</span>
               </div>
-              <div class="relative h-40 flex items-center justify-center">
-                <div class="absolute inset-0 flex items-center justify-center">
-                  <svg class="w-32 h-32">
+              <div >
+                <div class="inset-0">
+                  <svg >
                     <circle
                       cx="64"
                       cy="64"
@@ -188,9 +188,9 @@
                     />
                   </svg>
                 </div>
-                <div class="text-center z-10">
-                  <p class="text-2xl font-bold text-white">68%</p>
-                  <p class="text-xs text-gray-400">可用内存</p>
+                <div >
+                  <p >68%</p>
+                  <p >可用内存</p>
                 </div>
               </div>
             </div>
@@ -200,16 +200,16 @@
         <!-- 加载状态 -->
         <div
           v-else
-          class="flex flex-col items-center justify-center py-16 text-sm text-gray-400"
+          
         >
           <svg
-            class="animate-spin mb-4 h-10 w-10 text-blue-500/70"
+            
             xmlns="http://www.w3.org/2000/svg"
             fill="none"
             viewBox="0 0 24 24"
           >
             <circle
-              class="opacity-25"
+              
               cx="12"
               cy="12"
               r="10"
@@ -217,13 +217,13 @@
               stroke-width="4"
             ></circle>
             <path
-              class="opacity-75"
+              
               fill="currentColor"
               d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
             ></path>
           </svg>
           <p>获取系统信息中...</p>
-          <p class="mt-2 text-xs text-gray-500">这可能需要几秒钟时间</p>
+          <p >这可能需要几秒钟时间</p>
         </div>
       </div>
     </div>

@@ -1,28 +1,28 @@
 <template>
   <!-- 标题和说明 -->
-  <div class="mb-6">
+  <div >
     <h2
-      class="text-xl font-medium tracking-wide text-gray-200 flex items-center"
+      
     >
-      <i class="ri-add-line mr-2 text-blue-400"></i>
+      <i class="ri-add-line"></i>
       创建任务
     </h2>
-    <p class="text-sm text-gray-400 mt-1">填写以下信息以创建新的扫描任务</p>
+    <p >填写以下信息以创建新的扫描任务</p>
   </div>
 
-  <div class="space-y-6">
+  <div >
     <!-- 选择任务类型 -->
     <div>
       <label
-        class="block text-sm font-medium text-gray-300 mb-2 flex items-center"
+        
       >
-        <i class="ri-bar-chart-horizontal-line mr-1.5"></i>
+        <i class="ri-bar-chart-horizontal-line .5"></i>
         任务类型
       </label>
-      <div class="relative">
+      <div >
         <select
           v-model="newTaskType"
-          class="w-full px-4 py-3 rounded-xl bg-gray-700/50 text-gray-100 border border-gray-600/30 focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/20 focus:outline-none transition-all duration-200 appearance-none pl-10"
+          class="border focus: duration-200 appearance-none"
         >
           <option value="" disabled>选择任务类型</option>
           <option
@@ -34,17 +34,17 @@
           </option>
         </select>
         <div
-          class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none"
+          class="inset-y-0"
         >
-          <i :class="getTaskTypeIcon(newTaskType)" class="text-gray-400"></i>
+          <i :class="getTaskTypeIcon(newTaskType)" ></i>
         </div>
         <div
-          class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none"
+          class="inset-y-0"
         >
-          <i class="ri-arrow-down-s-line text-gray-400"></i>
+          <i class="ri-arrow-down-s-line"></i>
         </div>
       </div>
-      <div class="mt-1.5 text-xs text-gray-400" v-if="newTaskType">
+      <div class=".5" v-if="newTaskType">
         {{ getTaskTypeDescription(newTaskType) }}
       </div>
     </div>
@@ -52,22 +52,22 @@
     <!-- 输入目标地址 -->
     <div>
       <label
-        class="block text-sm font-medium text-gray-300 mb-2 flex items-center"
+        
       >
-        <i class="ri-focus-3-line mr-1.5"></i>
+        <i class="ri-focus-3-line .5"></i>
         目标地址
       </label>
-      <div class="relative">
+      <div >
         <input
           v-model="newTaskAddress"
           type="text"
           :placeholder="getAddressPlaceholder(newTaskType)"
-          class="w-full px-4 py-3 rounded-xl bg-gray-700/50 text-gray-100 border border-gray-600/30 focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/20 focus:outline-none transition-all duration-200 pl-10"
+          class="border focus: duration-200"
         />
         <div
-          class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none"
+          class="inset-y-0"
         >
-          <i class="ri-global-line text-gray-400"></i>
+          <i class="ri-global-line"></i>
         </div>
       </div>
     </div>
@@ -76,39 +76,31 @@
     <button
       @click="handleCreateTask"
       :disabled="!isValidInput"
-      class="w-full px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 focus:outline-none focus:ring-2 flex items-center justify-center group"
-      :class="
-        isValidInput
-          ? 'bg-blue-500/30 hover:bg-blue-600/40 text-blue-100 focus:ring-blue-500/30 border border-blue-500/30'
-          : 'bg-gray-700/50 text-gray-400 cursor-not-allowed border border-gray-600/30'
-      "
+      class="duration-200 group"
+      :class="isValidInput ? ' hover: border ' : ' border '"
     >
       <i
-        class="ri-add-circle-line mr-2 group-hover:animate-pulse"
+        class="ri-add-circle-line group-"
         v-if="isValidInput"
       ></i>
-      <i class="ri-error-warning-line mr-2" v-else></i>
+      <i class="ri-error-warning-line" v-else></i>
       {{ isValidInput ? "创建任务" : "请完善任务信息" }}
     </button>
   </div>
 
   <!-- 任务类型快速选择 -->
-  <div class="mt-8 pt-6 border-t border-gray-700/30">
-    <p class="text-sm text-gray-400 mb-4">快速选择任务类型:</p>
-    <div class="grid grid-cols-3 gap-3">
+  <div >
+    <p >快速选择任务类型:</p>
+    <div >
       <button
         v-for="(label, value) in taskTypes"
         :key="value"
         @click="selectTaskType(value)"
-        class="type-button flex flex-col items-center justify-center p-3 rounded-lg border transition-all duration-200"
-        :class="
-          newTaskType === value
-            ? 'bg-blue-500/20 border-blue-500/30 text-blue-300'
-            : 'bg-gray-800/50 border-gray-700/30 text-gray-300 hover:bg-gray-700/50'
-        "
+        class="type-button border duration-200"
+        :class="newTaskType === value ? ' ' : ' hover:'"
       >
-        <i :class="getTaskTypeIcon(value)" class="text-xl mb-2"></i>
-        <span class="text-xs font-medium">{{ label }}</span>
+        <i :class="getTaskTypeIcon(value)" ></i>
+        <span >{{ label }}</span>
       </button>
     </div>
   </div>

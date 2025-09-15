@@ -3,67 +3,53 @@
     <Transition name="dialog">
       <div
         v-if="show"
-        class="fixed inset-0 flex items-center justify-center z-50 px-4"
+        class="inset-0"
         @click="handleBackdropClick"
         @keydown.esc="onCancel"
         tabindex="-1"
       >
         <!-- 背景遮罩 -->
         <div
-          class="absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity duration-300"
+          class="inset-0 duration-300"
         ></div>
 
         <!-- 对话框 -->
         <div
           ref="dialogRef"
-          class="bg-gray-800/90 backdrop-blur-xl relative w-full max-w-md p-8 rounded-2xl shadow-2xl border border-gray-700/30 transform transition-all duration-300"
+          class="max- border duration-300"
           @click.stop
         >
           <!-- 对话框标题和图标 -->
-          <div class="flex items-center mb-4">
+          <div >
             <div
-              :class="[
-                'w-10 h-10 rounded-lg flex items-center justify-center mr-3',
-                type === 'danger'
-                  ? 'bg-red-500/20 text-red-400'
-                  : type === 'warning'
-                  ? 'bg-yellow-500/20 text-yellow-400'
-                  : 'bg-blue-500/20 text-blue-400',
-              ]"
+              :class="[ ' ', type === 'danger' ? ' ' : type === 'warning' ? ' ' : ' ', ]"
             >
               <i
-                :class="[
-                  type === 'danger'
-                    ? 'ri-error-warning-line'
-                    : type === 'warning'
-                    ? 'ri-alert-line'
-                    : 'ri-question-line',
-                  'text-xl',
-                ]"
+                :class="[ type === 'danger' ? 'ri-error-warning-line' : type === 'warning' ? 'ri-alert-line' : 'ri-question-line', '', ]"
               ></i>
             </div>
-            <h2 class="text-lg font-medium text-gray-200">{{ title }}</h2>
+            <h2 >{{ title }}</h2>
           </div>
 
           <!-- 消息内容 -->
-          <div class="ml-13 mb-6">
-            <p class="text-sm text-gray-300 leading-relaxed">
+          <div >
+            <p >
               {{ message }}
             </p>
           </div>
 
           <!-- 按钮区域 -->
           <div
-            class="flex flex-col-reverse sm:flex-row sm:space-x-3 space-y-2 space-y-reverse sm:space-y-0"
+            class="sm: sm: sm:"
           >
             <!-- 取消按钮 -->
             <button
               ref="cancelButtonRef"
               @click="onCancel"
-              class="sm:flex-1 px-4 py-2.5 rounded-xl border border-gray-600/30 bg-gray-700/50 hover:bg-gray-600/50 text-sm font-medium text-gray-200 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-gray-600/50"
+              class="sm: .5 border hover: duration-200"
             >
-              <span class="flex items-center justify-center">
-                <i class="ri-close-line mr-1.5"></i>
+              <span >
+                <i class="ri-close-line .5"></i>
                 {{ cancelText }}
               </span>
             </button>
@@ -72,27 +58,11 @@
             <button
               ref="confirmButtonRef"
               @click="onConfirm"
-              :class="[
-                'sm:flex-1 px-4 py-2.5 rounded-xl text-sm font-medium border',
-                'transition-all duration-200',
-                'focus:outline-none focus:ring-2',
-                type === 'danger'
-                  ? 'bg-red-500/20 hover:bg-red-500/30 focus:ring-red-500/50 text-red-300 border-red-500/30'
-                  : type === 'warning'
-                  ? 'bg-yellow-500/20 hover:bg-yellow-500/30 focus:ring-yellow-500/50 text-yellow-300 border-yellow-500/30'
-                  : 'bg-blue-500/20 hover:bg-blue-500/30 focus:ring-blue-500/50 text-blue-300 border-blue-500/30',
-              ]"
+              :class="[ 'sm: .5 border', ' duration-200', ' ', type === 'danger' ? ' hover: ' : type === 'warning' ? ' hover: ' : ' hover: ', ]"
             >
-              <span class="flex items-center justify-center">
+              <span >
                 <i
-                  :class="[
-                    type === 'danger'
-                      ? 'ri-delete-bin-line'
-                      : type === 'warning'
-                      ? 'ri-alert-line'
-                      : 'ri-check-line',
-                    'mr-1.5',
-                  ]"
+                  :class="[ type === 'danger' ? 'ri-delete-bin-line' : type === 'warning' ? 'ri-alert-line' : 'ri-check-line', '.5', ]"
                 ></i>
                 {{ confirmText }}
               </span>

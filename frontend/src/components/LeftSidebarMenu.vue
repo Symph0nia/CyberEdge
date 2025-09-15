@@ -1,46 +1,30 @@
 <template>
-  <!-- 整个侧边栏容器 -->
-  <div
-    v-if="localVisible || isExiting"
-    class="fixed top-0 left-0 h-full w-80 md:w-96 z-[1000]"
-    :class="{
-      'animate-slide-in': localVisible && !isExiting,
-      'animate-slide-out': isExiting,
-    }"
-    @click.stop
+  <a-drawer
+    v-model:open="localVisible"
+    title="加密解密工具箱"
+    placement="left"
+    :width="400"
+    :closable="true"
+    :mask="true"
+    :keyboard="true"
+    class="cyber-drawer"
+    @close="closeSidebar"
   >
-    <!-- 背景和内容一体化设计 -->
-    <div
-      class="h-full bg-gray-800/90 backdrop-blur-xl border-r border-gray-700/30 shadow-2xl overflow-auto"
-    >
-      <!-- 标题栏 -->
-      <div
-        class="p-6 flex justify-between items-center sticky top-0 bg-gray-800/80 backdrop-blur-sm z-10 border-b border-gray-700/30"
-      >
-        <h2 class="text-white text-lg font-medium flex items-center">
-          <i class="ri-lock-unlock-line mr-2 text-cyan-400"></i>
-          加密解密工具箱
-        </h2>
-
-        <!-- 关闭按钮 -->
-        <button
-          @click="closeSidebar"
-          class="text-gray-400 hover:text-white p-2 rounded-lg hover:bg-gray-700/30 transition-all duration-200"
-        >
-          <i class="ri-close-line text-xl"></i>
-        </button>
+    <template #title>
+      <div class="drawer-title">
+        <i class="ri-lock-unlock-line cyber-icon"></i>
+        加密解密工具箱
       </div>
+    </template>
 
-      <!-- 工具内容 - 直接渲染 -->
-      <div class="p-4">
-        <CryptoTools />
-      </div>
+    <div class="drawer-content">
+      <CryptoTools />
     </div>
-  </div>
+  </a-drawer>
 </template>
 
 <script>
-import { ref, watch, onMounted, onBeforeUnmount } from "vue";
+import { ref, watch } from "vue";
 import CryptoTools from "./Tools/CryptoTools.vue";
 
 export default {
@@ -57,54 +41,22 @@ export default {
   emits: ["close"],
   setup(props, { emit }) {
     const localVisible = ref(props.isVisible);
-    const isExiting = ref(false);
 
     // 关闭侧边栏
     const closeSidebar = () => {
       emit("close");
     };
 
-    // 监听ESC键关闭侧边栏
-    const handleEscKey = (event) => {
-      if (event.key === "Escape" && localVisible.value) {
-        closeSidebar();
-      }
-    };
-
     // 监听属性变化
     watch(
       () => props.isVisible,
       (newValue) => {
-        if (newValue) {
-          localVisible.value = true;
-          isExiting.value = false;
-          // 添加键盘事件监听
-          document.addEventListener("keydown", handleEscKey);
-        } else {
-          isExiting.value = true;
-          // 移除键盘事件监听
-          document.removeEventListener("keydown", handleEscKey);
-          setTimeout(() => {
-            localVisible.value = false;
-          }, 300);
-        }
+        localVisible.value = newValue;
       }
     );
 
-    onMounted(() => {
-      localVisible.value = props.isVisible;
-      if (props.isVisible) {
-        document.addEventListener("keydown", handleEscKey);
-      }
-    });
-
-    onBeforeUnmount(() => {
-      document.removeEventListener("keydown", handleEscKey);
-    });
-
     return {
       localVisible,
-      isExiting,
       closeSidebar,
     };
   },
@@ -112,52 +64,68 @@ export default {
 </script>
 
 <style scoped>
-/* 优化后的动画效果 */
-@keyframes slide-in {
-  from {
-    transform: translateX(-100%);
-    opacity: 0;
-  }
-  to {
-    transform: translateX(0);
-    opacity: 1;
-  }
+/* 网络安全主题样式 */
+:deep(.cyber-drawer .ant-drawer-content) {
+  background: linear-gradient(135deg, #1f2937 0%, #111827 50%, #1f2937 100%);
+  color: #ffffff;
 }
 
-@keyframes slide-out {
-  from {
-    transform: translateX(0);
-    opacity: 1;
-  }
-  to {
-    transform: translateX(-100%);
-    opacity: 0;
-  }
+:deep(.cyber-drawer .ant-drawer-header) {
+  background: linear-gradient(135deg, #374151 0%, #1f2937 100%);
+  border-bottom: 1px solid rgba(75, 85, 99, 0.3);
+  padding: 16px 24px;
 }
 
-.animate-slide-in {
-  animation: slide-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+:deep(.cyber-drawer .ant-drawer-close) {
+  color: #9ca3af;
+  background: rgba(75, 85, 99, 0.2);
+  border-radius: 6px;
+  transition: all 0.3s ease;
 }
 
-.animate-slide-out {
-  animation: slide-out 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+:deep(.cyber-drawer .ant-drawer-close:hover) {
+  color: #ffffff;
+  background: rgba(75, 85, 99, 0.5);
 }
 
-/* 自定义滚动条样式 */
-::-webkit-scrollbar {
-  width: 5px;
+:deep(.cyber-drawer .ant-drawer-body) {
+  padding: 0;
 }
 
-::-webkit-scrollbar-track {
+.drawer-title {
+  display: flex;
+  align-items: center;
+  color: #ffffff;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.cyber-icon {
+  margin-right: 8px;
+  color: #22d3ee;
+  font-size: 18px;
+}
+
+.drawer-content {
+  height: 100%;
   background: transparent;
 }
 
-::-webkit-scrollbar-thumb {
-  background: rgba(156, 163, 175, 0.3);
-  border-radius: 10px;
+/* 自定义滚动条样式 */
+:deep(.cyber-drawer .ant-drawer-body)::-webkit-scrollbar {
+  width: 4px;
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(156, 163, 175, 0.5);
+:deep(.cyber-drawer .ant-drawer-body)::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+:deep(.cyber-drawer .ant-drawer-body)::-webkit-scrollbar-thumb {
+  background: rgba(75, 85, 99, 0.4);
+  border-radius: 4px;
+}
+
+:deep(.cyber-drawer .ant-drawer-body)::-webkit-scrollbar-thumb:hover {
+  background: rgba(75, 85, 99, 0.6);
 }
 </style>

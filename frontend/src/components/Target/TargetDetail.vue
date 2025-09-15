@@ -1,116 +1,116 @@
 <template>
-  <div class="bg-gray-900 text-white flex flex-col min-h-screen">
+  <div class="min-">
     <HeaderPage />
 
-    <div class="container mx-auto px-6 py-8 flex-1 mt-16">
+    <div >
       <!-- 顶部功能栏 -->
-      <div class="flex justify-between items-center mb-6">
-        <div class="flex items-center">
+      <div >
+        <div >
           <button
             @click="goBack"
-            class="mr-4 p-2 rounded-lg bg-gray-800/50 hover:bg-gray-700/50 transition-all duration-200"
+            class="hover: duration-200"
             title="返回"
           >
-            <i class="ri-arrow-left-line text-lg"></i>
+            <i class="ri-arrow-"></i>
           </button>
-          <h1 class="text-xl font-medium text-gray-100">目标详情</h1>
+          <h1 >目标详情</h1>
         </div>
 
-        <div class="flex space-x-3">
+        <div >
           <button
             @click="refreshDetails"
-            class="action-button bg-gray-700/50 hover:bg-gray-600/50"
-            :class="{ 'opacity-50 cursor-wait': isLoading }"
+            class="action-button hover:"
+            :class="{ ' ': isLoading }"
             :disabled="isLoading"
           >
             <i
-              class="ri-refresh-line mr-1.5"
-              :class="{ 'animate-spin': isLoading }"
+              class="ri-refresh-line .5"
+              :class="{ '': isLoading }"
             ></i>
             刷新
           </button>
-          <button class="action-button bg-blue-600/50 hover:bg-blue-500/50">
-            <i class="ri-scan-line mr-1.5"></i>
+          <button class="action-button hover:">
+            <i class="ri-scan-line .5"></i>
             扫描
           </button>
         </div>
       </div>
 
       <!-- 目标基本信息卡片 -->
-      <div class="info-card mb-6">
+      <div class="info-card">
         <div
-          class="flex flex-col md:flex-row md:items-start md:justify-between gap-4"
+          class="md:"
         >
           <!-- 左侧标题和描述 -->
-          <div class="flex-1">
-            <div class="flex items-center gap-3 mb-3">
+          <div >
+            <div >
               <div
-                class="flex items-center justify-center w-10 h-10 rounded-xl bg-gray-700/50"
+                
               >
-                <i class="ri-focus-3-line text-xl text-blue-400"></i>
+                <i class="ri-focus-3-line"></i>
               </div>
               <div>
-                <h2 class="text-xl font-semibold text-gray-100">
+                <h2 >
                   {{ details?.name || "加载中..." }}
                 </h2>
-                <div class="flex items-center mt-1">
+                <div >
                   <span
                     class="status-badge"
                     :class="getStatusStyle(details?.status)"
                   >
                     {{ getStatusText(details?.status) }}
                   </span>
-                  <span class="text-sm text-gray-500 ml-3">
-                    <i class="ri-time-line mr-1"></i>
+                  <span >
+                    <i class="ri-time-line"></i>
                     {{ formatTimeAgo(details?.createdAt) }}创建
                   </span>
                 </div>
               </div>
             </div>
 
-            <p class="text-gray-400 mt-2 mb-4">
+            <p >
               {{ details?.description || "暂无描述" }}
             </p>
           </div>
 
           <!-- 右侧目标详情 -->
-          <div class="bg-gray-800/50 rounded-xl p-4 md:min-w-[300px]">
+          <div >
             <h3
-              class="text-sm font-medium text-gray-400 mb-3 flex items-center"
+              
             >
-              <i class="ri-information-line mr-1.5"></i> 目标信息
+              <i class="ri-information-line .5"></i> 目标信息
             </h3>
-            <div class="space-y-3">
-              <div class="flex items-center">
-                <span class="text-gray-500 text-sm w-20">目标类型:</span>
-                <span class="text-gray-200">{{
+            <div >
+              <div >
+                <span >目标类型:</span>
+                <span >{{
                   details?.type === "domain" ? "域名" : "IP地址"
                 }}</span>
               </div>
-              <div class="flex items-center">
-                <span class="text-gray-500 text-sm w-20">目标地址:</span>
+              <div >
+                <span >目标地址:</span>
                 <span
-                  class="text-gray-200 flex-1 font-mono overflow-hidden text-ellipsis"
+                  class="overflow-"
                 >
                   {{ details?.target || "-" }}
                 </span>
                 <button
                   @click="copyToClipboard(details?.target)"
-                  class="text-gray-400 hover:text-blue-400 ml-2"
+                  class="hover:"
                   title="复制"
                 >
                   <i class="ri-clipboard-line"></i>
                 </button>
               </div>
-              <div class="flex items-center">
-                <span class="text-gray-500 text-sm w-20">更新时间:</span>
-                <span class="text-gray-200">{{
+              <div >
+                <span >更新时间:</span>
+                <span >{{
                   formatDate(details?.updatedAt)
                 }}</span>
               </div>
-              <div class="flex items-center">
-                <span class="text-gray-500 text-sm w-20">目标ID:</span>
-                <span class="text-gray-400 font-mono text-sm">{{
+              <div >
+                <span >目标ID:</span>
+                <span >{{
                   details?.id || "-"
                 }}</span>
               </div>
@@ -120,47 +120,47 @@
       </div>
 
       <!-- 数据统计卡片网格 -->
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div class="sm: lg:">
         <div
           v-for="stat in statistics"
           :key="stat.title"
           class="stat-card"
-          :class="`border-${stat.color}-900/30 hover:border-${stat.color}-800/30`"
+          :class="`border-${stat.color}-900/30 ${stat.color}-800/30`"
         >
-          <div class="flex items-center">
+          <div >
             <div
-              class="flex items-center justify-center w-12 h-12 rounded-xl mr-4"
+              
               :class="`bg-${stat.color}-900/30 text-${stat.color}-400`"
             >
-              <i :class="`${stat.icon} text-xl`"></i>
+              <i :class="`${stat.icon} `"></i>
             </div>
             <div>
-              <h3 class="text-2xl font-bold" :class="`text-${stat.color}-400`">
+              <h3  :class="`text-${stat.color}-400`">
                 {{ stat.value }}
               </h3>
-              <p class="text-sm text-gray-400">{{ stat.title }}</p>
+              <p >{{ stat.title }}</p>
             </div>
           </div>
         </div>
       </div>
 
       <!-- 图表区域 -->
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+      <div class="lg:">
         <!-- 端口分布图表 -->
         <div class="chart-card">
-          <div class="flex items-center justify-between mb-4">
+          <div >
             <h3 class="chart-title">
-              <i class="ri-door-line mr-1.5"></i>
+              <i class="ri-door-line .5"></i>
               端口分布
             </h3>
             <div
-              class="bg-gray-800/70 text-xs text-gray-400 px-2.5 py-1 rounded-lg"
+              class=".5"
             >
               显示前 {{ portChartData.labels.length || 0 }} 个
             </div>
           </div>
 
-          <div class="chart-container">
+          <div class="chart-">
             <Bar
               v-if="portChartData.datasets[0].data.length > 0"
               :data="portChartData"
@@ -168,7 +168,7 @@
             />
             <div v-else class="empty-chart">
               <i
-                class="ri-bar-chart-grouped-line text-4xl text-gray-700 mb-3"
+                class="ri-bar-chart-grouped-line"
               ></i>
               <p>暂无端口数据</p>
             </div>
@@ -177,21 +177,21 @@
 
         <!-- HTTP状态码分布图表 -->
         <div class="chart-card">
-          <div class="flex items-center justify-between mb-4">
+          <div >
             <h3 class="chart-title">
-              <i class="ri-http-fill mr-1.5"></i>
+              <i class="ri-http-fill .5"></i>
               HTTP状态码分布
             </h3>
           </div>
 
-          <div class="chart-container">
+          <div class="chart-">
             <Pie
               v-if="httpStatusChartData.datasets[0].data.length > 0"
               :data="httpStatusChartData"
               :options="httpStatusChartOptions"
             />
             <div v-else class="empty-chart">
-              <i class="ri-pie-chart-line text-4xl text-gray-700 mb-3"></i>
+              <i class="ri-pie-chart-line"></i>
               <p>暂无HTTP状态码数据</p>
             </div>
           </div>
@@ -199,41 +199,41 @@
       </div>
 
       <!-- 额外功能卡片区 -->
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+      <div class="md:">
         <div
-          class="info-card flex flex-col items-center justify-center py-6 hover:bg-gray-800/50 transition-colors duration-200 group cursor-pointer"
+          class="info-card hover: duration-200 group"
         >
           <div
-            class="w-14 h-14 flex items-center justify-center rounded-full bg-purple-900/30 text-purple-400 mb-3 group-hover:scale-110 transition-transform duration-200"
+            class="group- duration-200"
           >
-            <i class="ri-folder-chart-line text-2xl"></i>
+            <i class="ri-folder-chart-line"></i>
           </div>
-          <h3 class="text-lg font-medium text-gray-200 mb-1">子域名报告</h3>
-          <p class="text-sm text-gray-500">查看子域名扫描发现的详细结果</p>
+          <h3 >子域名报告</h3>
+          <p >查看子域名扫描发现的详细结果</p>
         </div>
 
         <div
-          class="info-card flex flex-col items-center justify-center py-6 hover:bg-gray-800/50 transition-colors duration-200 group cursor-pointer"
+          class="info-card hover: duration-200 group"
         >
           <div
-            class="w-14 h-14 flex items-center justify-center rounded-full bg-green-900/30 text-green-400 mb-3 group-hover:scale-110 transition-transform duration-200"
+            class="group- duration-200"
           >
-            <i class="ri-database-2-line text-2xl"></i>
+            <i class="ri-database-2-line"></i>
           </div>
-          <h3 class="text-lg font-medium text-gray-200 mb-1">端口服务详情</h3>
-          <p class="text-sm text-gray-500">查看开放的端口和服务详细信息</p>
+          <h3 >端口服务详情</h3>
+          <p >查看开放的端口和服务详细信息</p>
         </div>
 
         <div
-          class="info-card flex flex-col items-center justify-center py-6 hover:bg-gray-800/50 transition-colors duration-200 group cursor-pointer"
+          class="info-card hover: duration-200 group"
         >
           <div
-            class="w-14 h-14 flex items-center justify-center rounded-full bg-red-900/30 text-red-400 mb-3 group-hover:scale-110 transition-transform duration-200"
+            class="group- duration-200"
           >
-            <i class="ri-bug-line text-2xl"></i>
+            <i class="ri-bug-line"></i>
           </div>
-          <h3 class="text-lg font-medium text-gray-200 mb-1">漏洞分析</h3>
-          <p class="text-sm text-gray-500">查看已发现的安全漏洞和风险</p>
+          <h3 >漏洞分析</h3>
+          <p >查看已发现的安全漏洞和风险</p>
         </div>
       </div>
     </div>
@@ -243,13 +243,10 @@
     <!-- 复制成功提示 -->
     <div
       v-if="showCopyNotification"
-      class="fixed bottom-8 right-8 bg-gray-800 text-gray-200 py-2 px-4 rounded-lg shadow-lg flex items-center transition-opacity duration-300"
-      :class="{
-        'opacity-100': showCopyNotification,
-        'opacity-0': !showCopyNotification,
-      }"
+      class="duration-300"
+      :class="{ '': showCopyNotification, '': !showCopyNotification, }"
     >
-      <i class="ri-check-line mr-2 text-green-400"></i>
+      <i class="ri-check-line"></i>
       已复制到剪贴板
     </div>
   </div>

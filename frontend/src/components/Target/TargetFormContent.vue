@@ -1,6 +1,6 @@
 <!-- components/Target/TargetFormContent.vue -->
 <template>
-  <form @submit.prevent="handleSubmit" class="space-y-6">
+  <form @submit.prevent="handleSubmit" >
     <!-- 目标名称 -->
     <div class="form-field">
       <label class="form-label">
@@ -8,7 +8,7 @@
         目标名称
       </label>
       <div class="input-wrapper">
-        <i class="ri-file-text-line input-icon"></i>
+        <i class="ri-file- input-icon"></i>
         <input
           v-model="formData.name"
           type="text"
@@ -25,7 +25,7 @@
         <span class="required-indicator">*</span>
         目标类型
       </label>
-      <div class="flex space-x-4 mt-1">
+      <div >
         <label
           class="type-radio-button"
           :class="{ active: formData.type === 'domain' }"
@@ -36,7 +36,7 @@
             value="domain"
             class="sr-only"
           />
-          <i class="ri-global-line mr-2"></i>
+          <i class="ri-global-line"></i>
           域名
         </label>
         <label
@@ -49,7 +49,7 @@
             value="ip"
             class="sr-only"
           />
-          <i class="ri-server-line mr-2"></i>
+          <i class="ri-server-line"></i>
           IP地址
         </label>
       </div>
@@ -64,7 +64,7 @@
       <div class="input-wrapper" :class="{ error: validationError }">
         <i
           class="ri-link input-icon"
-          :class="{ 'text-red-400': validationError }"
+          :class="{ '': validationError }"
         ></i>
         <input
           v-model="formData.target"
@@ -76,22 +76,20 @@
               : '请输入IP地址（如 192.168.1.1）'
           "
           class="form-input"
-          :class="{
-            'border-red-500/50 focus:ring-red-500/20': validationError,
-          }"
+          :class="{ ' ': validationError, }"
           required
         />
       </div>
 
       <!-- 错误提示 - 改进样式 -->
       <div v-if="validationError" class="error-message">
-        <i class="ri-error-warning-line mr-1"></i>
+        <i class="ri-error-warning-line"></i>
         {{ validationError }}
       </div>
 
       <!-- 表单帮助文本 -->
       <p class="help-text" v-if="!validationError">
-        <i class="ri-information-line mr-1"></i>
+        <i class="ri-information-line"></i>
         {{
           formData.type === "domain"
             ? "请输入不带协议的域名，如: example.com"
@@ -104,7 +102,7 @@
     <div class="form-field">
       <label class="form-label">
         描述
-        <span class="text-gray-500 text-xs ml-1">(选填)</span>
+        <span >(选填)</span>
       </label>
       <div class="input-wrapper">
         <i class="ri-file-list-line input-icon"></i>
@@ -112,12 +110,12 @@
           v-model="formData.description"
           rows="3"
           placeholder="请输入目标描述信息，帮助您区分不同目标"
-          class="form-input py-3"
+          class="form-input"
         ></textarea>
       </div>
-      <div class="flex justify-between mt-1">
+      <div >
         <p class="help-text">详细描述有助于更好地管理目标</p>
-        <p class="text-xs text-gray-500">
+        <p >
           {{ formData.description.length }}/200
         </p>
       </div>
@@ -125,21 +123,19 @@
 
     <!-- 表单按钮 -->
     <div
-      class="flex justify-end space-x-4 mt-8 pt-4 border-t border-gray-700/30"
+      
     >
       <button type="button" @click="$emit('cancel')" class="cancel-button">
-        <i class="ri-close-line mr-1.5"></i>
+        <i class="ri-close-line .5"></i>
         取消
       </button>
       <button
         type="submit"
         :disabled="isSubmitDisabled || isSubmitting"
         class="submit-button"
-        :class="{
-          'opacity-70 cursor-not-allowed': isSubmitDisabled || isSubmitting,
-        }"
+        :class="{ ' ': isSubmitDisabled || isSubmitting, }"
       >
-        <i class="ri-save-line mr-1.5"></i>
+        <i class="ri-save-line .5"></i>
         {{ isSubmitting ? "提交中..." : "保存" }}
         <span v-if="isSubmitting" class="loading-dots">...</span>
       </button>

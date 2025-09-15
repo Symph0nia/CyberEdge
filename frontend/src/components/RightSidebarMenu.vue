@@ -2,37 +2,34 @@
   <!-- 整个侧边栏容器 -->
   <div
     v-if="localVisible || isExiting"
-    class="fixed top-0 right-0 h-full w-80 md:w-96 z-[1000]"
-    :class="{
-      'animate-slide-in': localVisible && !isExiting,
-      'animate-slide-out': isExiting,
-    }"
+    class="md: z-[1000]"
+    :class="{ '': localVisible && !isExiting, '': isExiting, }"
     @click.stop
   >
     <!-- 背景和内容一体化设计 -->
     <div
-      class="h-full bg-gray-800/90 backdrop-blur-xl border-l border-gray-700/30 shadow-2xl overflow-auto"
+      
     >
       <!-- 标题栏 -->
       <div
-        class="p-6 flex justify-between items-center sticky top-0 bg-gray-800/80 backdrop-blur-sm z-10 border-b border-gray-700/30"
+        
       >
-        <h2 class="text-white text-lg font-medium flex items-center">
-          <i class="ri-global-line mr-2 text-cyan-400"></i>
+        <h2 >
+          <i class="ri-global-line"></i>
           网络请求工具箱
         </h2>
 
         <!-- 关闭按钮 -->
         <button
           @click="closeSidebar"
-          class="text-gray-400 hover:text-white p-2 rounded-lg hover:bg-gray-700/30 transition-all duration-200"
+          class="hover: hover: duration-200"
         >
-          <i class="ri-close-line text-xl"></i>
+          <i class="ri-close-line"></i>
         </button>
       </div>
 
       <!-- 工具内容 - 直接渲染 -->
-      <div class="p-4">
+      <div >
         <HttpRequestTool />
       </div>
     </div>

@@ -1,57 +1,55 @@
 <template>
-  <div class="bg-gray-900 text-white flex flex-col min-h-screen">
+  <div class="min-">
     <HeaderPage />
 
-    <div class="container mx-auto px-6 py-8 flex-1 mt-16">
+    <div >
       <!-- 子域名扫描结果面板 -->
       <div
-        class="bg-gray-800/40 backdrop-blur-xl p-8 rounded-2xl shadow-2xl border border-gray-700/30"
+        class="border"
       >
         <!-- 标题区域 -->
         <div
-          class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6"
+          class="md:"
         >
-          <div class="flex items-center">
-            <div class="flex items-center">
+          <div >
+            <div >
               <div
-                class="w-10 h-10 rounded-lg bg-blue-500/20 flex items-center justify-center mr-3"
+                
               >
-                <i class="ri-radar-line text-blue-400 text-xl"></i>
+                <i class="ri-radar-line"></i>
               </div>
               <div>
-                <h2 class="text-xl font-medium tracking-wide text-gray-200">
+                <h2 >
                   子域名扫描结果
                 </h2>
-                <p class="text-sm text-gray-400 mt-1">
+                <p >
                   管理和查看子域名发现结果
                 </p>
               </div>
             </div>
             <div
-              class="ml-4 px-3 py-1 rounded-lg bg-gray-700/50 text-gray-200 text-sm flex items-center"
-              :class="
-                filteredResults.length > 0 ? 'bg-blue-500/20 text-blue-300' : ''
-              "
+              
+              :class="filteredResults.length > 0 ? ' ' : ''"
             >
-              <i class="ri-database-2-line mr-1.5"></i>
+              <i class="ri-database-2-line .5"></i>
               {{ filteredResults.length }} 个结果
             </div>
           </div>
 
-          <div class="flex gap-3">
+          <div >
             <button
               @click="handleRefreshTasks"
-              class="px-4 py-2.5 rounded-xl text-sm font-medium bg-gray-700/50 hover:bg-gray-600/50 text-gray-200 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-gray-600/50 flex items-center justify-center"
+              class=".5 hover: duration-200"
             >
-              <i class="ri-refresh-line mr-2"></i>
+              <i class="ri-refresh-line"></i>
               刷新列表
             </button>
 
             <button
               @click="router.push('/target-management')"
-              class="px-4 py-2.5 rounded-xl text-sm font-medium bg-blue-500/30 hover:bg-blue-600/40 text-blue-100 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/30 flex items-center justify-center border border-blue-500/30"
+              class=".5 hover: duration-200 border"
             >
-              <i class="ri-add-line mr-2"></i>
+              <i class="ri-add-line"></i>
               新建扫描
             </button>
           </div>
@@ -59,45 +57,45 @@
 
         <!-- 搜索和过滤栏 -->
         <div
-          class="bg-gray-800/70 p-4 rounded-xl mb-6 border border-gray-700/30"
+          class="border"
         >
-          <div class="flex flex-col md:flex-row gap-4">
+          <div class="md:">
             <!-- 搜索框 -->
-            <div class="flex-1 relative">
-              <i class="ri-search-line absolute left-4 top-3 text-gray-400"></i>
+            <div >
+              <i class="ri-search-line"></i>
               <input
                 v-model.trim="searchQuery"
                 type="text"
                 placeholder="搜索目标地址..."
-                class="w-full pl-10 pr-4 py-2.5 rounded-xl bg-gray-700/50 text-gray-100 border border-gray-600/30 focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/20 focus:outline-none transition-all duration-200"
+                class=".5 border focus: duration-200"
               />
             </div>
 
-            <div class="flex gap-4">
+            <div >
               <!-- 状态过滤下拉框 -->
-              <div class="relative min-w-[140px]">
+              <div class="min-">
                 <i
-                  class="ri-filter-line absolute left-4 top-3 text-gray-400"
+                  class="ri-filter-line"
                 ></i>
                 <select
                   v-model="statusFilter"
-                  class="w-full pl-10 pr-8 py-2.5 rounded-xl bg-gray-700/50 text-gray-100 border border-gray-600/30 focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/20 focus:outline-none transition-all duration-200 appearance-none"
+                  class=".5 border focus: duration-200 appearance-none"
                 >
                   <option value="">所有状态</option>
                   <option value="true">已读</option>
                   <option value="false">未读</option>
                 </select>
                 <i
-                  class="ri-arrow-down-s-line absolute right-4 top-3 text-gray-400 pointer-events-none"
+                  class="ri-arrow-down-s-line"
                 ></i>
               </div>
 
               <!-- 查询按钮 -->
               <button
                 @click="handleSearch"
-                class="px-4 py-2.5 rounded-xl text-sm font-medium bg-gray-700/50 hover:bg-gray-600/50 text-gray-200 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-gray-600/50 flex items-center justify-center min-w-[100px]"
+                class=".5 hover: duration-200 min-"
               >
-                <i class="ri-search-line mr-2"></i>
+                <i class="ri-search-line"></i>
                 查询
               </button>
             </div>
@@ -106,37 +104,37 @@
           <!-- 活跃过滤器提示 -->
           <div
             v-if="hasActiveFilters"
-            class="flex items-center gap-2 mt-3 text-sm text-gray-400"
+            
           >
             <i class="ri-filter-3-line"></i>
             <span>已过滤: </span>
             <div
               v-if="searchQuery"
-              class="px-2 py-0.5 bg-gray-700/50 rounded-md text-gray-300 text-xs flex items-center"
+              class=".5"
             >
               搜索 "{{ searchQuery }}"
               <button
                 @click="searchQuery = ''"
-                class="ml-1 text-gray-400 hover:text-gray-200"
+                class="hover:"
               >
                 <i class="ri-close-line"></i>
               </button>
             </div>
             <div
               v-if="statusFilter"
-              class="px-2 py-0.5 bg-gray-700/50 rounded-md text-gray-300 text-xs flex items-center"
+              class=".5"
             >
               {{ statusFilter === "true" ? "已读" : "未读" }}
               <button
                 @click="statusFilter = ''"
-                class="ml-1 text-gray-400 hover:text-gray-200"
+                class="hover:"
               >
                 <i class="ri-close-line"></i>
               </button>
             </div>
             <button
               @click="clearFilters"
-              class="ml-2 text-blue-400 hover:text-blue-300 text-xs underline"
+              class="hover:"
             >
               清除全部
             </button>
@@ -145,8 +143,8 @@
 
         <!-- 子域名扫描结果表格 -->
         <div
-          class="bg-gray-800/30 rounded-xl overflow-hidden border border-gray-700/30"
-          :class="{ 'opacity-50': isLoading }"
+          class="overflow- border"
+          :class="{ '': isLoading }"
         >
           <SubdomainScanTable
             :subdomainScanResults="filteredResults"
@@ -162,15 +160,15 @@
         <!-- 空状态展示 -->
         <div
           v-if="!isLoading && filteredResults.length === 0"
-          class="flex flex-col items-center justify-center py-12 text-center"
+          
         >
           <div
-            class="w-16 h-16 rounded-full bg-gray-800/50 flex items-center justify-center mb-4"
+            
           >
-            <i class="ri-radar-line text-gray-500 text-3xl"></i>
+            <i class="ri-radar-line"></i>
           </div>
-          <h3 class="text-lg font-medium text-gray-300 mb-2">无扫描结果</h3>
-          <p class="text-gray-400 max-w-md mb-6">
+          <h3 >无扫描结果</h3>
+          <p class="max-">
             {{
               hasActiveFilters
                 ? "没有符合当前过滤条件的子域名扫描结果，请尝试修改过滤条件或清除筛选"
@@ -180,17 +178,17 @@
           <button
             v-if="hasActiveFilters"
             @click="clearFilters"
-            class="px-4 py-2.5 rounded-xl text-sm font-medium bg-gray-700/50 hover:bg-gray-600/50 text-gray-200 transition-all duration-200 flex items-center"
+            class=".5 hover: duration-200"
           >
-            <i class="ri-filter-off-line mr-2"></i>
+            <i class="ri-filter-off-line"></i>
             清除筛选条件
           </button>
           <button
             v-else
             @click="router.push('/target-management')"
-            class="px-4 py-2.5 rounded-xl text-sm font-medium bg-blue-500/30 hover:bg-blue-600/40 text-blue-100 transition-all duration-200 flex items-center border border-blue-500/30"
+            class=".5 hover: duration-200 border"
           >
-            <i class="ri-add-line mr-2"></i>
+            <i class="ri-add-line"></i>
             新建扫描任务
           </button>
         </div>
@@ -198,10 +196,10 @@
         <!-- 错误提示 -->
         <div
           v-if="errorMessage"
-          class="mt-4 px-4 py-3 rounded-xl bg-red-500/20 border border-red-500/30 flex items-center"
+          class="border"
         >
-          <i class="ri-error-warning-line text-red-400 mr-2"></i>
-          <p class="text-sm text-red-400">{{ errorMessage }}</p>
+          <i class="ri-error-warning-line"></i>
+          <p >{{ errorMessage }}</p>
         </div>
       </div>
     </div>

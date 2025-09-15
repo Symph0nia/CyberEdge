@@ -1,21 +1,21 @@
 <template>
-  <div class="bg-gray-900 flex items-center justify-center min-h-screen p-4">
+  <div class="min-">
     <div
-      class="bg-gray-800/40 backdrop-blur-xl p-8 md:p-10 rounded-3xl shadow-2xl w-full max-w-md border border-gray-700/30 register-card"
+      class="md: max- border register-card"
     >
-      <div class="space-y-6">
+      <div >
         <!-- 标题区域 -->
-        <div class="flex flex-col items-center text-center space-y-3">
+        <div >
           <div
-            class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gray-700/30 shadow-inner"
+            
           >
-            <i class="ri-shield-keyhole-line text-2xl text-emerald-300"></i>
+            <i class="ri-shield-keyhole-line"></i>
           </div>
           <div>
-            <h2 class="text-xl font-medium tracking-wide text-gray-200">
+            <h2 >
               设置双重认证
             </h2>
-            <p class="text-gray-500 text-sm mt-1">
+            <p >
               通过扫描二维码创建您的安全账户
             </p>
           </div>
@@ -24,68 +24,68 @@
         <!-- 接口关闭状态 -->
         <div
           v-if="interfaceClosed"
-          class="text-center p-6 bg-gray-900/30 rounded-xl border border-red-900/20"
+          class="border"
         >
           <div
-            class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-red-900/20 mb-3"
+            
           >
-            <i class="ri-close-circle-line text-xl text-red-400"></i>
+            <i class="ri-close-circle-line"></i>
           </div>
-          <p class="text-red-400/90 text-sm font-medium mb-1">注册通道已关闭</p>
-          <p class="text-gray-400 text-sm">系统维护中，请稍后重试</p>
+          <p >注册通道已关闭</p>
+          <p >系统维护中，请稍后重试</p>
         </div>
 
         <!-- 正常状态 -->
-        <div v-else class="space-y-6">
+        <div v-else >
           <!-- 二维码显示区域 -->
-          <div v-if="qrCodeUrl" class="space-y-4">
+          <div v-if="qrCodeUrl" >
             <div
-              class="bg-gray-900/50 p-6 rounded-2xl border border-gray-700/30 flex flex-col items-center qr-container hover:border-emerald-700/30 transition-colors duration-300"
+              class="border qr- hover: duration-300"
             >
-              <div class="qr-overlay flex items-center justify-center">
+              <div class="qr-overlay">
                 <button @click="fetchQRCode" class="refresh-qr-button">
-                  <i class="ri-refresh-line mr-1.5"></i>
+                  <i class="ri-refresh-line .5"></i>
                   刷新二维码
                 </button>
               </div>
               <img
                 :src="qrCodeUrl"
                 alt="认证二维码"
-                class="mx-auto w-48 h-48 qr-image"
+                class="qr-image"
               />
-              <p class="text-xs text-gray-500 mt-2">
-                <i class="ri-time-line mr-1"></i>
+              <p >
+                <i class="ri-time-line"></i>
                 二维码有效期为10分钟
               </p>
             </div>
 
             <!-- 账户信息区域 -->
             <div
-              class="bg-gray-900/30 p-5 rounded-xl space-y-3 border border-gray-700/30"
+              class="border"
             >
-              <div class="flex items-center justify-between">
-                <span class="text-sm text-gray-400">账户名称</span>
-                <div class="flex items-center gap-2">
-                  <span class="text-sm text-gray-200 font-mono">{{
+              <div >
+                <span >账户名称</span>
+                <div >
+                  <span >{{
                     accountName
                   }}</span>
                   <button
                     @click="copyAccountName"
-                    class="p-1.5 hover:bg-gray-700/50 rounded-lg transition-colors relative"
+                    class=".5 hover:"
                     :class="{ copied: copied }"
                     :title="copied ? '已复制' : '复制账户名'"
                   >
                     <i
-                      class="ri-file-copy-line text-gray-400 group-hover:text-gray-200"
+                      class="ri-file-copy-line group-hover:"
                     ></i>
                     <span v-if="copied" class="copy-indicator"></span>
                   </button>
                 </div>
               </div>
               <div
-                class="flex items-center gap-1.5 text-xs text-gray-500 bg-gray-800/30 p-2 rounded-lg"
+                class=".5"
               >
-                <i class="ri-information-line text-blue-400"></i>
+                <i class="ri-information-line"></i>
                 <span>请妥善保管账户名称，用于登录验证</span>
               </div>
             </div>
@@ -94,44 +94,44 @@
           <!-- 加载状态 -->
           <div
             v-else-if="loading"
-            class="flex flex-col items-center justify-center py-12"
+            
           >
-            <div class="loading-spinner mb-4"></div>
-            <p class="text-sm text-gray-400">正在生成二维码...</p>
+            <div class="loading-spinner"></div>
+            <p >正在生成二维码...</p>
           </div>
 
           <!-- 初始状态 -->
           <div
             v-else
-            class="bg-gray-900/30 p-5 rounded-xl border border-gray-700/30 space-y-4"
+            class="border"
           >
-            <div class="flex items-start gap-3">
+            <div >
               <div
-                class="flex-shrink-0 w-8 h-8 rounded-full bg-gray-800/50 flex items-center justify-center text-emerald-400"
+                
               >
                 <i class="ri-google-line"></i>
               </div>
               <div>
-                <h3 class="text-sm font-medium text-gray-300 mb-1">
+                <h3 >
                   使用 Google Authenticator
                 </h3>
-                <p class="text-xs text-gray-500 leading-relaxed">
+                <p >
                   扫描二维码以启用双重认证，增强账户安全性
                 </p>
               </div>
             </div>
 
-            <div class="flex items-start gap-3">
+            <div >
               <div
-                class="flex-shrink-0 w-8 h-8 rounded-full bg-gray-800/50 flex items-center justify-center text-emerald-400"
+                
               >
                 <i class="ri-lock-password-line"></i>
               </div>
               <div>
-                <h3 class="text-sm font-medium text-gray-300 mb-1">
+                <h3 >
                   安全登录保障
                 </h3>
-                <p class="text-xs text-gray-500 leading-relaxed">
+                <p >
                   通过验证码进行二次验证，有效防止未授权访问
                 </p>
               </div>
@@ -139,19 +139,19 @@
           </div>
 
           <!-- 按钮区域 -->
-          <div class="space-y-3 pt-2">
+          <div >
             <button
               v-if="!qrCodeUrl"
               @click="fetchQRCode"
               :disabled="loading"
               class="primary-button"
             >
-              <i class="ri-qr-code-line mr-1.5"></i>
+              <i class="ri-qr-code-line .5"></i>
               生成二维码
             </button>
 
             <button @click="goToLogin" class="secondary-button">
-              <i class="ri-login-circle-line mr-1.5"></i>
+              <i class="ri-login-circle-line .5"></i>
               去登录
             </button>
           </div>

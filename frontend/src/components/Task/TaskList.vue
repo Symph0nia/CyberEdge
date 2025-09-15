@@ -1,59 +1,57 @@
 <template>
-  <div class="flex flex-col">
+  <div class="task-list">
     <!-- Header section with title and actions -->
-    <div
-      class="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4"
-    >
-      <h2
-        class="text-xl font-medium tracking-wide text-gray-200 flex items-center"
-      >
-        <i class="ri-task-line mr-2 text-blue-400"></i>
+    <div class="list-header">
+      <h2 class="list-title">
+        <i class="ri-task-line"></i>
         任务管理
       </h2>
 
-      <div class="flex flex-wrap gap-3">
+      <a-space>
         <!-- Batch operations buttons -->
-        <div v-if="selectedTasks.length > 0" class="flex gap-3 animate-fadeIn">
-          <button
+        <div v-if="selectedTasks.length > 0" class="batch-actions">
+          <a-button
             @click="handleBatchStart"
-            class="action-button bg-blue-500/30 hover:bg-blue-600/40 text-blue-100 border-blue-500/30"
+            type="primary"
+            class="batch-start-btn"
           >
-            <i class="ri-play-line mr-2"></i>
+            <i class="ri-play-line"></i>
             批量启动 ({{ selectedTasks.length }})
-          </button>
-          <button
+          </a-button>
+          <a-button
             @click="handleBatchDelete"
-            class="action-button bg-red-500/30 hover:bg-red-600/40 text-red-100 border-red-500/30"
+            danger
+            class="batch-delete-btn"
           >
-            <i class="ri-delete-bin-line mr-2"></i>
+            <i class="ri-delete-bin-line"></i>
             批量删除 ({{ selectedTasks.length }})
-          </button>
+          </a-button>
         </div>
 
         <!-- Refresh button -->
-        <button
+        <a-button
           @click="$emit('refresh-tasks')"
-          class="action-button bg-gray-700/50 hover:bg-gray-600/50 text-gray-200 border-gray-700/50"
+          class="refresh-btn"
         >
-          <i class="ri-refresh-line mr-2"></i>
+          <i class="ri-refresh-line"></i>
           刷新列表
-        </button>
-      </div>
+        </a-button>
+      </a-space>
     </div>
 
     <!-- Task data section -->
     <div
       v-if="tasks?.length > 0"
-      class="bg-gray-800/30 rounded-xl border border-gray-700/30 overflow-hidden"
+      class="border overflow-"
     >
       <!-- Responsive table with horizontal scrolling -->
-      <div class="overflow-x-auto scrollbar-thin">
-        <table class="w-full table-auto">
+      <div >
+        <table class="table-auto">
           <!-- Table header -->
           <thead>
-            <tr class="bg-gray-800/50">
-              <th class="table-header w-[60px]">
-                <div class="flex items-center justify-center">
+            <tr >
+              <th class="table-header">
+                <div >
                   <input
                     type="checkbox"
                     :checked="isAllSelected"
@@ -78,10 +76,10 @@
             <tr
               v-for="task in tasks"
               :key="task.id"
-              class="border-t border-gray-700/30 hover:bg-gray-700/40 transition-all duration-200"
+              class="hover: duration-200"
             >
-              <td class="table-cell w-[60px]">
-                <div class="flex items-center justify-center">
+              <td class="table-cell">
+                <div >
                   <input
                     type="checkbox"
                     v-model="selectedTasks"
@@ -91,39 +89,39 @@
                 </div>
               </td>
               <td
-                class="table-cell w-[120px] whitespace-nowrap font-mono text-xs"
+                class="table-cell"
               >
                 {{ task.id }}
               </td>
-              <td class="table-cell w-[140px] whitespace-nowrap">
-                <div class="flex items-center">
+              <td class="table-cell">
+                <div >
                   <i
                     :class="getTypeIcon(task.type)"
-                    class="mr-2 text-blue-400"
+                    
                   ></i>
                   {{ formatDescription(task.type) }}
                 </div>
               </td>
               <td
-                class="table-cell w-[180px] whitespace-nowrap max-w-[180px] truncate"
+                class="table-cell max-"
               >
                 <span class="tooltip" :data-tooltip="task.payload">
                   {{ task.payload }}
                 </span>
               </td>
-              <td class="table-cell w-[100px]">
+              <td class="table-cell">
                 <span class="status-badge" :class="getStatusStyle(task.status)">
-                  <i :class="getStatusIcon(task.status)" class="mr-1"></i>
+                  <i :class="getStatusIcon(task.status)" ></i>
                   {{ formatStatus(task.status) }}
                 </span>
               </td>
-              <td class="table-cell w-[160px] whitespace-nowrap">
+              <td class="table-cell">
                 {{ formatDate(task.created_at) }}
               </td>
-              <td class="table-cell w-[160px] whitespace-nowrap text-gray-400">
+              <td class="table-cell">
                 {{ task.completed_at ? formatDate(task.completed_at) : "—" }}
               </td>
-              <td class="table-cell min-w-[120px] max-w-[200px]">
+              <td class="table-cell min- max-">
                 <span
                   v-if="task.result"
                   class="tooltip"
@@ -131,32 +129,24 @@
                 >
                   {{ truncateText(task.result, 20) }}
                 </span>
-                <span v-else class="text-gray-500">—</span>
+                <span v-else >—</span>
               </td>
-              <td class="table-cell w-[160px] whitespace-nowrap">
-                <div class="flex gap-2">
+              <td class="table-cell">
+                <div >
                   <button
                     @click="$emit('toggle-task', task)"
                     :disabled="task.status === 'running'"
                     class="task-button"
-                    :class="
-                      task.status === 'running'
-                        ? 'bg-gray-700/50 text-gray-400 cursor-not-allowed'
-                        : 'bg-blue-500/30 hover:bg-blue-600/40 text-blue-100'
-                    "
+                    :class="task.status === 'running' ? ' ' : ' hover: '"
                   >
                     <i
-                      :class="
-                        task.status === 'running'
-                          ? 'ri-loader-2-line animate-spin'
-                          : 'ri-play-line'
-                      "
+                      :class="task.status === 'running' ? 'ri-loader-2-line ' : 'ri-play-line'"
                     ></i>
                     {{ task.status === "running" ? "运行中" : "启动" }}
                   </button>
                   <button
                     @click="handleDelete(task.id)"
-                    class="task-button bg-red-500/30 hover:bg-red-600/40 text-red-100"
+                    class="task-button hover:"
                   >
                     <i class="ri-delete-bin-line"></i>
                     删除
@@ -172,21 +162,21 @@
     <!-- Empty state with improved visuals -->
     <div
       v-else
-      class="flex flex-col items-center justify-center py-16 my-4 bg-gray-800/30 rounded-xl border border-gray-700/30 transition-all duration-300"
+      class="my-4 border duration-300"
     >
-      <div class="p-6 rounded-full bg-gray-700/30 mb-6">
-        <i class="ri-file-list-3-line text-5xl text-gray-500"></i>
+      <div >
+        <i class="ri-file-list-3-line"></i>
       </div>
-      <span class="text-xl font-medium text-gray-300 mb-3">暂无任务</span>
-      <p class="text-gray-400 mb-6 text-center max-w-md px-4">
+      <span >暂无任务</span>
+      <p class="max-">
         当前还没有创建任何扫描任务，可以在下方创建或前往目标管理添加
       </p>
-      <div class="flex gap-4">
+      <div >
         <router-link to="/target-management">
           <button
-            class="empty-state-button bg-blue-500/20 hover:bg-blue-600/30 text-blue-300 border-blue-500/30"
+            class="empty-state-button hover:"
           >
-            <i class="ri-focus-3-line mr-2"></i>
+            <i class="ri-focus-3-line"></i>
             前往目标管理
           </button>
         </router-link>

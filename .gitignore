@@ -1,1 +1,4 @@
 .claude/
+
+.gemini/
+gha-creds-*.json

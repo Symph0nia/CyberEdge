@@ -1,50 +1,50 @@
 <template>
-  <div class="bg-gray-900 text-white flex flex-col min-h-screen">
+  <div class="min-">
     <HeaderPage />
 
-    <div class="container mx-auto px-6 py-8 flex-1 mt-16">
+    <div >
       <!-- 管理概览卡片 -->
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+      <div class="md:">
         <!-- 用户统计 -->
         <div
-          class="bg-gray-800/40 backdrop-blur-xl p-6 rounded-2xl shadow-lg border border-gray-700/30 flex items-center"
+          class="border"
         >
           <div
-            class="h-12 w-12 rounded-xl bg-blue-500/20 flex items-center justify-center mr-4"
+            
           >
-            <i class="ri-user-line text-xl text-blue-400"></i>
+            <i class="ri-user-line"></i>
           </div>
           <div>
-            <h3 class="text-gray-400 text-sm font-medium">总用户数</h3>
-            <p class="text-2xl font-semibold text-white">{{ users.length }}</p>
+            <h3 >总用户数</h3>
+            <p >{{ users.length }}</p>
           </div>
         </div>
 
         <!-- 二维码接口控制 -->
         <div
-          class="bg-gray-800/40 backdrop-blur-xl p-6 rounded-2xl shadow-lg border border-gray-700/30 flex items-center justify-between"
+          class="border"
         >
-          <div class="flex items-center">
+          <div >
             <div
-              class="h-12 w-12 rounded-xl bg-purple-500/20 flex items-center justify-center mr-4"
+              
             >
-              <i class="ri-qr-code-line text-xl text-purple-400"></i>
+              <i class="ri-qr-code-line"></i>
             </div>
             <div>
-              <h3 class="text-gray-400 text-sm font-medium">二维码登录</h3>
-              <p class="text-lg font-medium text-white">
+              <h3 >二维码登录</h3>
+              <p >
                 {{ qrcodeEnabled ? "已启用" : "已禁用" }}
               </p>
             </div>
           </div>
           <button
             @click="toggleQRCodeStatus"
-            class="relative w-14 h-7 rounded-full transition-colors duration-300 focus:outline-none"
-            :class="qrcodeEnabled ? 'bg-purple-500/70' : 'bg-gray-600/50'"
+            class="duration-300"
+            :class="qrcodeEnabled ? '' : ''"
           >
             <span
-              class="absolute left-1 top-1 w-5 h-5 rounded-full bg-white shadow-md transition-transform duration-300"
-              :class="qrcodeEnabled ? 'transform translate-x-7' : ''"
+              class="duration-300"
+              :class="qrcodeEnabled ? ' ' : ''"
             ></span>
           </button>
         </div>
@@ -52,26 +52,26 @@
 
       <!-- 用户列表卡片 -->
       <div
-        class="bg-gray-800/40 backdrop-blur-xl p-8 rounded-2xl shadow-xl border border-gray-700/30"
+        class="border"
       >
         <!-- 列表标题和操作栏 -->
-        <div class="flex flex-wrap items-center justify-between gap-4 mb-6">
-          <h2 class="text-xl font-medium tracking-wide flex items-center">
-            <i class="ri-user-settings-line mr-2 text-blue-400"></i>
+        <div >
+          <h2 >
+            <i class="ri-user-settings-line"></i>
             用户管理
           </h2>
 
-          <div class="flex items-center gap-3">
+          <div >
             <!-- 搜索框 -->
-            <div class="relative">
+            <div >
               <input
                 type="text"
                 v-model="searchQuery"
                 placeholder="搜索用户..."
-                class="bg-gray-700/50 border border-gray-600/50 rounded-xl py-2 pl-10 pr-4 w-64 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500/40 transition-all duration-200"
+                class="border focus: duration-200"
               />
               <i
-                class="ri-search-line absolute left-3 top-2.5 text-gray-400"
+                class="ri-search-line .5"
               ></i>
             </div>
 
@@ -79,41 +79,41 @@
             <button
               v-if="selectedUsers.length > 0"
               @click="handleBatchDelete"
-              class="px-4 py-2 rounded-xl text-sm font-medium bg-red-500/50 hover:bg-red-600/60 text-red-100 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-red-500/50 flex items-center"
+              class="hover: duration-200"
             >
-              <i class="ri-delete-bin-line mr-2"></i>
+              <i class="ri-delete-bin-line"></i>
               批量删除 ({{ selectedUsers.length }})
             </button>
           </div>
         </div>
 
         <!-- 用户数据表格 -->
-        <div class="overflow-x-auto rounded-xl border border-gray-700/30">
-          <table class="w-full">
+        <div class="border">
+          <table >
             <thead>
-              <tr class="bg-gray-800/70">
+              <tr >
                 <th
-                  class="text-left py-3 px-4 text-sm font-medium text-gray-400"
+                  
                 >
                   <input
                     type="checkbox"
                     :checked="isAllSelected"
                     @change="toggleSelectAll"
-                    class="rounded border-gray-600 text-blue-500 focus:ring-blue-500/50 bg-gray-700/50"
+                    
                   />
                 </th>
                 <th
-                  class="text-left py-3 px-4 text-sm font-medium text-gray-400"
+                  
                 >
                   用户名
                 </th>
                 <th
-                  class="text-left py-3 px-4 text-sm font-medium text-gray-400"
+                  
                 >
                   登录次数
                 </th>
                 <th
-                  class="text-left py-3 px-4 text-sm font-medium text-gray-400"
+                  
                 >
                   操作
                 </th>
@@ -123,36 +123,36 @@
               <tr
                 v-for="user in filteredUsers"
                 :key="user.account"
-                class="border-t border-gray-700/30 hover:bg-gray-700/30 transition-colors duration-200"
+                class="hover: duration-200"
               >
-                <td class="py-3 px-4">
+                <td >
                   <input
                     type="checkbox"
                     v-model="selectedUsers"
                     :value="user.account"
-                    class="rounded border-gray-600 text-blue-500 focus:ring-blue-500/50 bg-gray-700/50"
+                    
                   />
                 </td>
-                <td class="py-3 px-4 text-sm text-gray-200 flex items-center">
+                <td >
                   <div
-                    class="w-8 h-8 bg-gray-700 rounded-full mr-3 flex items-center justify-center text-blue-400"
+                    
                   >
                     {{ user.account.charAt(0).toUpperCase() }}
                   </div>
                   {{ user.account }}
                 </td>
-                <td class="py-3 px-4 text-sm">
+                <td >
                   <span
-                    class="px-2 py-1 rounded-md bg-blue-500/20 text-blue-300 flex items-center w-fit"
+                    
                   >
-                    <i class="ri-login-circle-line mr-2"></i>
+                    <i class="ri-login-circle-line"></i>
                     {{ user.loginCount }}
                   </span>
                 </td>
-                <td class="py-3 px-4">
+                <td >
                   <button
                     @click="handleDelete(user.account)"
-                    class="p-2 rounded-lg text-sm font-medium bg-red-500/30 hover:bg-red-500/50 text-red-300 transition-all duration-200 focus:outline-none"
+                    class="hover: duration-200"
                     title="删除用户"
                   >
                     <i class="ri-delete-bin-line"></i>
@@ -161,10 +161,10 @@
               </tr>
               <!-- 空状态显示 -->
               <tr v-if="filteredUsers.length === 0">
-                <td colspan="4" class="py-12 text-center text-gray-400">
-                  <div class="flex flex-col items-center justify-center">
+                <td colspan="4" >
+                  <div >
                     <i
-                      class="ri-user-search-line text-4xl mb-3 text-gray-600"
+                      class="ri-user-search-line"
                     ></i>
                     <p v-if="searchQuery">
                       未找到匹配 "{{ searchQuery }}" 的用户
@@ -179,14 +179,14 @@
 
         <!-- 表格底部信息 -->
         <div
-          class="mt-4 text-sm text-gray-400 flex justify-between items-center"
+          
         >
           <p>共 {{ filteredUsers.length }} 个用户</p>
-          <div class="flex items-center space-x-2">
+          <div >
             <span>每页显示:</span>
             <select
               v-model="perPage"
-              class="bg-gray-700/50 border border-gray-600/30 rounded-md px-2 py-1 text-white text-sm"
+              class="border"
             >
               <option>10</option>
               <option>20</option>

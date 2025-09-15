@@ -1,187 +1,127 @@
 <template>
-  <div class="space-y-6">
-    <!-- 结果表格 -->
-    <div v-if="portScanResults?.length > 0">
-      <div
-        class="relative overflow-x-auto rounded-xl border border-gray-700/30 bg-gray-800/30"
-      >
-        <table class="w-full">
-          <thead>
-            <tr class="bg-gray-800/60 border-b border-gray-700/50">
-              <th class="py-3 px-4 text-left w-10">
-                <input
-                  type="checkbox"
-                  @change="toggleSelectAll"
-                  :checked="isAllSelected"
-                  class="checkbox-input"
-                  id="select-all-header"
-                  title="全选/取消全选"
-                />
-                <label for="select-all-header" class="sr-only"
-                  >全选/取消全选</label
-                >
-              </th>
-              <th
-                v-for="header in tableHeaders"
-                :key="header"
-                class="py-3 px-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider"
-              >
-                {{ header }}
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="(result, index) in portScanResults"
-              :key="result.id"
-              class="border-b border-gray-700/30 transition-all duration-200 hover:bg-gray-700/40"
-              :class="index % 2 === 0 ? 'bg-gray-800/20' : ''"
-            >
-              <td class="py-3 px-4">
-                <input
-                  type="checkbox"
-                  v-model="selectedResults"
-                  :value="result.id"
-                  class="checkbox-input"
-                  :id="`select-result-${result.id}`"
-                />
-                <label :for="`select-result-${result.id}`" class="sr-only"
-                  >选择此结果</label
-                >
-              </td>
-              <td class="py-3 px-4 text-sm font-mono text-gray-300">
-                {{ result.id }}
-              </td>
-              <td class="py-3 px-4 text-sm text-gray-200">
-                <span class="flex items-center">
-                  <i class="ri-global-line mr-2 text-blue-400"></i>
-                  {{ result.target }}
-                </span>
-              </td>
-              <td class="py-3 px-4 text-sm text-gray-300">
-                <span class="flex items-center">
-                  <i class="ri-time-line mr-2 text-gray-500"></i>
-                  {{ formatDate(result.timestamp) }}
-                </span>
-              </td>
-              <td class="py-3 px-4 text-sm text-gray-200">
-                <span
-                  class="px-2 py-1 rounded-md bg-blue-500/10 text-blue-300 border border-blue-500/20 inline-flex items-center"
-                >
-                  <i class="ri-scan-2-line mr-1.5"></i>
-                  {{ getPortCount(result) }} 个
-                </span>
-              </td>
-              <td class="py-3 px-4">
-                <span
-                  class="px-2 py-1 rounded-md text-xs font-medium inline-flex items-center"
-                  :class="
-                    result.is_read
-                      ? 'bg-green-500/20 text-green-300 border border-green-500/30'
-                      : 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/30'
-                  "
-                >
-                  <i
-                    :class="result.is_read ? 'ri-eye-line' : 'ri-eye-off-line'"
-                    class="mr-1.5"
-                  ></i>
-                  {{ result.is_read ? "已读" : "未读" }}
-                </span>
-              </td>
-              <td class="py-3 px-4">
-                <div class="flex gap-2 flex-wrap">
-                  <button
-                    @click="handleViewDetails(result.id)"
-                    class="action-button bg-blue-500/20 text-blue-300 border border-blue-500/30 hover:bg-blue-500/30"
-                  >
-                    <i class="ri-eye-line mr-1.5"></i>
-                    查看
-                  </button>
-                  <button
-                    @click="handleToggleRead(result)"
-                    class="action-button"
-                    :class="
-                      result.is_read
-                        ? 'bg-gray-700/50 text-gray-300 border border-gray-600/30'
-                        : 'bg-green-500/20 text-green-300 border border-green-500/30 hover:bg-green-500/30'
-                    "
-                  >
-                    <i
-                      :class="[
-                        result.is_read ? 'ri-eye-off-line' : 'ri-eye-line',
-                        'mr-1.5',
-                      ]"
-                    ></i>
-                    {{ result.is_read ? "标为未读" : "标为已读" }}
-                  </button>
-                  <button
-                    @click="handleDelete(result.id)"
-                    class="action-button bg-red-500/20 text-red-300 border border-red-500/30 hover:bg-red-500/30"
-                  >
-                    <i class="ri-delete-bin-line mr-1.5"></i>
-                    删除
-                  </button>
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+  <div class="port-scan-table-container">
+    <!-- 批量操作工具栏 -->
+    <div class="batch-toolbar" v-if="selectedRowKeys.length > 0">
+      <div class="batch-info">
+        已选择 <span class="selected-count">{{ selectedRowKeys.length }}</span> 项
       </div>
-
-      <!-- 批量操作工具栏 -->
-      <div
-        class="flex items-center justify-between flex-wrap gap-4 p-4 rounded-xl border border-gray-700/30 bg-gray-800/30 mt-6"
-      >
-        <div class="flex items-center gap-3">
-          <span class="text-sm text-gray-400">
-            <template v-if="hasSelected">
-              已选择
-              <span class="text-white font-medium">{{
-                selectedResults.length
-              }}</span>
-              项
-            </template>
-            <template v-else> 请选择要操作的项目 </template>
-          </span>
-        </div>
-
-        <div class="flex flex-wrap gap-3">
-          <button
-            @click="handleBatchRead"
-            :disabled="!hasSelected"
-            class="batch-button"
-            :class="[
-              !hasSelected
-                ? 'bg-gray-700/50 text-gray-400 border-gray-600/30 cursor-not-allowed'
-                : 'bg-green-500/20 text-green-300 border-green-500/30 hover:bg-green-500/30',
-            ]"
-          >
-            <i class="ri-eye-line mr-2"></i>
-            标记已读
-            <span v-if="hasSelected">({{ selectedResults.length }})</span>
-          </button>
-          <button
-            @click="handleBatchDelete"
-            :disabled="!hasSelected"
-            class="batch-button"
-            :class="[
-              !hasSelected
-                ? 'bg-gray-700/50 text-gray-400 border-gray-600/30 cursor-not-allowed'
-                : 'bg-red-500/20 text-red-300 border-red-500/30 hover:bg-red-500/30',
-            ]"
-          >
-            <i class="ri-delete-bin-line mr-2"></i>
-            批量删除
-            <span v-if="hasSelected">({{ selectedResults.length }})</span>
-          </button>
-        </div>
-      </div>
+      <a-space>
+        <a-button
+          type="primary"
+          ghost
+          @click="handleBatchRead"
+          :icon="h('i', { class: 'ri-eye-line' })"
+        >
+          标记已读 ({{ selectedRowKeys.length }})
+        </a-button>
+        <a-button
+          danger
+          ghost
+          @click="handleBatchDelete"
+          :icon="h('i', { class: 'ri-delete-bin-line' })"
+        >
+          批量删除 ({{ selectedRowKeys.length }})
+        </a-button>
+      </a-space>
     </div>
+
+    <!-- 主表格 -->
+    <a-table
+      :columns="columns"
+      :data-source="portScanResults"
+      :row-key="record => record.id"
+      :row-selection="rowSelection"
+      :pagination="paginationConfig"
+      :scroll="{ x: 'max-content' }"
+      :row-class-name="getRowClassName"
+      size="middle"
+      class="cyber-table"
+    >
+      <!-- 目标地址列 -->
+      <template #bodyCell="{ column, record }">
+        <template v-if="column.key === 'target'">
+          <div class="target-cell">
+            <i class="ri-global-line target-icon"></i>
+            <span class="target-text">{{ record.target }}</span>
+          </div>
+        </template>
+
+        <!-- 端口数量列 -->
+        <template v-else-if="column.key === 'port_count'">
+          <a-tag color="blue" class="port-count-tag">
+            {{ getPortCount(record) }} 个端口
+          </a-tag>
+        </template>
+
+        <!-- 状态列 -->
+        <template v-else-if="column.key === 'status'">
+          <a-tag :color="getStatusColor(record.status)" class="status-tag">
+            {{ record.status }}
+          </a-tag>
+        </template>
+
+        <!-- 扫描时间列 -->
+        <template v-else-if="column.key === 'scan_time'">
+          <div class="time-cell">
+            <i class="ri-time-line time-icon"></i>
+            <span class="time-text">{{ formatDate(record) }}</span>
+          </div>
+        </template>
+
+        <!-- 已读状态列 -->
+        <template v-else-if="column.key === 'is_read'">
+          <a-tag :color="record.is_read ? 'default' : 'success'">
+            <i :class="record.is_read ? 'ri-eye-line' : 'ri-eye-off-line'"></i>
+            {{ record.is_read ? '已读' : '未读' }}
+          </a-tag>
+        </template>
+
+        <!-- 操作列 -->
+        <template v-else-if="column.key === 'actions'">
+          <a-space size="small">
+            <a-tooltip title="查看详情">
+              <a-button
+                type="text"
+                size="small"
+                @click="handleViewDetails(record)"
+                :icon="h('i', { class: 'ri-eye-line' })"
+              />
+            </a-tooltip>
+
+            <a-tooltip :title="record.is_read ? '标为未读' : '标为已读'">
+              <a-button
+                type="text"
+                size="small"
+                @click="handleToggleRead(record)"
+                :icon="h('i', { class: record.is_read ? 'ri-eye-off-line' : 'ri-eye-line' })"
+              />
+            </a-tooltip>
+
+            <a-popconfirm
+              title="确定要删除这个扫描结果吗？"
+              ok-text="确定"
+              cancel-text="取消"
+              @confirm="handleDelete(record.id)"
+            >
+              <a-tooltip title="删除">
+                <a-button
+                  type="text"
+                  size="small"
+                  danger
+                  :icon="h('i', { class: 'ri-delete-bin-line' })"
+                />
+              </a-tooltip>
+            </a-popconfirm>
+          </a-space>
+        </template>
+      </template>
+    </a-table>
   </div>
 </template>
 
 <script>
-import { ref, computed, watch } from "vue";
+import { ref, h } from "vue";
+import { message } from 'ant-design-vue';
 
 export default {
   name: "PortScanTable",
@@ -189,7 +129,7 @@ export default {
     portScanResults: {
       type: Array,
       required: true,
-      default: () => [], // 设置默认值为空数组
+      default: () => [],
     },
   },
   emits: [
@@ -200,168 +140,369 @@ export default {
     "mark-selected-read",
   ],
   setup(props, { emit }) {
-    // 表格头部配置
-    const tableHeaders = [
-      "ID",
-      "目标地址",
-      "扫描时间",
-      "端口数量",
-      "状态",
-      "操作",
+    const selectedRowKeys = ref([]);
+
+    // 表格列配置
+    const columns = [
+      {
+        title: 'ID',
+        dataIndex: 'id',
+        key: 'id',
+        width: 100,
+        sorter: (a, b) => a.id - b.id,
+      },
+      {
+        title: '目标地址',
+        dataIndex: 'target',
+        key: 'target',
+        width: 200,
+        sorter: (a, b) => a.target.localeCompare(b.target),
+      },
+      {
+        title: '端口数量',
+        key: 'port_count',
+        width: 120,
+        sorter: (a, b) => getPortCount(a) - getPortCount(b),
+      },
+      {
+        title: '状态',
+        dataIndex: 'status',
+        key: 'status',
+        width: 100,
+        filters: [
+          { text: '完成', value: '完成' },
+          { text: '进行中', value: '进行中' },
+          { text: '失败', value: '失败' },
+        ],
+        onFilter: (value, record) => record.status === value,
+      },
+      {
+        title: '扫描时间',
+        dataIndex: 'scan_time',
+        key: 'scan_time',
+        width: 180,
+        sorter: (a, b) => new Date(a.scan_time) - new Date(b.scan_time),
+      },
+      {
+        title: '状态',
+        key: 'is_read',
+        width: 80,
+        filters: [
+          { text: '已读', value: true },
+          { text: '未读', value: false },
+        ],
+        onFilter: (value, record) => record.is_read === value,
+      },
+      {
+        title: '操作',
+        key: 'actions',
+        width: 150,
+        fixed: 'right',
+      },
     ];
 
-    // 选中的结果ID列表
-    const selectedResults = ref([]);
+    // 行选择配置
+    const rowSelection = {
+      selectedRowKeys: selectedRowKeys,
+      onChange: (keys) => {
+        selectedRowKeys.value = keys;
+      },
+      onSelectAll: () => {
+        // 处理全选逻辑
+      },
+    };
 
-    // 计算属性：是否有选中项
-    const hasSelected = computed(() => selectedResults.value.length > 0);
+    // 分页配置
+    const paginationConfig = {
+      showSizeChanger: true,
+      showQuickJumper: true,
+      showTotal: (total, range) =>
+        `第 ${range[0]}-${range[1]} 条，共 ${total} 条`,
+      pageSizeOptions: ['10', '20', '50', '100'],
+    };
 
-    // 计算属性：是否全选
-    const isAllSelected = computed(() => {
-      if (!props.portScanResults?.length) return false;
-      return selectedResults.value.length === props.portScanResults.length;
-    });
-
-    // 格式化日期时间
-    const formatDate = (timestamp) => {
-      if (!timestamp) return "-";
-      try {
-        return new Date(timestamp).toLocaleString("zh-CN", {
-          year: "numeric",
-          month: "2-digit",
-          day: "2-digit",
-          hour: "2-digit",
-          minute: "2-digit",
-        });
-      } catch (e) {
-        return timestamp || "未知时间";
+    // 工具函数
+    const getPortCount = (record) => {
+      // 兼容两种数据结构: record.ports 和 record.data
+      if (record.ports) {
+        return Array.isArray(record.ports) ? record.ports.length : 0;
       }
-    };
-
-    // 获取端口数量
-    const getPortCount = (result) => {
-      if (!result || !result.data || !Array.isArray(result.data)) {
-        return 0;
+      if (record.data) {
+        return Array.isArray(record.data) ? record.data.length : 0;
       }
-      const portGroup = result.data.find((group) => group.Key === "ports");
-      return portGroup?.Value?.length || 0;
+      return 0;
     };
 
-    // 全选/取消全选
-    const toggleSelectAll = () => {
-      if (isAllSelected.value) {
-        // 如果当前是全选状态，则取消全选
-        selectedResults.value = [];
-      } else {
-        // 如果当前不是全选状态，则全选
-        selectedResults.value = props.portScanResults.map(
-          (result) => result.id
-        );
-      }
+    const formatDate = (record) => {
+      // 兼容两种时间字段: scan_time 和 timestamp
+      const dateStr = record.scan_time || record.timestamp || record.Timestamp;
+      if (!dateStr) return '-';
+      const date = new Date(dateStr);
+      return date.toLocaleString('zh-CN', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
     };
 
-    // 查看详情处理函数
-    const handleViewDetails = (id) => emit("view-details", id);
-
-    // 删除单个结果处理函数
-    const handleDelete = (id) => emit("delete-result", id);
-
-    // 切换已读状态处理函数
-    const handleToggleRead = (result) =>
-      emit("toggle-read-status", result.id, !result.is_read);
-
-    // 批量删除处理函数
-    const handleBatchDelete = () => {
-      if (selectedResults.value.length === 0) return;
-      emit("delete-selected", selectedResults.value);
-      // 操作后清空选择
-      selectedResults.value = [];
+    const getStatusColor = (status) => {
+      const colorMap = {
+        '完成': 'success',
+        '进行中': 'processing',
+        '失败': 'error',
+        '等待中': 'warning',
+      };
+      return colorMap[status] || 'default';
     };
 
-    // 批量标记已读处理函数
+    const getRowClassName = (record) => {
+      return record.is_read ? 'row-read' : 'row-unread';
+    };
+
+    // 事件处理
+    const handleViewDetails = (record) => {
+      emit('view-details', record.id);
+    };
+
+    const handleDelete = (id) => {
+      emit('delete-result', id);
+      message.success('删除成功');
+    };
+
+    const handleToggleRead = (record) => {
+      emit('toggle-read-status', record.id, !record.is_read);
+      message.success(record.is_read ? '已标记为未读' : '已标记为已读');
+    };
+
     const handleBatchRead = () => {
-      if (selectedResults.value.length === 0) return;
-      emit("mark-selected-read", selectedResults.value);
-      // 操作后清空选择
-      selectedResults.value = [];
+      if (selectedRowKeys.value.length === 0) {
+        message.warning('请先选择要操作的项目');
+        return;
+      }
+      emit('mark-selected-read', selectedRowKeys.value);
+      message.success(`已标记 ${selectedRowKeys.value.length} 项为已读`);
+      selectedRowKeys.value = [];
     };
 
-    // 监听结果变化，重置选择状态
-    watch(
-      () => props.portScanResults,
-      () => {
-        selectedResults.value = [];
+    const handleBatchDelete = () => {
+      if (selectedRowKeys.value.length === 0) {
+        message.warning('请先选择要删除的项目');
+        return;
       }
-    );
+      emit('delete-selected', selectedRowKeys.value);
+      message.success(`已删除 ${selectedRowKeys.value.length} 项`);
+      selectedRowKeys.value = [];
+    };
 
     return {
-      selectedResults,
-      tableHeaders,
-      hasSelected,
-      isAllSelected,
-      formatDate,
+      h,
+      selectedRowKeys,
+      columns,
+      rowSelection,
+      paginationConfig,
       getPortCount,
-      toggleSelectAll,
+      formatDate,
+      getStatusColor,
+      getRowClassName,
       handleViewDetails,
       handleDelete,
       handleToggleRead,
-      handleBatchDelete,
       handleBatchRead,
+      handleBatchDelete,
     };
   },
 };
 </script>
 
 <style scoped>
-/* 操作按钮样式 */
-.action-button {
-  @apply px-3 py-1.5 rounded-md text-xs font-medium
-  transition-all duration-200 flex items-center
-  focus:outline-none focus:ring-1 focus:ring-opacity-50
-  disabled:opacity-50 disabled:cursor-not-allowed;
-}
-
-/* 批量操作按钮样式 */
-.batch-button {
-  @apply px-4 py-2 rounded-lg text-sm font-medium
-  transition-all duration-200 flex items-center border
-  focus:outline-none focus:ring-1 focus:ring-opacity-50
-  disabled:opacity-50 disabled:cursor-not-allowed;
-}
-
-/* 优化按钮点击效果 */
-.batch-button:active:not(:disabled),
-.action-button:active:not(:disabled) {
-  transform: scale(0.98);
-}
-
-/* 自定义复选框样式 */
-.checkbox-input {
-  @apply rounded-md border-gray-700/50 bg-gray-800/50
-  text-blue-500 focus:ring-blue-500/30 h-4 w-4 cursor-pointer;
-}
-
-/* 自定义滚动条 */
-.custom-scrollbar {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(156, 163, 175, 0.3) transparent;
-}
-
-.custom-scrollbar::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-.custom-scrollbar::-webkit-scrollbar-track {
+.port-scan-table-container {
   background: transparent;
 }
 
-.custom-scrollbar::-webkit-scrollbar-thumb {
-  background-color: rgba(107, 114, 128, 0.3);
-  border-radius: 3px;
+.batch-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  margin-bottom: 16px;
+  background: rgba(30, 41, 59, 0.8);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(51, 65, 85, 0.3);
+  border-radius: 12px;
+  color: #e2e8f0;
 }
 
-.custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(107, 114, 128, 0.5);
+.batch-info {
+  font-size: 14px;
+  color: #94a3b8;
+}
+
+.selected-count {
+  color: #60a5fa;
+  font-weight: 600;
+  margin: 0 4px;
+}
+
+.target-cell {
+  display: flex;
+  align-items: center;
+}
+
+.target-icon {
+  color: #60a5fa;
+  margin-right: 8px;
+  font-size: 14px;
+}
+
+.target-text {
+  color: #e2e8f0;
+  font-family: 'Monaco', 'Consolas', monospace;
+}
+
+.port-count-tag {
+  font-weight: 500;
+}
+
+.status-tag {
+  font-weight: 500;
+}
+
+.time-cell {
+  display: flex;
+  align-items: center;
+}
+
+.time-icon {
+  color: #94a3b8;
+  margin-right: 6px;
+  font-size: 12px;
+}
+
+.time-text {
+  color: #cbd5e1;
+  font-size: 13px;
+}
+
+/* Ant Design样式覆盖 */
+.cyber-table :deep(.ant-table) {
+  background: rgba(30, 41, 59, 0.8);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(51, 65, 85, 0.3);
+  border-radius: 12px;
+}
+
+.cyber-table :deep(.ant-table-thead > tr > th) {
+  background: rgba(15, 23, 42, 0.8);
+  border-bottom: 1px solid rgba(51, 65, 85, 0.5);
+  color: #94a3b8;
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.cyber-table :deep(.ant-table-tbody > tr) {
+  background: transparent;
+  transition: all 0.2s ease;
+}
+
+.cyber-table :deep(.ant-table-tbody > tr:hover) {
+  background: rgba(51, 65, 85, 0.3) !important;
+}
+
+.cyber-table :deep(.ant-table-tbody > tr.row-unread) {
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.cyber-table :deep(.ant-table-tbody > tr.row-read) {
+  background: transparent;
+  opacity: 0.8;
+}
+
+.cyber-table :deep(.ant-table-tbody > tr > td) {
+  border-bottom: 1px solid rgba(51, 65, 85, 0.2);
+  color: #e2e8f0;
+  padding: 12px 16px;
+}
+
+.cyber-table :deep(.ant-table-selection-column) {
+  padding-left: 20px;
+}
+
+.cyber-table :deep(.ant-checkbox-wrapper) {
+  color: #e2e8f0;
+}
+
+.cyber-table :deep(.ant-checkbox-inner) {
+  background-color: rgba(30, 41, 59, 0.8);
+  border-color: rgba(94, 234, 212, 0.5);
+}
+
+.cyber-table :deep(.ant-checkbox-checked .ant-checkbox-inner) {
+  background-color: #10b981;
+  border-color: #10b981;
+}
+
+.cyber-table :deep(.ant-pagination) {
+  margin-top: 24px;
+  text-align: right;
+}
+
+.cyber-table :deep(.ant-pagination-item) {
+  background: rgba(30, 41, 59, 0.6);
+  border-color: rgba(51, 65, 85, 0.3);
+}
+
+.cyber-table :deep(.ant-pagination-item a) {
+  color: #94a3b8;
+}
+
+.cyber-table :deep(.ant-pagination-item-active) {
+  background: rgba(59, 130, 246, 0.2);
+  border-color: #3b82f6;
+}
+
+.cyber-table :deep(.ant-pagination-item-active a) {
+  color: #60a5fa;
+}
+
+.cyber-table :deep(.ant-btn-text) {
+  color: #94a3b8;
+  border: none;
+}
+
+.cyber-table :deep(.ant-btn-text:hover) {
+  color: #e2e8f0;
+  background: rgba(51, 65, 85, 0.3);
+}
+
+.cyber-table :deep(.ant-btn-dangerous.ant-btn-text) {
+  color: #f87171;
+}
+
+.cyber-table :deep(.ant-btn-dangerous.ant-btn-text:hover) {
+  color: #fca5a5;
+  background: rgba(239, 68, 68, 0.1);
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .batch-toolbar {
+    flex-direction: column;
+    gap: 12px;
+    text-align: center;
+  }
+
+  .cyber-table :deep(.ant-table-thead > tr > th) {
+    font-size: 11px;
+    padding: 8px 12px;
+  }
+
+  .cyber-table :deep(.ant-table-tbody > tr > td) {
+    padding: 10px 12px;
+    font-size: 13px;
+  }
 }
 </style>
