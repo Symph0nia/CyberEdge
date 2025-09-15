@@ -1,330 +1,220 @@
 <template>
-  <div class="bg-gray-900 text-white flex flex-col min-h-screen">
+  <div class="target-management">
     <HeaderPage />
 
-    <!-- 主体内容 -->
-    <div class="container mx-auto px-6 py-8 flex-1 mt-16">
-      <!-- 卡片式设计 -->
-      <div
-        class="bg-gray-800/40 backdrop-blur-xl p-8 rounded-2xl shadow-2xl border border-gray-700/30"
-      >
-        <!-- 顶部操作栏 - 重新设计为两行布局 -->
-        <div class="mb-8">
-          <div class="flex justify-between items-center mb-6">
-            <div class="flex items-center">
-              <h2
-                class="text-xl font-medium tracking-wide text-gray-200 flex items-center"
-              >
-                <i class="ri-focus-3-line mr-2"></i>
-                目标管理
-              </h2>
-              <span
-                class="ml-4 px-3 py-1.5 rounded-xl bg-gray-700/50 text-gray-200 text-sm"
-              >
-                共 {{ filteredTargets.length }} 个目标
-              </span>
-            </div>
-
-            <div class="flex space-x-4">
-              <button
-                @click="openCreateDialog"
-                class="px-4 py-2.5 rounded-xl text-sm font-medium bg-blue-600/70 hover:bg-blue-500/70 text-white transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/50 flex items-center shadow-lg shadow-blue-900/20"
-              >
-                <i class="ri-add-line mr-2"></i>
-                新建目标
-              </button>
-
-              <button
-                @click="refreshTargets"
-                class="control-button"
-                :disabled="isLoading"
-                :class="{ 'opacity-70 cursor-not-allowed': isLoading }"
-              >
-                <i
-                  class="ri-refresh-line mr-2"
-                  :class="{ 'animate-spin': isLoading }"
-                ></i>
-                {{ isLoading ? "加载中..." : "刷新" }}
-              </button>
-            </div>
+    <div class="management-container">
+      <a-card class="management-card">
+        <!-- 页面头部 -->
+        <div class="page-header">
+          <div class="header-left">
+            <h1 class="page-title">
+              <i class="ri-focus-3-line"></i>
+              目标管理
+            </h1>
+            <a-tag color="blue" class="count-tag">
+              共 {{ filteredTargets.length }} 个目标
+            </a-tag>
           </div>
 
-          <!-- 搜索和过滤栏 - 重新设计 -->
-          <div class="flex flex-col md:flex-row md:items-center gap-4">
-            <!-- 搜索框 -->
-            <div class="flex-1 relative group">
-              <i
-                class="ri-search-line absolute left-4 top-3 text-gray-400 group-focus-within:text-blue-400 transition-colors duration-200"
-              ></i>
-              <input
-                v-model="searchQuery"
-                type="text"
-                placeholder="搜索目标名称、地址或描述..."
-                class="w-full pl-10 pr-4 py-2.5 rounded-xl bg-gray-700/50 text-gray-100 border border-gray-600/30 focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/20 focus:outline-none transition-all duration-200"
-              />
-            </div>
+          <div class="header-actions">
+            <a-button
+              type="primary"
+              @click="openCreateDialog"
+              class="create-btn"
+            >
+              <i class="ri-add-line"></i>
+              新建目标
+            </a-button>
 
-            <!-- 筛选器 - 按钮式设计 -->
-            <div class="flex space-x-2">
-              <button
-                @click="statusFilter = ''"
-                class="filter-button"
-                :class="{ 'filter-active': statusFilter === '' }"
-              >
-                全部
-              </button>
-              <button
-                @click="statusFilter = 'active'"
-                class="filter-button"
-                :class="{ 'filter-active': statusFilter === 'active' }"
-              >
-                <span class="w-2 h-2 rounded-full bg-emerald-400 mr-2"></span>
-                活跃
-              </button>
-              <button
-                @click="statusFilter = 'archived'"
-                class="filter-button"
-                :class="{ 'filter-active': statusFilter === 'archived' }"
-              >
-                <span class="w-2 h-2 rounded-full bg-gray-400 mr-2"></span>
-                已归档
-              </button>
-            </div>
+            <a-button
+              @click="refreshTargets"
+              :loading="isLoading"
+              class="refresh-btn"
+            >
+              <i class="ri-refresh-line"></i>
+              {{ isLoading ? "加载中" : "刷新" }}
+            </a-button>
           </div>
         </div>
 
-        <!-- 视图切换按钮组 -->
-        <div class="flex justify-end mb-6">
-          <div class="bg-gray-700/50 rounded-lg p-1 flex">
-            <button
-              @click="viewMode = 'card'"
-              class="px-3 py-1.5 rounded-md flex items-center text-sm transition-all duration-200"
-              :class="
-                viewMode === 'card'
-                  ? 'bg-gray-600 text-white'
-                  : 'text-gray-400 hover:text-gray-200'
-              "
-            >
-              <i class="ri-layout-grid-fill mr-1.5"></i>
-              卡片视图
-            </button>
-            <button
-              @click="viewMode = 'table'"
-              class="px-3 py-1.5 rounded-md flex items-center text-sm transition-all duration-200"
-              :class="
-                viewMode === 'table'
-                  ? 'bg-gray-600 text-white'
-                  : 'text-gray-400 hover:text-gray-200'
-              "
-            >
-              <i class="ri-table-fill mr-1.5"></i>
-              表格视图
-            </button>
+        <!-- 搜索和筛选 -->
+        <div class="search-filters">
+          <a-input-search
+            v-model:value="searchQuery"
+            placeholder="搜索目标名称、地址或描述..."
+            size="large"
+            class="search-input"
+          />
+
+          <div class="filter-buttons">
+            <a-radio-group v-model:value="statusFilter" button-style="solid" size="middle">
+              <a-radio-button value="">全部</a-radio-button>
+              <a-radio-button value="active">
+                <span class="status-dot active"></span>
+                活跃
+              </a-radio-button>
+              <a-radio-button value="archived">
+                <span class="status-dot archived"></span>
+                已归档
+              </a-radio-button>
+            </a-radio-group>
           </div>
+        </div>
+
+        <!-- 视图切换 -->
+        <div class="view-controls">
+          <a-radio-group v-model:value="viewMode" button-style="solid" size="small">
+            <a-radio-button value="card">
+              <i class="ri-layout-grid-fill"></i>
+              卡片视图
+            </a-radio-button>
+            <a-radio-button value="table">
+              <i class="ri-table-fill"></i>
+              表格视图
+            </a-radio-button>
+          </a-radio-group>
         </div>
 
         <!-- 卡片视图 -->
-        <div
-          v-if="viewMode === 'card'"
-          class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
-        >
-          <div
-            v-for="target in filteredTargets"
-            :key="target.id"
-            class="bg-gray-750 rounded-xl border border-gray-700/50 hover:border-blue-500/30 transition-all duration-300 overflow-hidden shadow-lg hover:shadow-xl transform hover:-translate-y-1"
-          >
-            <!-- 卡片头部 - 状态指示和名称 -->
-            <div class="p-5 border-b border-gray-700/30">
-              <div class="flex justify-between items-start">
-                <div>
-                  <h3 class="text-lg font-medium text-gray-200 mb-1">
-                    {{ target.name }}
-                  </h3>
-                  <div class="text-gray-400 text-xs truncate max-w-xs">
-                    {{ target.target }}
+        <div v-if="viewMode === 'card'" class="cards-container">
+          <a-row :gutter="[16, 16]">
+            <a-col
+              v-for="target in filteredTargets"
+              :key="target.id"
+              :xs="24" :sm="12" :md="8" :lg="6"
+            >
+              <a-card
+                size="small"
+                class="target-card"
+                :class="{ active: target.status === 'active' }"
+              >
+                <template #title>
+                  <div class="card-title">
+                    <span class="target-name">{{ target.name }}</span>
+                    <a-tag :color="target.status === 'active' ? 'success' : 'default'" size="small">
+                      {{ target.status === 'active' ? '活跃' : '已归档' }}
+                    </a-tag>
+                  </div>
+                </template>
+
+                <template #extra>
+                  <a-dropdown trigger="click">
+                    <a-button type="text" size="small">
+                      <i class="ri-more-2-fill"></i>
+                    </a-button>
+                    <template #overlay>
+                      <a-menu>
+                        <a-menu-item @click="editTarget(target)">
+                          <i class="ri-edit-line"></i>
+                          编辑
+                        </a-menu-item>
+                        <a-menu-item @click="archiveTarget(target)">
+                          <i class="ri-archive-line"></i>
+                          {{ target.status === 'active' ? '归档' : '激活' }}
+                        </a-menu-item>
+                        <a-menu-divider />
+                        <a-menu-item @click="deleteTarget(target)" class="danger-item">
+                          <i class="ri-delete-bin-line"></i>
+                          删除
+                        </a-menu-item>
+                      </a-menu>
+                    </template>
+                  </a-dropdown>
+                </template>
+
+                <div class="card-content">
+                  <p class="target-url">{{ target.target }}</p>
+                  <p class="target-desc">{{ target.description || '无描述信息' }}</p>
+
+                  <div class="card-meta">
+                    <a-space size="small" class="meta-item">
+                      <i class="ri-time-line"></i>
+                      <span>{{ formatDate(target.createdAt) }}</span>
+                    </a-space>
+                    <a-space size="small" class="meta-item">
+                      <i class="ri-refresh-line"></i>
+                      <span>{{ target.updatedAt ? formatDate(target.updatedAt) : '未扫描' }}</span>
+                    </a-space>
+                  </div>
+
+                  <div class="card-actions">
+                    <a-button size="small" @click="viewDetails(target)">
+                      <i class="ri-file-list-line"></i>
+                      详情
+                    </a-button>
+                    <a-button size="small" type="primary" @click="startScan(target)">
+                      <i class="ri-scan-line"></i>
+                      扫描
+                    </a-button>
                   </div>
                 </div>
-
-                <div
-                  class="status-indicator"
-                  :class="target.status === 'active' ? 'active' : 'archived'"
-                >
-                  {{ target.status === "active" ? "活跃" : "已归档" }}
-                </div>
-              </div>
-            </div>
-
-            <!-- 卡片内容 -->
-            <div class="p-5 text-sm space-y-4">
-              <!-- 描述信息 -->
-              <p class="text-gray-400 line-clamp-2 min-h-[40px]">
-                {{ target.description || "无描述信息" }}
-              </p>
-
-              <!-- 创建/更新时间信息 -->
-              <div class="flex justify-between text-xs text-gray-500">
-                <div class="flex items-center">
-                  <i class="ri-time-line mr-1"></i>
-                  创建: {{ formatDate(target.createdAt) }}
-                </div>
-                <div class="flex items-center">
-                  <i class="ri-refresh-line mr-1"></i>
-                  {{
-                    target.updatedAt ? formatDate(target.updatedAt) : "未扫描"
-                  }}
-                </div>
-              </div>
-            </div>
-
-            <!-- 操作按钮区 -->
-            <div
-              class="grid grid-cols-3 divide-x divide-gray-700/30 border-t border-gray-700/30"
-            >
-              <button @click="viewDetails(target)" class="card-action-button">
-                <i class="ri-file-list-line mr-1"></i> 详情
-              </button>
-
-              <button
-                @click="startScan(target)"
-                class="card-action-button text-green-400"
-              >
-                <i class="ri-scan-line mr-1"></i> 扫描
-              </button>
-
-              <div class="relative group">
-                <button class="card-action-button text-gray-400 w-full">
-                  <i class="ri-more-2-fill"></i>
-                </button>
-
-                <!-- 更多选项下拉菜单 -->
-                <div class="dropdown-menu origin-bottom-right">
-                  <button @click="editTarget(target)" class="dropdown-item">
-                    <i class="ri-edit-line mr-2 text-blue-400"></i> 编辑
-                  </button>
-
-                  <button @click="archiveTarget(target)" class="dropdown-item">
-                    <i class="ri-archive-line mr-2 text-yellow-400"></i>
-                    {{ target.status === "active" ? "归档" : "激活" }}
-                  </button>
-
-                  <button
-                    @click="deleteTarget(target)"
-                    class="dropdown-item text-red-400 border-t border-gray-700/30"
-                  >
-                    <i class="ri-delete-bin-line mr-2"></i> 删除
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
+              </a-card>
+            </a-col>
+          </a-row>
         </div>
 
         <!-- 表格视图 -->
-        <div v-else-if="viewMode === 'table'" class="overflow-x-auto">
-          <table class="w-full">
-            <thead>
-              <tr class="bg-gray-750">
-                <th class="table-header">目标名称</th>
-                <th class="table-header">目标地址</th>
-                <th class="table-header">状态</th>
-                <th class="table-header">创建时间</th>
-                <th class="table-header">上次更新</th>
-                <th class="table-header text-right">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="target in filteredTargets"
-                :key="target.id"
-                class="border-b border-gray-700/20 hover:bg-gray-800/30 transition-colors duration-150"
-              >
-                <td class="table-cell font-medium text-white">
-                  {{ target.name }}
-                </td>
-                <td class="table-cell text-gray-400">{{ target.target }}</td>
-                <td class="table-cell">
-                  <span
-                    class="status-indicator"
-                    :class="target.status === 'active' ? 'active' : 'archived'"
-                  >
-                    {{ target.status === "active" ? "活跃" : "已归档" }}
-                  </span>
-                </td>
-                <td class="table-cell text-gray-400 text-sm">
-                  {{ formatDate(target.createdAt) }}
-                </td>
-                <td class="table-cell text-gray-400 text-sm">
-                  {{
-                    target.updatedAt ? formatDate(target.updatedAt) : "未扫描"
-                  }}
-                </td>
-                <td class="table-cell text-right space-x-2">
-                  <button
-                    @click="viewDetails(target)"
-                    class="table-action-button bg-gray-700 hover:bg-gray-600"
-                    title="查看详情"
-                  >
-                    <i class="ri-file-list-line"></i>
-                  </button>
-
-                  <button
-                    @click="startScan(target)"
-                    class="table-action-button bg-green-700/50 hover:bg-green-600/50 text-green-100"
-                    title="开始扫描"
-                  >
-                    <i class="ri-scan-line"></i>
-                  </button>
-
-                  <button
-                    @click="editTarget(target)"
-                    class="table-action-button bg-blue-700/50 hover:bg-blue-600/50 text-blue-100"
-                    title="编辑目标"
-                  >
-                    <i class="ri-edit-line"></i>
-                  </button>
-
-                  <button
-                    @click="archiveTarget(target)"
-                    class="table-action-button bg-yellow-700/50 hover:bg-yellow-600/50 text-yellow-100"
-                    title="归档/激活"
-                  >
-                    <i class="ri-archive-line"></i>
-                  </button>
-
-                  <button
-                    @click="deleteTarget(target)"
-                    class="table-action-button bg-red-700/50 hover:bg-red-600/50 text-red-100"
-                    title="删除目标"
-                  >
-                    <i class="ri-delete-bin-line"></i>
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <!-- 空状态展示 - 重新设计 -->
-        <div
-          v-if="filteredTargets.length === 0"
-          class="flex flex-col items-center justify-center py-16 my-4 bg-gray-800/20 backdrop-blur-xl rounded-2xl border border-dashed border-gray-700/30"
+        <a-table
+          v-else
+          :columns="tableColumns"
+          :data-source="filteredTargets"
+          :pagination="false"
+          row-key="id"
+          size="middle"
+          class="targets-table"
         >
-          <div class="empty-illustration mb-6">
-            <i class="ri-radar-line text-5xl text-gray-700 animate-pulse"></i>
-          </div>
-          <span class="text-xl text-gray-300 mb-3">暂无目标数据</span>
-          <p class="text-gray-500 mb-6 text-center max-w-md">
-            创建你的第一个目标开始使用系统的全部功能
-          </p>
-          <button
-            @click="openCreateDialog"
-            class="px-6 py-3 rounded-xl text-sm font-medium bg-blue-600/70 hover:bg-blue-500/70 text-white transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/50 flex items-center shadow-lg"
-          >
-            <i class="ri-add-line mr-2"></i>
+          <template #bodyCell="{ column, record }">
+            <template v-if="column.key === 'status'">
+              <a-tag :color="record.status === 'active' ? 'success' : 'default'">
+                {{ record.status === 'active' ? '活跃' : '已归档' }}
+              </a-tag>
+            </template>
+
+            <template v-else-if="column.key === 'createdAt'">
+              {{ formatDate(record.createdAt) }}
+            </template>
+
+            <template v-else-if="column.key === 'updatedAt'">
+              {{ record.updatedAt ? formatDate(record.updatedAt) : '未扫描' }}
+            </template>
+
+            <template v-else-if="column.key === 'actions'">
+              <a-space>
+                <a-button size="small" @click="viewDetails(record)" title="查看详情">
+                  <i class="ri-file-list-line"></i>
+                </a-button>
+                <a-button size="small" type="primary" @click="startScan(record)" title="开始扫描">
+                  <i class="ri-scan-line"></i>
+                </a-button>
+                <a-button size="small" @click="editTarget(record)" title="编辑目标">
+                  <i class="ri-edit-line"></i>
+                </a-button>
+                <a-button size="small" @click="archiveTarget(record)" title="归档/激活">
+                  <i class="ri-archive-line"></i>
+                </a-button>
+                <a-button size="small" danger @click="deleteTarget(record)" title="删除目标">
+                  <i class="ri-delete-bin-line"></i>
+                </a-button>
+              </a-space>
+            </template>
+          </template>
+        </a-table>
+
+        <!-- 空状态 -->
+        <a-empty
+          v-if="filteredTargets.length === 0"
+          class="empty-state"
+          description="暂无目标数据"
+        >
+          <template #image>
+            <i class="ri-radar-line empty-icon"></i>
+          </template>
+          <a-button type="primary" @click="openCreateDialog">
+            <i class="ri-add-line"></i>
             创建第一个目标
-          </button>
-        </div>
-      </div>
+          </a-button>
+        </a-empty>
+      </a-card>
     </div>
 
     <FooterPage />
@@ -406,6 +296,44 @@ const searchQuery = ref("");
 const statusFilter = ref("");
 const viewMode = ref("card"); // 默认视图模式: card 或 table
 
+// 表格列定义
+const tableColumns = [
+  {
+    title: '目标名称',
+    dataIndex: 'name',
+    key: 'name',
+    width: 150,
+  },
+  {
+    title: '目标地址',
+    dataIndex: 'target',
+    key: 'target',
+    ellipsis: true,
+  },
+  {
+    title: '状态',
+    key: 'status',
+    width: 80,
+    align: 'center',
+  },
+  {
+    title: '创建时间',
+    key: 'createdAt',
+    width: 150,
+  },
+  {
+    title: '上次更新',
+    key: 'updatedAt',
+    width: 150,
+  },
+  {
+    title: '操作',
+    key: 'actions',
+    width: 200,
+    align: 'center',
+  },
+];
+
 // 过滤后的目标列表
 const filteredTargets = computed(() => {
   if (!targets.value || !Array.isArray(targets.value)) return [];
@@ -455,84 +383,307 @@ const formatDate = (date) => {
     minute: "2-digit",
   });
 };
+
+// 导出所有需要的数据和方法
+return {
+  searchQuery,
+  statusFilter,
+  viewMode,
+  tableColumns,
+  filteredTargets,
+  refreshTargets,
+  formatDate,
+};
 </script>
 
 <style scoped>
-/* 基础样式 */
-.backdrop-blur-xl {
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
+/* 网络安全主题样式 */
+.target-management {
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+  min-height: 100vh;
+  color: #ffffff;
 }
 
-/* 控制按钮样式 */
-.control-button {
-  @apply px-4 py-2.5 rounded-xl text-sm font-medium bg-gray-700/50 hover:bg-gray-600/50 text-gray-200 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-gray-600/50 flex items-center;
+.management-container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 24px;
+  padding-top: 88px; /* 为HeaderPage留空间 */
 }
 
-/* 过滤按钮样式 */
-.filter-button {
-  @apply px-3 py-2 text-sm rounded-lg flex items-center text-gray-400 bg-gray-800/30 border border-gray-700/30 hover:bg-gray-700/50 hover:text-gray-200 transition-all duration-200;
+/* 主卡片样式 */
+:deep(.management-card.ant-card) {
+  background: rgba(31, 41, 55, 0.4);
+  border: 1px solid rgba(75, 85, 99, 0.3);
+  border-radius: 16px;
+  backdrop-filter: blur(12px);
 }
 
-/* 激活的过滤按钮 */
-.filter-active {
-  @apply text-gray-100 bg-gray-700/70 border-gray-600/50;
+:deep(.management-card .ant-card-body) {
+  padding: 32px;
 }
 
-/* 状态指示器 */
-.status-indicator {
-  @apply inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium transition-all duration-200;
+/* 页面头部 */
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 32px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(75, 85, 99, 0.3);
 }
 
-.status-indicator.active {
-  @apply bg-green-900/30 text-green-300 border border-green-700/30;
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
 }
 
-.status-indicator.archived {
-  @apply bg-gray-700/30 text-gray-400 border border-gray-600/30;
+.page-title {
+  display: flex;
+  align-items: center;
+  color: #ffffff;
+  font-size: 24px;
+  font-weight: 600;
+  margin: 0;
 }
 
-/* 卡片操作按钮 */
-.card-action-button {
-  @apply py-3 text-sm flex items-center justify-center hover:bg-gray-700/50 transition-all duration-200;
+.page-title i {
+  margin-right: 12px;
+  color: #22d3ee;
+  font-size: 28px;
 }
 
-/* 下拉菜单 */
-.dropdown-menu {
-  @apply absolute right-0 bottom-full mb-1 bg-gray-800 rounded-lg shadow-xl border border-gray-700/50 min-w-[140px] invisible opacity-0 transform scale-95 transition-all duration-200 z-10;
+.count-tag {
+  background: rgba(59, 130, 246, 0.2);
+  border-color: rgba(59, 130, 246, 0.4);
+  color: #60a5fa;
 }
 
-/* 显示下拉菜单 */
-.group:hover .dropdown-menu {
-  @apply visible opacity-100 transform scale-100;
+.header-actions {
+  display: flex;
+  gap: 12px;
 }
 
-/* 下拉菜单项 */
-.dropdown-item {
-  @apply flex items-center w-full px-4 py-2.5 text-sm text-left text-gray-300 hover:bg-gray-700/50 transition-all duration-200 first:rounded-t-lg last:rounded-b-lg;
+/* 搜索和筛选区域 */
+.search-filters {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.search-input {
+  flex: 1;
+  min-width: 300px;
+}
+
+:deep(.search-input .ant-input) {
+  background: rgba(17, 24, 39, 0.6);
+  border-color: rgba(75, 85, 99, 0.4);
+  color: #ffffff;
+}
+
+:deep(.search-input .ant-input:focus) {
+  border-color: #22d3ee;
+  box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.1);
+}
+
+/* 筛选按钮 */
+.filter-buttons .status-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 6px;
+}
+
+.status-dot.active {
+  background: #10b981;
+}
+
+.status-dot.archived {
+  background: #6b7280;
+}
+
+/* 视图控制 */
+.view-controls {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 24px;
+}
+
+/* 卡片视图 */
+.cards-container {
+  margin-top: 16px;
+}
+
+:deep(.target-card.ant-card) {
+  background: rgba(55, 65, 81, 0.4);
+  border: 1px solid rgba(75, 85, 99, 0.3);
+  border-radius: 12px;
+  transition: all 0.3s ease;
+}
+
+:deep(.target-card.ant-card:hover) {
+  border-color: rgba(34, 211, 238, 0.5);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+  transform: translateY(-2px);
+}
+
+:deep(.target-card .ant-card-head) {
+  background: rgba(75, 85, 99, 0.2);
+  border-bottom: 1px solid rgba(75, 85, 99, 0.3);
+  border-radius: 12px 12px 0 0;
+}
+
+:deep(.target-card .ant-card-head-title) {
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.card-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.target-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.card-content {
+  color: #d1d5db;
+}
+
+.target-url {
+  color: #9ca3af;
+  font-size: 13px;
+  margin-bottom: 8px;
+  word-break: break-all;
+}
+
+.target-desc {
+  color: #d1d5db;
+  font-size: 14px;
+  margin-bottom: 16px;
+  min-height: 40px;
+  line-height: 1.4;
+}
+
+.card-meta {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+.meta-item i {
+  color: #6b7280;
+}
+
+.card-actions {
+  display: flex;
+  gap: 8px;
 }
 
 /* 表格样式 */
-.table-header {
-  @apply py-3 px-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider;
+:deep(.targets-table.ant-table) {
+  background: transparent;
+  color: #ffffff;
 }
 
-.table-cell {
-  @apply py-3 px-4 text-sm whitespace-nowrap;
+:deep(.targets-table .ant-table-thead > tr > th) {
+  background: rgba(55, 65, 81, 0.5);
+  color: #d1d5db;
+  border-bottom: 1px solid rgba(75, 85, 99, 0.3);
+  font-weight: 600;
 }
 
-/* 表格操作按钮 */
-.table-action-button {
-  @apply inline-flex items-center justify-center w-8 h-8 rounded-lg text-sm transition-all duration-200 focus:outline-none;
+:deep(.targets-table .ant-table-tbody > tr > td) {
+  background: transparent;
+  color: #d1d5db;
+  border-bottom: 1px solid rgba(75, 85, 99, 0.2);
 }
 
-/* 背景色 - 稍深一点 */
-.bg-gray-750 {
-  @apply bg-gray-800/60;
+:deep(.targets-table .ant-table-tbody > tr:hover > td) {
+  background: rgba(75, 85, 99, 0.2);
 }
 
-/* 空状态插图 */
-.empty-illustration {
-  @apply flex items-center justify-center w-24 h-24 rounded-full bg-gray-800/30 border border-gray-700/30;
+/* 下拉菜单 */
+:deep(.danger-item) {
+  color: #f87171 !important;
+}
+
+:deep(.danger-item:hover) {
+  background: rgba(248, 113, 113, 0.1) !important;
+}
+
+/* 空状态 */
+.empty-state {
+  margin: 48px 0;
+}
+
+.empty-icon {
+  font-size: 64px;
+  color: #6b7280;
+}
+
+/* 按钮样式 */
+:deep(.ant-btn-primary) {
+  background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+  border: none;
+}
+
+:deep(.ant-btn-primary:hover) {
+  background: linear-gradient(135deg, #2563eb, #1e40af);
+}
+
+:deep(.create-btn) {
+  background: linear-gradient(135deg, #10b981, #059669);
+  border: none;
+}
+
+:deep(.create-btn:hover) {
+  background: linear-gradient(135deg, #059669, #047857);
+}
+
+:deep(.refresh-btn) {
+  background: rgba(75, 85, 99, 0.4);
+  border-color: rgba(75, 85, 99, 0.6);
+  color: #d1d5db;
+}
+
+:deep(.refresh-btn:hover) {
+  background: rgba(75, 85, 99, 0.6);
+  border-color: #22d3ee;
+  color: #22d3ee;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .management-container {
+    padding: 16px;
+  }
+
+  .page-header {
+    flex-direction: column;
+    gap: 16px;
+    align-items: flex-start;
+  }
+
+  .search-filters {
+    flex-direction: column;
+  }
+
+  .search-input {
+    min-width: auto;
+    width: 100%;
+  }
 }
 </style>
