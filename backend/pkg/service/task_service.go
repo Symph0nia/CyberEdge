@@ -5,7 +5,6 @@ import (
 	"cyberedge/pkg/dao"
 	"cyberedge/pkg/logging"
 	"cyberedge/pkg/models"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"github.com/hibiken/asynq"

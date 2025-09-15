@@ -97,7 +97,12 @@ func main() {
 	// 根据环境设置 CORS 配置
 	var allowedOrigins []string
 	if *env == "prod" {
-		allowedOrigins = []string{"*"} // 替换为实际的生产环境域名
+		// 生产环境必须指定具体域名，绝不能使用通配符
+		prodOrigin := os.Getenv("ALLOWED_ORIGIN")
+		if prodOrigin == "" {
+			log.Fatal("生产环境必须设置 ALLOWED_ORIGIN 环境变量")
+		}
+		allowedOrigins = []string{prodOrigin}
 	} else {
 		allowedOrigins = []string{
 			"http://localhost:8080",
@@ -122,8 +127,12 @@ func main() {
 	logging.Info("API路由设置完成")
 
 	// 创建 HTTP 服务器
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "31337"
+	}
 	srv := &http.Server{
-		Addr:    ":31337",
+		Addr:    ":" + port,
 		Handler: engine,
 	}
 
