@@ -4,7 +4,6 @@ import (
 	"context"
 	"cyberedge/pkg/logging"
 	"fmt"
-	"github.com/hibiken/asynq"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"os"
@@ -37,35 +36,5 @@ func DisconnectMongoDB(client *mongo.Client) error {
 	return nil
 }
 
-// InitAsynqClient 初始化Asynq客户端
-func InitAsynqClient(defaultRedisAddr string) (*asynq.Client, error) {
-	redisAddr := os.Getenv("REDIS_ADDR")
-	if redisAddr == "" {
-		redisAddr = defaultRedisAddr
-	}
-	logging.Info("初始化 Asynq 客户端，Redis 地址: %s", redisAddr)
-	client := asynq.NewClient(asynq.RedisClientOpt{Addr: redisAddr})
-	logging.Info("成功初始化 Asynq 客户端")
-	return client, nil
-}
-
-// InitAsynqServer 初始化Asynq服务器
-func InitAsynqServer(defaultRedisAddr string) (*asynq.Server, error) {
-	redisAddr := os.Getenv("REDIS_ADDR")
-	if redisAddr == "" {
-		redisAddr = defaultRedisAddr
-	}
-	logging.Info("初始化 Asynq 服务器，Redis 地址: %s", redisAddr)
-	server := asynq.NewServer(
-		asynq.RedisClientOpt{Addr: redisAddr},
-		asynq.Config{
-			Concurrency: 10,
-			Queues: map[string]int{
-				"default":  5,
-				"critical": 10,
-			},
-		},
-	)
-	logging.Info("成功初始化 Asynq 服务器")
-	return server, nil
-}
+// 删除了所有Asynq和Redis相关代码
+// 现在使用简单的goroutine替代复杂的任务队列系统

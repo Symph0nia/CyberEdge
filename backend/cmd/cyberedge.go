@@ -56,14 +56,6 @@ func main() {
 	// 初始化数据库和集合
 	db := client.Database("cyberedgeDB")
 
-	// 初始化任务相关组件
-	taskService, asynqServer, err := setup.InitTaskComponents(db, "localhost:6379")
-	if err != nil {
-		logging.Error("初始化任务组件失败: %v", err)
-		return
-	}
-	defer taskService.Close()
-
 	// 初始化 DAO
 	taskDAO := dao.NewTaskDAO(db.Collection("tasks"))
 	resultDAO := dao.NewResultDAO(db.Collection("results"))
@@ -71,18 +63,13 @@ func main() {
 	configDAO := dao.NewConfigDAO(db.Collection("config"))
 	targetDAO := dao.NewTargetDAO(db)
 
-	// 初始化任务处理器
-	taskHandler := setup.InitTaskHandler(taskDAO, targetDAO, resultDAO, configDAO)
-
-	// 启动 Asynq 服务器
-	setup.StartAsynqServer(asynqServer, taskHandler)
-
 	// 初始化 Service
 	jwtSecret := os.Getenv("JWT_SECRET")
 	sessionSecret := os.Getenv("SESSION_SECRET")
 
 	userService := service.NewUserService(userDAO, configDAO, jwtSecret)
 	configService := service.NewConfigService(configDAO)
+	taskService := service.NewTaskService(taskDAO, resultDAO)
 	resultService := service.NewResultService(resultDAO)
 	dnsService := service.NewDNSService(resultDAO)
 	httpxService := service.NewHTTPXService(resultDAO)
@@ -159,8 +146,7 @@ func main() {
 		logging.Error("服务器强制关闭: %v", err)
 	}
 
-	// 关闭 Asynq 服务器
-	asynqServer.Shutdown()
+	// 不再需要关闭Asynq服务器
 
 	logging.Info("服务器已关闭")
 }
