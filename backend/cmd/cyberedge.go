@@ -44,24 +44,22 @@ func main() {
 	env := flag.String("env", "dev", "运行环境 (dev/prod)")
 	flag.Parse()
 
-	// 连接MongoDB数据库
-	client, err := setup.ConnectToMongoDB("mongodb://localhost:27017")
+	// 连接MySQL数据库
+	db, err := setup.ConnectToMySQL("root:password@tcp(localhost:3306)/cyberedge?charset=utf8mb4&parseTime=True&loc=Local")
 	if err != nil {
-		logging.Error("连接MongoDB失败: %v", err)
+		logging.Error("连接MySQL失败: %v", err)
 		return
 	}
-	defer setup.DisconnectMongoDB(client)
-	logging.Info("MongoDB连接成功")
-
-	// 初始化数据库和集合
-	db := client.Database("cyberedgeDB")
+	logging.Info("MySQL连接成功")
 
 	// 初始化 DAO
-	taskDAO := dao.NewTaskDAO(db.Collection("tasks"))
-	resultDAO := dao.NewResultDAO(db.Collection("results"))
-	userDAO := dao.NewUserDAO(db.Collection("users"))
-	configDAO := dao.NewConfigDAO(db.Collection("config"))
+	userDAO := dao.NewUserDAO(db)
+	configDAO := dao.NewConfigDAO(db)
 	targetDAO := dao.NewTargetDAO(db)
+	taskDAO := dao.NewTaskDAO(db)
+	subdomainDAO := dao.NewSubdomainDAO(db)
+	portDAO := dao.NewPortDAO(db)
+	pathDAO := dao.NewPathDAO(db)
 
 	// 初始化 Service
 	jwtSecret := os.Getenv("JWT_SECRET")
@@ -69,10 +67,7 @@ func main() {
 
 	userService := service.NewUserService(userDAO, configDAO, jwtSecret)
 	configService := service.NewConfigService(configDAO)
-	taskService := service.NewTaskService(taskDAO, resultDAO)
-	resultService := service.NewResultService(resultDAO)
-	dnsService := service.NewDNSService(resultDAO)
-	httpxService := service.NewHTTPXService(resultDAO)
+	taskService := service.NewTaskService(taskDAO, subdomainDAO, portDAO, pathDAO)
 	targetService := service.NewTargetService(targetDAO)
 
 	if *env == "prod" {
@@ -97,14 +92,11 @@ func main() {
 		}
 	}
 
-	// 设置API路由，包括任务管理的路由
+	// 设置API路由
 	router := api.NewRouter(
 		userService,
 		configService,
 		taskService,
-		resultService,
-		dnsService,
-		httpxService,
 		targetService,
 		jwtSecret,
 		sessionSecret,

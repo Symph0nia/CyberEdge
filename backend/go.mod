@@ -11,7 +11,8 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/miekg/dns v1.1.62
 	github.com/pquerna/otp v1.4.0
-	go.mongodb.org/mongo-driver v1.17.1
+	gorm.io/driver/mysql v1.5.7
+	gorm.io/gorm v1.25.12
 )
 
 require (
