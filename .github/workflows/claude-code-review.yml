@@ -42,14 +42,14 @@ jobs:
 
           # Direct prompt for automated review (no @claude mention needed)
           direct_prompt: |
-            Please review this pull request and provide feedback on:
-            - Code quality and best practices
-            - Potential bugs or issues
-            - Performance considerations
-            - Security concerns
-            - Test coverage
-            
-            Be constructive and helpful in your feedback.
+            请审查这个Pull Request并提供以下方面的反馈：
+            - 代码质量和最佳实践
+            - 潜在的bug或问题
+            - 性能考虑
+            - 安全性问题
+            - 测试覆盖率
+
+            请用中文回复，给出建设性和有帮助的反馈。针对网络安全渗透测试平台的特点，特别关注安全性和稳定性。
 
           # Optional: Use sticky comments to make Claude reuse the same comment on subsequent pushes to the same PR
           # use_sticky_comment: true
