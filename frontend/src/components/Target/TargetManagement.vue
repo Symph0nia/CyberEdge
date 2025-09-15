@@ -224,7 +224,6 @@
       v-if="showDialog"
       :title="dialogMode === 'create' ? '新建目标' : '编辑目标'"
       @close="showDialog = false"
-      class="bg-gray-800/40 backdrop-blur-xl rounded-2xl border border-gray-700/30"
     >
       <TargetFormContent
         :initial-data="targetForm"
@@ -384,16 +383,7 @@ const formatDate = (date) => {
   });
 };
 
-// 导出所有需要的数据和方法
-return {
-  searchQuery,
-  statusFilter,
-  viewMode,
-  tableColumns,
-  filteredTargets,
-  refreshTargets,
-  formatDate,
-};
+// 在setup中，变量和函数会自动暴露给模板
 </script>
 
 <style scoped>

@@ -1,30 +1,29 @@
 <template>
-  <div class="bg-gray-900 text-white flex flex-col min-h-screen">
+  <div class="task-management">
     <HeaderPage />
 
-    <div class="container mx-auto px-6 py-8 flex-1 mt-16">
+    <div class="management-container">
       <!-- 任务管理概览 -->
-      <div class="flex items-center justify-between mb-6">
-        <h1 class="text-2xl font-bold text-white flex items-center">
-          <i class="ri-task-line mr-3 text-blue-400"></i>
+      <div class="page-header">
+        <h1 class="page-title">
+          <i class="ri-task-line"></i>
           任务管理中心
         </h1>
-        <button
+        <a-button
           @click="handleRefreshTasks"
-          class="px-4 py-2 rounded-xl text-sm font-medium bg-gray-700/50 hover:bg-gray-600/50 text-gray-200 transition-all duration-200 flex items-center"
+          :loading="isLoading"
+          class="refresh-btn"
         >
-          <i class="ri-refresh-line mr-2"></i>
-          刷新任务
-        </button>
+          <i class="ri-refresh-line"></i>
+          {{ isLoading ? '加载中' : '刷新任务' }}
+        </a-button>
       </div>
 
       <!-- 卡片布局：左侧任务列表，右侧创建表单 -->
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <a-row :gutter="[24, 24]">
         <!-- 左侧任务列表区域 -->
-        <div class="lg:col-span-2">
-          <div
-            class="bg-gray-800/40 backdrop-blur-xl p-6 rounded-2xl shadow-2xl border border-gray-700/30 h-full"
-          >
+        <a-col :xs="24" :lg="16">
+          <a-card class="task-list-card">
             <TaskList
               :tasks="tasks"
               @toggle-task="toggleTask"
@@ -33,40 +32,32 @@
               @batch-start="handleBatchStart"
               @batch-delete="handleBatchDelete"
             />
-          </div>
-        </div>
+          </a-card>
+        </a-col>
 
         <!-- 右侧任务创建表单 -->
-        <div class="lg:col-span-1">
-          <div
-            class="bg-gray-800/40 backdrop-blur-xl p-6 rounded-2xl shadow-2xl border border-gray-700/30 sticky top-24"
-          >
-            <div class="flex items-center mb-4">
-              <i class="ri-add-circle-line mr-2 text-blue-400 text-xl"></i>
-              <h2 class="text-lg font-medium text-white">创建新任务</h2>
-            </div>
+        <a-col :xs="24" :lg="8">
+          <a-card class="task-form-card">
+            <template #title>
+              <div class="form-title">
+                <i class="ri-add-circle-line"></i>
+                创建新任务
+              </div>
+            </template>
             <TaskForm @create-task="createTask" />
-          </div>
-        </div>
-      </div>
+          </a-card>
+        </a-col>
+      </a-row>
 
       <!-- 快捷操作浮动按钮 -->
-      <div class="fixed bottom-6 right-6 flex flex-col space-y-3">
-        <button
-          @click="scrollToTop"
-          class="w-12 h-12 rounded-full bg-blue-500/80 hover:bg-blue-600/80 text-white flex items-center justify-center shadow-lg transition-all duration-200 hover:transform hover:scale-105"
-          title="返回顶部"
-        >
-          <i class="ri-arrow-up-line text-xl"></i>
-        </button>
-        <button
-          @click="scrollToForm"
-          class="w-12 h-12 rounded-full bg-green-500/80 hover:bg-green-600/80 text-white flex items-center justify-center shadow-lg transition-all duration-200 hover:transform hover:scale-105"
-          title="创建任务"
-        >
-          <i class="ri-add-line text-xl"></i>
-        </button>
-      </div>
+      <a-float-button-group trigger="click" class="float-buttons">
+        <a-float-button @click="scrollToTop" tooltip="返回顶部">
+          <template #icon><i class="ri-arrow-up-line"></i></template>
+        </a-float-button>
+        <a-float-button @click="scrollToForm" tooltip="创建任务" type="primary">
+          <template #icon><i class="ri-add-line"></i></template>
+        </a-float-button>
+      </a-float-button-group>
     </div>
 
     <FooterPage />
@@ -363,9 +354,110 @@ export default {
 </script>
 
 <style scoped>
-.backdrop-blur-xl {
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+/* 网络安全主题样式 */
+.task-management {
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+  min-height: 100vh;
+  color: #ffffff;
+}
+
+.management-container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 24px;
+  padding-top: 88px; /* 为HeaderPage留空间 */
+}
+
+/* 页面头部 */
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 32px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(75, 85, 99, 0.3);
+}
+
+.page-title {
+  display: flex;
+  align-items: center;
+  color: #ffffff;
+  font-size: 24px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.page-title i {
+  margin-right: 12px;
+  color: #22d3ee;
+  font-size: 28px;
+}
+
+/* 卡片样式 */
+:deep(.task-list-card.ant-card),
+:deep(.task-form-card.ant-card) {
+  background: rgba(31, 41, 55, 0.4);
+  border: 1px solid rgba(75, 85, 99, 0.3);
+  border-radius: 16px;
+  backdrop-filter: blur(12px);
+  transition: all 0.3s ease;
+}
+
+:deep(.task-list-card.ant-card:hover),
+:deep(.task-form-card.ant-card:hover) {
+  border-color: rgba(34, 211, 238, 0.5);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+  transform: translateY(-2px);
+}
+
+:deep(.task-list-card .ant-card-body),
+:deep(.task-form-card .ant-card-body) {
+  padding: 24px;
+}
+
+/* 表单卡片标题 */
+.form-title {
+  display: flex;
+  align-items: center;
+  color: #ffffff;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.form-title i {
+  margin-right: 8px;
+  color: #22d3ee;
+  font-size: 18px;
+}
+
+:deep(.task-form-card .ant-card-head) {
+  background: rgba(75, 85, 99, 0.2);
+  border-bottom: 1px solid rgba(75, 85, 99, 0.3);
+  border-radius: 16px 16px 0 0;
+}
+
+:deep(.task-form-card .ant-card-head-title) {
+  color: #ffffff;
+}
+
+/* 按钮样式 */
+:deep(.refresh-btn) {
+  background: rgba(75, 85, 99, 0.4);
+  border-color: rgba(75, 85, 99, 0.6);
+  color: #d1d5db;
+}
+
+:deep(.refresh-btn:hover) {
+  background: rgba(75, 85, 99, 0.6);
+  border-color: #22d3ee;
+  color: #22d3ee;
+}
+
+/* 浮动按钮 */
+:deep(.float-buttons) {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
 }
 
 /* 滚动平滑效果 */
@@ -373,29 +465,16 @@ html {
   scroll-behavior: smooth;
 }
 
-/* 卡片悬停效果 */
-.bg-gray-800\/40 {
-  transition: transform 0.3s, box-shadow 0.3s;
-}
-
-.bg-gray-800\/40:hover {
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
-}
-
-/* 浮动按钮动画 */
-@keyframes pulse {
-  0% {
-    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7);
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .management-container {
+    padding: 16px;
   }
-  70% {
-    box-shadow: 0 0 0 10px rgba(59, 130, 246, 0);
-  }
-  100% {
-    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
-  }
-}
 
-.fixed button {
-  animation: pulse 2s infinite;
+  .page-header {
+    flex-direction: column;
+    gap: 16px;
+    align-items: flex-start;
+  }
 }
 </style>

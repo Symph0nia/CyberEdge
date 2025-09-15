@@ -6,7 +6,7 @@ import router from "./router";
 import store from "./store";
 
 // Ant Design Vue
-import Antd, { ConfigProvider } from 'ant-design-vue';
+import Antd from 'ant-design-vue';
 import 'ant-design-vue/dist/reset.css';
 
 // Ant Design主题配置

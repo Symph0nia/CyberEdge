@@ -120,7 +120,7 @@
 </template>
 
 <script>
-import { ref, computed, h } from "vue";
+import { ref, h } from "vue";
 import { message } from 'ant-design-vue';
 
 export default {
@@ -207,7 +207,7 @@ export default {
       onChange: (keys) => {
         selectedRowKeys.value = keys;
       },
-      onSelectAll: (selected, selectedRows, changeRows) => {
+      onSelectAll: () => {
         // 处理全选逻辑
       },
     };

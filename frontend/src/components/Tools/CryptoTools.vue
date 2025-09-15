@@ -189,7 +189,7 @@ export default {
             }
             result.value = CryptoJS.AES.encrypt(formData.inputText, formData.key).toString();
             break;
-          case "aesDecrypt":
+          case "aesDecrypt": {
             if (!formData.key) {
               message.warning('请输入密钥');
               return;
@@ -197,6 +197,7 @@ export default {
             const decrypted = CryptoJS.AES.decrypt(formData.inputText, formData.key).toString(CryptoJS.enc.Utf8);
             result.value = decrypted || "解密失败，可能是密钥错误";
             break;
+          }
           case "md5Hash":
             result.value = CryptoJS.MD5(formData.inputText).toString();
             break;

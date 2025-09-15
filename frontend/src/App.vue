@@ -1,5 +1,5 @@
 <template>
-  <div class="flex flex-col min-h-screen relative overflow-hidden">
+  <div class="min- overflow-">
     <!-- 侧边栏菜单 -->
     <LeftSidebarMenu
       :isVisible="isMenuVisible"
@@ -7,7 +7,7 @@
     />
 
     <!-- 主内容区域 -->
-    <div class="flex-1 transition-all duration-300">
+    <div class="duration-300">
       <router-view />
     </div>
 
@@ -18,7 +18,7 @@
     />
 
     <!-- 左侧工具箱按钮区域 - 添加事件修饰符 -->
-    <div class="fixed left-6 bottom-6 z-[2000]" @click.stop>
+    <div class="z-[2000]" @click.stop>
       <button
         v-if="isAuthenticated"
         @click.stop="toggleMenu"
@@ -26,9 +26,9 @@
         :class="{ 'active-tool': isMenuVisible }"
         type="button"
       >
-        <span class="flex items-center">
+        <span >
           <i
-            class="ri-lock-unlock-line mr-2 group-hover:text-cyan-400 transition-colors duration-300"
+            class="ri-lock-unlock-line group-hover: duration-300"
           ></i>
           加密解密工具箱
         </span>
@@ -36,7 +36,7 @@
     </div>
 
     <!-- 右侧工具箱按钮区域 - 添加事件修饰符 -->
-    <div class="fixed right-6 bottom-6 z-[2000]" @click.stop>
+    <div class="z-[2000]" @click.stop>
       <button
         v-if="isAuthenticated"
         @click.stop="toggleRequestTools"
@@ -44,9 +44,9 @@
         :class="{ 'active-tool': isRequestToolVisible }"
         type="button"
       >
-        <span class="flex items-center">
+        <span >
           <i
-            class="ri-global-line mr-2 group-hover:text-cyan-400 transition-colors duration-300"
+            class="ri-global-line group-hover: duration-300"
           ></i>
           网络请求工具箱
         </span>
@@ -56,7 +56,7 @@
     <!-- 全屏遮罩层，阻止事件穿透 -->
     <div
       v-if="isMenuVisible || isRequestToolVisible"
-      class="fixed inset-0 z-[999]"
+      class="inset-0 z-[999]"
       @click.stop="closeAllTools"
     ></div>
   </div>

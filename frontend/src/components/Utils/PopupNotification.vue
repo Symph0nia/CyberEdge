@@ -3,29 +3,21 @@
     <Transition name="notification">
       <div
         v-if="show"
-        class="fixed top-6 left-1/2 transform -translate-x-1/2 z-50"
+        class="-"
       >
         <div
-          :class="[
-            'px-5 py-3 rounded-xl shadow-2xl max-w-md',
-            'backdrop-blur-xl border',
-            'flex items-center space-x-3',
-            typeClasses,
-          ]"
+          :class="[ ' max-', ' border', ' ', typeClasses, ]"
           role="alert"
         >
           <!-- 状态图标 -->
           <div
-            :class="[
-              'w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0',
-              iconBackgroundClass,
-            ]"
+            :class="[ ' ', iconBackgroundClass, ]"
           >
-            <i :class="[iconClass, 'text-lg']"></i>
+            <i :class="[iconClass, '']"></i>
           </div>
 
           <!-- 消息文本 -->
-          <div class="text-sm font-medium text-gray-200 py-0.5">
+          <div class=".5">
             {{ message }}
           </div>
 
@@ -33,10 +25,10 @@
           <button
             v-if="showCloseButton"
             @click="closeNotification"
-            class="ml-2 text-gray-400 hover:text-gray-200 transition-colors duration-150 focus:outline-none"
+            class="hover: duration-150"
             aria-label="关闭通知"
           >
-            <i class="ri-close-line text-lg"></i>
+            <i class="ri-close-line"></i>
           </button>
         </div>
       </div>

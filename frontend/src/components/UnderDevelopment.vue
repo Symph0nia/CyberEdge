@@ -1,51 +1,51 @@
 <template>
   <div
-    class="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-6 relative overflow-hidden"
+    class="min- overflow-"
   >
     <!-- 背景装饰元素 -->
-    <div class="absolute inset-0 overflow-hidden">
+    <div class="inset-0 overflow-">
       <div class="gear-large"></div>
       <div class="gear-small"></div>
-      <div class="code-block"></div>
+      <div class="code-"></div>
     </div>
 
     <!-- 主要内容卡片 -->
     <div
-      class="bg-gray-800/40 backdrop-blur-xl p-10 rounded-2xl shadow-2xl border border-gray-700/30 max-w-2xl w-full relative z-10"
+      class="border max-"
     >
-      <div class="space-y-8">
+      <div >
         <!-- 标题和图标 -->
-        <div class="space-y-4 text-center">
+        <div >
           <div
-            class="inline-flex items-center justify-center w-20 h-20 bg-gray-700/50 rounded-2xl mx-auto overflow-hidden border border-gray-600/30 shadow-inner group"
+            class="overflow- border group"
           >
-            <span class="text-3xl animate-bounce-slow">🚧</span>
+            <span >🚧</span>
           </div>
-          <h1 class="text-2xl font-medium tracking-wide text-gray-200">
+          <h1 >
             功能开发中
           </h1>
         </div>
 
         <!-- 说明文本 -->
         <p
-          class="text-sm text-gray-400 leading-relaxed text-center max-w-md mx-auto"
+          class="max-"
         >
           该功能正在开发中，我们正在努力完善这项服务。
           <br />感谢您的耐心等待，敬请期待！
         </p>
 
         <!-- 开发进度指示器 -->
-        <div class="space-y-3 max-w-md mx-auto">
-          <div class="flex justify-between text-xs text-gray-500 px-1">
+        <div class="max-">
+          <div >
             <span>开发阶段</span>
             <span>75%</span>
           </div>
           <div
-            class="w-full bg-gray-900/70 rounded-full h-2 overflow-hidden shadow-inner"
+            class="overflow-"
           >
-            <div class="progress-bar h-2 rounded-full"></div>
+            <div class="progress-bar"></div>
           </div>
-          <div class="flex justify-between text-xs text-gray-500 mt-2">
+          <div >
             <span>计划</span>
             <span>设计</span>
             <span>开发</span>
@@ -55,14 +55,14 @@
         </div>
 
         <!-- 返回按钮 -->
-        <div class="flex justify-center pt-6">
+        <div >
           <button
             @click="handleReturn"
-            class="return-button px-6 py-2.5 rounded-xl text-sm font-medium bg-gray-700/50 hover:bg-gray-600/50 text-gray-200 transition-all duration-300 focus:outline-none border border-gray-700/30 hover:border-gray-500/50 group"
+            class="return-button .5 hover: duration-300 border hover: group"
           >
-            <span class="relative z-10 flex items-center">
+            <span >
               <i
-                class="ri-arrow-left-line mr-2 transition-transform duration-300 group-hover:-translate-x-1"
+                class="ri-arrow- duration-300 group-"
               ></i>
               返回上一页
             </span>
@@ -72,11 +72,11 @@
     </div>
 
     <!-- 底部信息 -->
-    <p class="mt-8 text-xs text-gray-500 relative z-10">
+    <p >
       如有建议或问题，请
       <a
         href="#"
-        class="text-gray-400 hover:text-gray-300 underline underline-offset-2"
+        class="hover: -offset-2"
         >与我们联系</a
       >
     </p>

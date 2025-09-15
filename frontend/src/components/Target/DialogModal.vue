@@ -1,44 +1,44 @@
 <template>
   <Transition
-    enter-active-class="transition ease-out duration-200"
-    enter-from-class="opacity-0"
-    enter-to-class="opacity-100"
-    leave-active-class="transition ease-in duration-150"
-    leave-from-class="opacity-100"
-    leave-to-class="opacity-0"
+    enter-active-class="ease-out duration-200"
+    enter-from-
+    enter-to-
+    leave-active-class="ease-in duration-150"
+    leave-from-
+    leave-to-
   >
-    <div class="fixed inset-0 z-50 overflow-y-auto" :class="customClass">
-      <div class="flex min-h-screen items-center justify-center p-4">
+    <div class="inset-0" :class="customClass">
+      <div class="min-">
         <!-- 背景遮罩 -->
         <div
-          class="fixed inset-0 bg-black/70 backdrop-blur-sm transition-opacity"
+          class="inset-0"
           @click="closeOnBackdropClick ? $emit('close') : null"
         ></div>
 
         <!-- 对话框内容 -->
         <Transition
-          enter-active-class="transition ease-out duration-300"
-          enter-from-class="translate-y-4 opacity-0 scale-95"
-          enter-to-class="translate-y-0 opacity-100 scale-100"
-          leave-active-class="transition ease-in duration-200"
-          leave-from-class="translate-y-0 opacity-100 scale-100"
-          leave-to-class="translate-y-4 opacity-0 scale-95"
+          enter-active-class="ease-out duration-300"
+          enter-from-
+          enter-to-
+          leave-active-class="ease-in duration-200"
+          leave-from-
+          leave-to-
         >
           <div
-            class="relative bg-gray-800 rounded-xl p-6 m-4 shadow-xl shadow-black/20 border border-gray-700/50"
+            class="/20 border"
             :class="[widthClasses, customDialogClass]"
             ref="dialogRef"
           >
             <!-- 标题栏 -->
-            <div class="flex justify-between items-center mb-6">
-              <div class="flex items-center space-x-2">
+            <div >
+              <div >
                 <div
                   v-if="showIndicator"
-                  class="w-2 h-2 rounded-full"
+                  
                   :class="indicatorColorClass"
                 ></div>
-                <h3 class="text-xl font-semibold text-white">{{ title }}</h3>
-                <span v-if="subtitle" class="text-sm text-gray-400 ml-2">{{
+                <h3 >{{ title }}</h3>
+                <span v-if="subtitle" >{{
                   subtitle
                 }}</span>
               </div>
@@ -46,29 +46,27 @@
               <button
                 v-if="showCloseButton"
                 @click="$emit('close')"
-                class="rounded-lg p-2 hover:bg-gray-700/50 transition-colors duration-200 group"
+                class="hover: duration-200 group"
                 aria-label="关闭"
               >
                 <i
-                  class="ri-close-line text-gray-400 group-hover:text-white transition-colors duration-200"
+                  class="ri-close-line group-hover: duration-200"
                 ></i>
               </button>
             </div>
 
             <!-- 内容区域 -->
             <div
-              class="mt-4"
-              :class="{
-                'max-h-[70vh] overflow-y-auto custom-scrollbar': scrollable,
-              }"
+              
+              :class="{ 'max- custom-scrollbar': scrollable, }"
             >
               <slot></slot>
             </div>
 
             <!-- 底部操作栏 -->
-            <div class="mt-6" v-if="$slots.footer || $slots.actions">
+            <div  v-if="$slots.footer || $slots.actions">
               <slot name="footer">
-                <div class="flex justify-end space-x-4">
+                <div >
                   <slot name="actions"></slot>
                 </div>
               </slot>

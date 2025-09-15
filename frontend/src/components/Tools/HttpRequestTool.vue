@@ -1,33 +1,33 @@
 <template>
-  <div class="flex flex-col p-6 text-gray-200 space-y-6 max-w-5xl mx-auto">
+  <div class="max-">
     <!-- 标题和说明 -->
-    <div class="text-center space-y-4">
+    <div >
       <h2
-        class="text-xl font-medium tracking-wide flex items-center justify-center"
+        
       >
-        <i class="ri-global-line mr-2 text-cyan-400"></i>网络请求工具
+        <i class="ri-global-line"></i>网络请求工具
       </h2>
       <div
-        class="text-sm text-gray-400 leading-relaxed bg-gray-800/30 p-3 rounded-lg border border-gray-700/30"
+        class="border"
       >
-        <i class="ri-information-line mr-1 text-yellow-400"></i>
+        <i class="ri-information-line"></i>
         使用该功能时需要关闭浏览器的 CORS 安全检查
-        <div class="text-xs opacity-75 mt-2">
-          <span class="mr-2 block sm:inline-block mb-1 sm:mb-0"
+        <div >
+          <span 
             >在 Chrome 中运行：</span
           >
           <div
-            class="flex items-center bg-gray-900/50 px-3 py-1.5 rounded-md text-gray-300 group relative"
+            class=".5 group"
           >
             <code
-              class="flex-1 overflow-x-auto whitespace-nowrap text-xs sm:text-sm"
+              class="sm:"
             >
               chrome.exe --user-data-dir="C:/Chrome dev session"
               --disable-web-security
             </code>
             <button
               @click="copyCommand"
-              class="ml-2 text-gray-400 hover:text-cyan-400 transition-colors"
+              class="hover:"
               title="复制命令"
             >
               <i class="ri-clipboard-line"></i>
@@ -38,24 +38,24 @@
     </div>
 
     <!-- 表单区域 -->
-    <div class="space-y-4">
+    <div >
       <!-- URL输入 -->
-      <div class="space-y-2">
+      <div >
         <label
-          class="block text-sm font-medium text-gray-300 flex items-center"
+          
         >
-          <i class="ri-link mr-2 text-gray-400"></i>请求地址
+          <i class="ri-link"></i>请求地址
         </label>
-        <div class="flex flex-col sm:flex-row space-y-2 sm:space-y-0">
+        <div class="sm: sm:">
           <input
             type="text"
             v-model="url"
-            class="w-full px-4 py-2.5 rounded-xl sm:rounded-l-xl sm:rounded-r-none bg-gray-900/50 backdrop-blur-sm border border-gray-700/30 text-sm focus:outline-none focus:ring-2 focus:ring-gray-600/50 transition-all duration-200"
+            class=".5 sm: sm: border duration-200"
             placeholder="输入请求的 URL"
           />
           <select
             v-model="httpMethod"
-            class="px-4 py-2.5 rounded-xl sm:rounded-l-none sm:rounded-r-xl bg-gray-800/70 backdrop-blur-sm border sm:border-l-0 border-gray-700/30 text-sm focus:outline-none focus:ring-2 focus:ring-gray-600/50 transition-all duration-200 appearance-none"
+            class=".5 sm: sm: border sm: duration-200 appearance-none"
           >
             <option
               v-for="method in [
@@ -76,62 +76,62 @@
       </div>
 
       <!-- 请求头部选项 -->
-      <div class="space-y-2">
-        <div class="flex justify-between items-center">
+      <div >
+        <div >
           <label
-            class="block text-sm font-medium text-gray-300 flex items-center"
+            
           >
-            <i class="ri-file-list-line mr-2 text-gray-400"></i>请求头部
+            <i class="ri-file-list-line"></i>请求头部
           </label>
           <button
             @click="addHeader"
-            class="text-xs bg-gray-700/50 px-2 py-1 rounded-md hover:bg-gray-700 transition-colors flex items-center"
+            class="hover:"
           >
-            <i class="ri-add-line mr-1"></i>添加
+            <i class="ri-add-line"></i>添加
           </button>
         </div>
 
         <div
           v-for="(header, index) in headers"
           :key="index"
-          class="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2 items-center mb-2"
+          class="sm: sm: sm:"
         >
           <input
             v-model="header.key"
-            class="w-full sm:flex-1 px-3 py-2 rounded-lg sm:rounded-l-lg sm:rounded-r-none bg-gray-900/50 backdrop-blur-sm border border-gray-700/30 text-sm focus:outline-none focus:ring-1 focus:ring-gray-600/50 transition-all duration-200"
+            class="sm: sm: sm: border duration-200"
             placeholder="Key"
           />
           <input
             v-model="header.value"
-            class="w-full sm:flex-1 px-3 py-2 rounded-lg sm:rounded-l-none sm:rounded-r-lg bg-gray-900/50 backdrop-blur-sm border border-gray-700/30 text-sm focus:outline-none focus:ring-1 focus:ring-gray-600/50 transition-all duration-200"
+            class="sm: sm: sm: border duration-200"
             placeholder="Value"
           />
           <button
             @click="removeHeader(index)"
-            class="hidden sm:block text-gray-400 hover:text-red-400 transition-colors p-1"
+            class="hover:"
           >
             <i class="ri-delete-bin-line"></i>
           </button>
           <button
             @click="removeHeader(index)"
-            class="sm:hidden w-full text-left text-gray-400 hover:text-red-400 transition-colors p-1 mt-1"
+            class="hover:"
           >
-            <i class="ri-delete-bin-line mr-1"></i>删除
+            <i class="ri-delete-bin-line"></i>删除
           </button>
         </div>
       </div>
 
       <!-- 数据格式选择和请求数据 -->
-      <div class="space-y-2" v-if="showRequestBody">
-        <div class="flex justify-between items-center">
+      <div  v-if="showRequestBody">
+        <div >
           <label
-            class="block text-sm font-medium text-gray-300 flex items-center"
+            
           >
-            <i class="ri-code-box-line mr-2 text-gray-400"></i>请求数据
+            <i class="ri-code-box-line"></i>请求数据
           </label>
           <select
             v-model="dataFormat"
-            class="text-xs px-3 py-1.5 rounded-lg bg-gray-800/50 backdrop-blur-sm border border-gray-700/30 focus:outline-none focus:ring-1 focus:ring-gray-600/50 transition-all duration-200 appearance-none"
+            class=".5 border duration-200 appearance-none"
           >
             <option value="json">JSON</option>
             <option value="raw">Raw</option>
@@ -144,45 +144,45 @@
           v-if="dataFormat !== 'form'"
           v-model="requestData"
           rows="5"
-          class="w-full px-4 py-2.5 rounded-xl bg-gray-900/50 backdrop-blur-sm border border-gray-700/30 text-sm focus:outline-none focus:ring-2 focus:ring-gray-600/50 transition-all duration-200"
+          class=".5 border duration-200"
           :placeholder="jsonPlaceholder"
         ></textarea>
 
         <!-- Form数据输入 -->
-        <div v-else class="space-y-2">
+        <div v-else >
           <div
             v-for="(formItem, index) in formData"
             :key="index"
-            class="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2 items-center mb-2"
+            class="sm: sm: sm:"
           >
             <input
               v-model="formItem.key"
-              class="w-full sm:flex-1 px-3 py-2 rounded-lg sm:rounded-l-lg sm:rounded-r-none bg-gray-900/50 backdrop-blur-sm border border-gray-700/30 text-sm focus:outline-none focus:ring-1 focus:ring-gray-600/50 transition-all duration-200"
+              class="sm: sm: sm: border duration-200"
               placeholder="Key"
             />
             <input
               v-model="formItem.value"
-              class="w-full sm:flex-1 px-3 py-2 rounded-lg sm:rounded-l-none sm:rounded-r-lg bg-gray-900/50 backdrop-blur-sm border border-gray-700/30 text-sm focus:outline-none focus:ring-1 focus:ring-gray-600/50 transition-all duration-200"
+              class="sm: sm: sm: border duration-200"
               placeholder="Value"
             />
             <button
               @click="removeFormItem(index)"
-              class="hidden sm:block text-gray-400 hover:text-red-400 transition-colors p-1"
+              class="hover:"
             >
               <i class="ri-delete-bin-line"></i>
             </button>
             <button
               @click="removeFormItem(index)"
-              class="sm:hidden w-full text-left text-gray-400 hover:text-red-400 transition-colors p-1 mt-1"
+              class="hover:"
             >
-              <i class="ri-delete-bin-line mr-1"></i>删除
+              <i class="ri-delete-bin-line"></i>删除
             </button>
           </div>
           <button
             @click="addFormItem"
-            class="text-xs bg-gray-700/50 px-2 py-1 rounded-md hover:bg-gray-700 transition-colors flex items-center self-start"
+            class="hover:"
           >
-            <i class="ri-add-line mr-1"></i>添加字段
+            <i class="ri-add-line"></i>添加字段
           </button>
         </div>
       </div>
@@ -190,97 +190,90 @@
       <!-- 发送按钮 -->
       <button
         @click="sendRequest"
-        class="w-full px-4 py-3 rounded-xl bg-gray-700/50 hover:bg-gray-600/50 text-sm font-medium transition-all duration-200 flex items-center justify-center space-x-2"
+        class="hover: duration-200"
         :disabled="isLoading"
       >
-        <i class="ri-send-plane-line mr-2" v-if="!isLoading"></i>
-        <i class="ri-loader-4-line animate-spin mr-2" v-else></i>
+        <i class="ri-send-plane-line" v-if="!isLoading"></i>
+        <i class="ri-loader-4-line" v-else></i>
         <span>{{ isLoading ? "发送中..." : "发送请求" }}</span>
       </button>
 
       <!-- 响应结果 -->
       <div
         v-if="response"
-        class="space-y-3 bg-gray-800/20 p-4 rounded-xl border border-gray-700/30"
+        class="border"
       >
         <!-- 状态和时间信息 -->
         <div
-          class="flex flex-col sm:flex-row sm:justify-between text-sm space-y-2 sm:space-y-0"
+          class="sm: sm:"
         >
-          <div class="flex items-center space-x-2">
-            <span class="font-medium text-gray-300">状态码：</span>
+          <div >
+            <span >状态码：</span>
             <span
-              :class="{
-                'text-green-400': responseStatus >= 200 && responseStatus < 300,
-                'text-yellow-400':
-                  responseStatus >= 300 && responseStatus < 400,
-                'text-red-400': responseStatus >= 400,
-              }"
+              :class="{ '': responseStatus >= 200 && responseStatus < 300, '': responseStatus >= 300 && responseStatus < 400, '': responseStatus >= 400, }"
               >{{ responseStatus }}</span
             >
           </div>
-          <div class="text-gray-400">
+          <div >
             <span>耗时：{{ responseTime }}ms</span>
           </div>
         </div>
 
         <!-- 响应头部（可折叠） -->
-        <div class="border-t border-gray-700/30 pt-3">
+        <div >
           <button
             @click="showHeaders = !showHeaders"
-            class="flex items-center justify-between w-full text-left text-sm text-gray-300 mb-2"
+            
           >
-            <span class="font-medium flex items-center">
-              <i class="ri-file-list-line mr-2"></i>响应头部
+            <span >
+              <i class="ri-file-list-line"></i>响应头部
             </span>
             <i
-              :class="
-                showHeaders ? 'ri-arrow-up-s-line' : 'ri-arrow-down-s-line'
-              "
-              class="text-gray-400"
+              :class="showHeaders ? 'ri-arrow-up-s-line' : 'ri-arrow-down-s-line'"
+              
             ></i>
           </button>
 
           <div
             v-if="showHeaders"
-            class="bg-gray-900/30 rounded-lg p-3 mb-3 text-sm"
+            
           >
             <div
               v-for="(value, key) in responseHeaders"
               :key="key"
-              class="flex flex-wrap mb-1"
+              
             >
-              <span class="font-medium text-gray-400 mr-2 whitespace-nowrap"
+              <span 
                 >{{ key }}:</span
               >
-              <span class="text-gray-300 break-all">{{ value }}</span>
+              <span >{{ value }}</span>
             </div>
           </div>
         </div>
 
         <!-- 响应数据 -->
         <div>
-          <div class="flex items-center justify-between mb-2">
-            <span class="text-sm font-medium text-gray-300 flex items-center">
-              <i class="ri-file-text-line mr-2"></i>响应数据
+          <div >
+            <span >
+              <i class="ri-file-"></i>响应数据
             </span>
             <button
               @click="copyResponse"
-              class="text-xs bg-gray-700/50 px-2 py-1 rounded-md hover:bg-gray-700 transition-colors flex items-center"
+              class="hover:"
             >
-              <i class="ri-clipboard-line mr-1"></i>复制
+              <i class="ri-clipboard-line"></i>复制
             </button>
           </div>
           <div
-            class="p-3 rounded-xl bg-gray-900/50 backdrop-blur-sm border border-gray-700/30 break-words"
+            class="border"
           >
-            <div class="max-h-[300px] overflow-y-auto overflow-x-auto">
-              <pre class="text-sm whitespace-pre-wrap" v-if="!isJsonResponse">{{
+            <div class="max-">
+              <pre  v-if="!isJsonResponse">{{
                 response
               }}</pre>
               <pre
                 v-else
-                class="text-sm json-formatter"
+                class="json-formatter"
                 v-html="formattedJsonResponse"
               ></pre>
             </div>
@@ -292,9 +285,9 @@
     <!-- 复制成功提示 -->
     <div
       v-if="showCopySuccess"
-      class="fixed bottom-4 right-4 bg-gray-800/90 backdrop-blur-sm text-white text-sm px-4 py-2 rounded-lg shadow-lg border border-gray-700/30 transition-all duration-300 flex items-center z-[1001]"
+      class="border duration-300 z-[1001]"
     >
-      <i class="ri-check-line mr-2 text-green-400"></i>{{ copyMessage }}
+      <i class="ri-check-line"></i>{{ copyMessage }}
     </div>
   </div>
 </template>

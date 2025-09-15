@@ -215,6 +215,11 @@ export default {
       return { labels, datasets };
     });
 
+    const chartOptions = {
+      responsive: true,
+      maintainAspectRatio: false,
+    };
+
     onMounted(() => {
       fetchMetrics().then(() => {
         animateNumbers();

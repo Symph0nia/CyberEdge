@@ -1,93 +1,93 @@
 <template>
-  <div class="bg-gray-900 text-white flex flex-col min-h-screen">
+  <div class="min-">
     <HeaderPage />
 
-    <div class="container mx-auto px-6 py-8 flex-1 mt-16">
+    <div >
       <!-- 主要内容卡片 -->
       <div
-        class="bg-gray-800/40 backdrop-blur-xl p-8 rounded-2xl shadow-2xl border border-gray-700/30"
+        class="border"
       >
         <!-- 返回按钮与面包屑导航 -->
-        <div class="flex items-center text-sm text-gray-400 mb-6">
+        <div >
           <router-link
             to="/path-scan-results"
-            class="hover:text-blue-400 transition-colors flex items-center"
+            class="hover:"
           >
-            <i class="ri-arrow-left-line mr-1"></i>
+            <i class="ri-arrow-"></i>
             返回列表
           </router-link>
-          <i class="ri-arrow-right-s-line mx-2"></i>
-          <span class="text-gray-200">路径扫描详情</span>
+          <i class="ri-arrow- mx-2"></i>
+          <span >路径扫描详情</span>
         </div>
 
         <!-- 标题和基本信息卡片 -->
         <div
-          class="bg-gray-800/60 rounded-xl border border-gray-700/30 mb-6 overflow-hidden"
+          class="border overflow-"
         >
           <div
-            class="p-5 border-b border-gray-700/30 flex items-center space-x-3"
+            
           >
             <div
-              class="w-10 h-10 rounded-lg bg-blue-500/20 flex items-center justify-center"
+              
             >
-              <i class="ri-folders-line text-blue-400 text-xl"></i>
+              <i class="ri-folders-line"></i>
             </div>
             <div>
-              <h2 class="text-xl font-medium tracking-wide text-gray-200">
+              <h2 >
                 {{ scanResult?.target || "加载中..." }}
               </h2>
-              <p class="text-sm text-gray-400 mt-1">路径扫描结果详情</p>
+              <p >路径扫描结果详情</p>
             </div>
           </div>
 
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-6 p-5">
-            <div class="flex flex-col">
-              <span class="text-sm text-gray-400 mb-1 flex items-center">
-                <i class="ri-fingerprint-line mr-1.5"></i>
+          <div class="md:">
+            <div >
+              <span >
+                <i class="ri-fingerprint-line .5"></i>
                 扫描ID
               </span>
-              <div class="flex items-center">
-                <span class="text-sm font-mono text-gray-200">{{
+              <div >
+                <span >{{
                   scanResult?.id || "-"
                 }}</span>
                 <button
                   v-if="scanResult?.id"
                   @click="copyToClipboard(scanResult.id)"
-                  class="ml-2 text-gray-500 hover:text-gray-300 transition-colors"
+                  class="hover:"
                   title="复制ID"
                 >
-                  <i class="ri-clipboard-line text-xs"></i>
+                  <i class="ri-clipboard-line"></i>
                 </button>
               </div>
             </div>
 
-            <div class="flex flex-col">
-              <span class="text-sm text-gray-400 mb-1 flex items-center">
-                <i class="ri-global-line mr-1.5"></i>
+            <div >
+              <span >
+                <i class="ri-global-line .5"></i>
                 目标地址
               </span>
-              <div class="flex items-center">
-                <span class="text-sm text-gray-200">{{
+              <div >
+                <span >{{
                   scanResult?.target || "-"
                 }}</span>
                 <button
                   v-if="scanResult?.target"
                   @click="copyToClipboard(scanResult.target)"
-                  class="ml-2 text-gray-500 hover:text-gray-300 transition-colors"
+                  class="hover:"
                   title="复制目标"
                 >
-                  <i class="ri-clipboard-line text-xs"></i>
+                  <i class="ri-clipboard-line"></i>
                 </button>
               </div>
             </div>
 
-            <div class="flex flex-col">
-              <span class="text-sm text-gray-400 mb-1 flex items-center">
-                <i class="ri-time-line mr-1.5"></i>
+            <div >
+              <span >
+                <i class="ri-time-line .5"></i>
                 扫描时间
               </span>
-              <div class="flex items-center">
-                <span class="text-sm text-gray-200">
+              <div >
+                <span >
                   {{ scanResult ? formatDate(scanResult.timestamp) : "-" }}
                 </span>
               </div>
@@ -96,30 +96,30 @@
         </div>
 
         <!-- 统计数据展示 -->
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <div class="md:">
           <div
-            class="bg-gray-800/60 rounded-xl border border-gray-700/30 p-4 flex flex-col"
+            class="border"
           >
-            <span class="text-sm text-gray-400 mb-1">总路径数</span>
-            <span class="text-2xl font-medium text-gray-200">{{
+            <span >总路径数</span>
+            <span >{{
               paths.length
             }}</span>
           </div>
 
           <div
-            class="bg-gray-800/60 rounded-xl border border-gray-700/30 p-4 flex flex-col"
+            class="border"
           >
-            <span class="text-sm text-gray-400 mb-1">可访问路径</span>
-            <span class="text-2xl font-medium text-green-300">
+            <span >可访问路径</span>
+            <span >
               {{ paths.filter((p) => p.status === "200").length }}
             </span>
           </div>
 
           <div
-            class="bg-gray-800/60 rounded-xl border border-gray-700/30 p-4 flex flex-col"
+            class="border"
           >
-            <span class="text-sm text-gray-400 mb-1">重定向路径</span>
-            <span class="text-2xl font-medium text-blue-300">
+            <span >重定向路径</span>
+            <span >
               {{
                 paths.filter((p) => p.status && p.status.startsWith("3")).length
               }}
@@ -127,10 +127,10 @@
           </div>
 
           <div
-            class="bg-gray-800/60 rounded-xl border border-gray-700/30 p-4 flex flex-col"
+            class="border"
           >
-            <span class="text-sm text-gray-400 mb-1">已读状态</span>
-            <span class="text-2xl font-medium text-yellow-300">
+            <span >已读状态</span>
+            <span >
               {{ paths.filter((p) => p.is_read).length }}
             </span>
           </div>
@@ -138,42 +138,39 @@
 
         <!-- 批量操作工具栏 -->
         <div
-          class="bg-gray-800/60 rounded-xl border border-gray-700/30 p-4 mb-6"
+          class="border"
         >
-          <div class="flex flex-wrap items-center gap-3">
-            <div class="flex items-center mr-2">
+          <div >
+            <div >
               <input
                 type="checkbox"
                 @change="toggleSelectAll"
                 v-model="selectAll"
-                class="rounded border-gray-700/50 bg-gray-800/50 text-blue-500 focus:ring-blue-500/30 mr-2"
+                
                 id="select-all"
               />
               <label
                 for="select-all"
-                class="text-sm text-gray-300 cursor-pointer"
+                
               >
                 全选
               </label>
             </div>
 
-            <span class="text-sm text-gray-400" v-if="selectedPaths.length > 0">
+            <span  v-if="selectedPaths.length > 0">
               已选择 {{ selectedPaths.length }} 项
             </span>
 
             <!-- 批量操作按钮组 -->
-            <div class="flex flex-wrap gap-3 ml-auto">
+            <div >
               <!-- 解析路径按钮 -->
               <button
                 @click="resolveSelectedPaths"
                 :disabled="selectedPaths.length === 0 || isResolving"
-                class="tool-button bg-blue-500/20 border-blue-500/30 text-blue-300 hover:bg-blue-500/30"
-                :class="{
-                  'opacity-60 cursor-not-allowed':
-                    selectedPaths.length === 0 || isResolving,
-                }"
+                class="tool-button hover:"
+                :class="{ ' ': selectedPaths.length === 0 || isResolving, }"
               >
-                <i class="ri-search-eye-line mr-1.5"></i>
+                <i class="ri-search-eye-line .5"></i>
                 {{ isResolving ? "正在解析..." : "解析选中路径" }}
               </button>
 
@@ -181,12 +178,10 @@
               <button
                 @click="sendSelectedToPortScan"
                 :disabled="selectedPaths.length === 0"
-                class="tool-button bg-yellow-500/20 border-yellow-500/30 text-yellow-300 hover:bg-yellow-500/30"
-                :class="{
-                  'opacity-60 cursor-not-allowed': selectedPaths.length === 0,
-                }"
+                class="tool-button hover:"
+                :class="{ ' ': selectedPaths.length === 0, }"
               >
-                <i class="ri-scan-2-line mr-1.5"></i>
+                <i class="ri-scan-2-line .5"></i>
                 发送到端口扫描
               </button>
             </div>
@@ -195,19 +190,19 @@
 
         <!-- 路径表格 -->
         <div
-          class="bg-gray-800/60 rounded-xl border border-gray-700/30 overflow-hidden mb-4"
+          class="border overflow-"
         >
-          <div class="relative overflow-x-auto custom-scrollbar">
-            <table class="w-full">
+          <div class="custom-scrollbar">
+            <table >
               <thead>
-                <tr class="bg-gray-800/80">
-                  <th class="py-3 px-4 text-left">
+                <tr >
+                  <th >
                     <span class="sr-only">选择</span>
                   </th>
                   <th
                     v-for="header in tableHeaders"
                     :key="header.key"
-                    class="py-3 px-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider"
+                    
                   >
                     {{ header.label }}
                   </th>
@@ -217,89 +212,72 @@
                 <tr
                   v-for="(path, index) in paths"
                   :key="path.id"
-                  class="border-t border-gray-700/30 transition-colors duration-200"
-                  :class="[
-                    index % 2 === 0 ? 'bg-gray-800/30' : 'bg-transparent',
-                    'hover:bg-gray-700/40',
-                  ]"
+                  class="duration-200"
+                  :class="[ index % 2 === 0 ? '' : '', 'hover:', ]"
                 >
-                  <td class="py-3 px-4 w-10">
+                  <td >
                     <input
                       type="checkbox"
                       v-model="selectedPaths"
                       :value="path.id"
-                      class="rounded border-gray-700/50 bg-gray-800/50 text-blue-500 focus:ring-blue-500/30"
+                      
                     />
                   </td>
-                  <td class="py-3 px-4 text-xs font-mono text-gray-300 w-20">
+                  <td >
                     {{ path.id }}
                   </td>
-                  <td class="py-3 px-4 text-sm text-gray-200">
-                    <div class="flex items-center">
-                      <i class="ri-folder-line mr-2 text-blue-400"></i>
-                      <span class="truncate max-w-xs" :title="path.path">
+                  <td >
+                    <div >
+                      <i class="ri-folder-line"></i>
+                      <span class="max-" :title="path.path">
                         {{ path.path }}
                       </span>
                       <button
                         @click="copyToClipboard(path.path)"
-                        class="ml-2 text-gray-500 hover:text-gray-300 transition-colors"
+                        class="hover:"
                         title="复制路径"
                       >
-                        <i class="ri-clipboard-line text-xs"></i>
+                        <i class="ri-clipboard-line"></i>
                       </button>
                     </div>
                   </td>
-                  <td class="py-3 px-4 w-24">
+                  <td >
                     <span
                       class="status-badge"
                       :class="getStatusClass(path.status)"
                     >
-                      <i class="ri-checkbox-blank-circle-fill mr-1 text-xs"></i>
+                      <i class="ri-checkbox-blank-circle-fill"></i>
                       {{ path.status || "未知" }}
                     </span>
                   </td>
-                  <td class="py-3 px-4 w-20">
+                  <td >
                     <span
                       class="status-badge"
-                      :class="
-                        path.is_read
-                          ? 'bg-green-500/20 text-green-300 border-green-500/30'
-                          : 'bg-yellow-500/20 text-yellow-300 border-yellow-500/30'
-                      "
+                      :class="path.is_read ? ' ' : ' '"
                     >
                       <i
-                        :class="[
-                          path.is_read ? 'ri-eye-line' : 'ri-eye-off-line',
-                          'mr-1',
-                        ]"
+                        :class="[ path.is_read ? 'ri-eye-line' : 'ri-eye-off-line', '', ]"
                       ></i>
                       {{ path.is_read ? "已读" : "未读" }}
                     </span>
                   </td>
-                  <td class="py-3 px-4 w-48">
-                    <div class="flex gap-2">
+                  <td >
+                    <div >
                       <button
                         @click="toggleReadStatus(path)"
                         class="action-button"
-                        :class="
-                          path.is_read
-                            ? 'bg-gray-700/50 text-gray-300 border-gray-600/30'
-                            : 'bg-green-500/20 text-green-300 border-green-500/30 hover:bg-green-500/30'
-                        "
+                        :class="path.is_read ? ' ' : ' hover:'"
                       >
                         <i
-                          :class="[
-                            path.is_read ? 'ri-eye-off-line' : 'ri-eye-line',
-                            'mr-1',
-                          ]"
+                          :class="[ path.is_read ? 'ri-eye-off-line' : 'ri-eye-line', '', ]"
                         ></i>
                         {{ path.is_read ? "标为未读" : "标为已读" }}
                       </button>
                       <button
                         @click="sendToPortScan(path)"
-                        class="action-button bg-yellow-500/20 text-yellow-300 border-yellow-500/30 hover:bg-yellow-500/30"
+                        class="action-button hover:"
                       >
-                        <i class="ri-scan-2-line mr-1"></i>
+                        <i class="ri-scan-2-line"></i>
                         端口扫描
                       </button>
                     </div>
@@ -313,15 +291,15 @@
         <!-- 空状态展示 -->
         <div
           v-if="paths.length === 0 && !errorMessage"
-          class="flex flex-col items-center justify-center py-12 text-center"
+          
         >
           <div
-            class="w-16 h-16 rounded-full bg-gray-800/50 flex items-center justify-center mb-4"
+            
           >
-            <i class="ri-search-line text-gray-500 text-3xl"></i>
+            <i class="ri-search-line"></i>
           </div>
-          <h3 class="text-lg font-medium text-gray-300 mb-2">无路径数据</h3>
-          <p class="text-gray-400 max-w-md mb-6">
+          <h3 >无路径数据</h3>
+          <p class="max-">
             该扫描结果中没有发现路径数据，或正在加载中...
           </p>
         </div>
@@ -329,10 +307,10 @@
         <!-- 错误提示 -->
         <div
           v-if="errorMessage"
-          class="mt-4 px-4 py-3 rounded-xl bg-red-500/20 border border-red-500/30 flex items-center"
+          class="border"
         >
-          <i class="ri-error-warning-line text-red-400 mr-2 text-lg"></i>
-          <p class="text-sm text-red-400">{{ errorMessage }}</p>
+          <i class="ri-error-warning-line"></i>
+          <p >{{ errorMessage }}</p>
         </div>
       </div>
     </div>
