@@ -8,13 +8,11 @@ import WAFDashboard from "@/components/Dashboard.vue";
 import GoogleAuthQRCode from "@/components/Login/GoogleAuthQRCode.vue";
 import TaskManagement from "@/components/Task/TaskManagement.vue";
 import PortScanResults from "@/components/Port/PortScanResults.vue";
-import PortScanDetail from "@/components/Port/PortScanDetail.vue";
 import SubdomainScanResults from "@/components/Subdomain/SubdomainScanResults.vue";
-import SubdomainScanDetail from "@/components/Subdomain/SubdomainScanDetail.vue";
 import PathScanResults from "@/components/Path/PathScanResults.vue";
-import PathScanDetail from "@/components/Path/PathScanDetail.vue";
+import ScanResultDetail from "@/components/Results/ScanResultDetail.vue";
 import TargetManagement from "@/components/Target/TargetManagement.vue";
-import TargetDetail from "@/components/Target/TargetDetail.vue";
+// TargetDetail组件已删除，使用通用组件替代
 import UnderDevelopment from "@/components/UnderDevelopment.vue";
 import ToolConfiguration from "@/components/Config/ToolConfiguration.vue";
 
@@ -65,10 +63,10 @@ const routes = [
     component: PortScanResults,
   },
   {
-    path: "/port-scan-results/:id", // 新增详情页的路由
+    path: "/port-scan-results/:id",
     name: "PortScanDetail",
-    component: PortScanDetail,
-    props: true, // 将路由参数作为 props 传递给组件
+    component: ScanResultDetail,
+    props: true,
   },
   {
     path: "/subdomain-scan-results",
@@ -76,10 +74,10 @@ const routes = [
     component: SubdomainScanResults,
   },
   {
-    path: "/subdomain-scan-results/:id", // 新增详情页的路由
+    path: "/subdomain-scan-results/:id",
     name: "SubdomainScanDetail",
-    component: SubdomainScanDetail,
-    props: true, // 将路由参数作为 props 传递给组件
+    component: ScanResultDetail,
+    props: true,
   },
   {
     path: "/path-scan-results",
@@ -87,10 +85,10 @@ const routes = [
     component: PathScanResults, // 确保导入了 PathScanResults 组件
   },
   {
-    path: "/path-scan-results/:id", // 新增详情页的路由
+    path: "/path-scan-results/:id",
     name: "PathScanDetail",
-    component: PathScanDetail, // 确保导入了 PathScanDetail 组件
-    props: true, // 将路由参数作为 props 传递给组件
+    component: ScanResultDetail,
+    props: true,
   },
   {
     path: "/task-management",
