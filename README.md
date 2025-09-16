@@ -1,42 +1,98 @@
-# CyberEdge - 网络安全渗透测试平台
+# CyberEdge 用户管理系统
 
-CyberEdge是一个现代化的网络安全渗透测试平台，提供全面的安全评估和漏洞检测功能。
-
-## 项目结构
-
-```
-CyberEdge/
-├── backend/    # Go后端API服务
-├── frontend/   # Vue.js前端界面
-└── README.md   # 项目说明文档
-```
+极简的用户认证和管理系统，支持JWT认证和TOTP双因子认证。
 
 ## 快速开始
 
-### 后端服务
+### 前置要求
+
+- Docker
+- Go 1.22+
+- Node.js 16+
+- netcat (用于端口检测)
+
+### 一键启动开发环境
+
 ```bash
-cd backend
-go mod tidy
-go run cmd/cyberedge.go
+./start-dev.sh
 ```
 
-### 前端服务
+这将自动：
+1. 启动MySQL Docker容器
+2. 初始化数据库schema
+3. 启动后端API服务 (端口31337)
+4. 启动前端开发服务器 (端口8080)
+
+### 服务地址
+
+- 前端: http://localhost:8080
+- 后端API: http://localhost:31337
+- MySQL: localhost:3306 (用户: root, 密码: password)
+
+### 手动启动
+
+如果需要分别启动各个服务：
+
+#### 1. 启动MySQL
+
+```bash
+docker run -d --name cyberedge-mysql \
+  -e MYSQL_ROOT_PASSWORD=password \
+  -e MYSQL_DATABASE=cyberedge \
+  -p 3306:3306 mysql:8.0
+
+# 导入schema
+docker exec -i cyberedge-mysql mysql -uroot -ppassword cyberedge < backend/schema.sql
+```
+
+#### 2. 启动后端
+
+```bash
+cd backend
+go build -o cyberedge cmd/cyberedge.go
+./cyberedge
+```
+
+#### 3. 启动前端
+
 ```bash
 cd frontend
 npm install
 npm run serve
 ```
 
-## 开发分支
-- `main`: 生产分支
-- `dev`: 开发分支
+## API接口
 
-## 功能特性
-- 子域名发现 (Subfinder)
-- 端口扫描 (Nmap)
-- 目录爆破 (Ffuf)
-- Web服务识别
-- 任务管理系统
-- 用户权限控制
+### 认证
 
-更多详细信息请参考各子项目的README文档。
+- `POST /auth/login` - 用户登录
+- `POST /auth/register` - 用户注册
+- `GET /auth/check` - 检查认证状态
+
+### 用户管理
+
+- `GET /users` - 获取所有用户
+- `GET /users/:id` - 获取单个用户
+- `POST /users` - 创建用户
+- `DELETE /users/:id` - 删除用户
+
+### 双因子认证
+
+- `POST /auth/2fa/setup` - 设置2FA
+- `POST /auth/2fa/verify` - 验证2FA
+- `DELETE /auth/2fa` - 禁用2FA
+
+## 数据库
+
+仅使用一个`users`表，包含：
+- 基本信息: username, email, password_hash
+- 双因子认证: is_2fa_enabled, totp_secret
+- 权限: role (admin/user)
+- 时间戳: created_at, updated_at
+
+## 技术栈
+
+- 后端: Go + Gin + GORM + MySQL
+- 前端: Vue 3 + Ant Design Vue
+- 认证: JWT + TOTP
+- 容器: Docker

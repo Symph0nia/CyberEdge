@@ -1,383 +1,215 @@
 <template>
-  <div class="bg-gray-900 flex items-center justify-center min-h-screen p-4">
-    <div
-      class="bg-gray-800/40 backdrop-blur-xl p-8 md:p-10 rounded-3xl shadow-2xl w-full max-w-md border border-gray-700/30 register-card"
-    >
-      <div class="space-y-6">
-        <!-- 标题区域 -->
-        <div class="flex flex-col items-center text-center space-y-3">
-          <div
-            class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gray-700/30 shadow-inner"
-          >
-            <i class="ri-shield-keyhole-line text-2xl text-emerald-300"></i>
+  <div class="qr-container">
+    <a-card class="qr-card" title="设置双重认证">
+      <template #extra>
+        <div class="icon-wrapper">
+          <i class="ri-shield-keyhole-line"></i>
+        </div>
+      </template>
+
+      <div class="qr-content">
+        <p class="description">
+          通过扫描二维码创建您的安全账户
+        </p>
+
+        <div class="qr-section">
+          <div class="qr-code">
+            <canvas ref="qrCanvas"></canvas>
           </div>
-          <div>
-            <h2 class="text-xl font-medium tracking-wide text-gray-200">
-              设置双重认证
-            </h2>
-            <p class="text-gray-500 text-sm mt-1">
-              通过扫描二维码创建您的安全账户
-            </p>
-          </div>
+          <p class="qr-text">请使用 Google Authenticator 扫描此二维码</p>
         </div>
 
-        <!-- 接口关闭状态 -->
-        <div
-          v-if="interfaceClosed"
-          class="text-center p-6 bg-gray-900/30 rounded-xl border border-red-900/20"
-        >
-          <div
-            class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-red-900/20 mb-3"
-          >
-            <i class="ri-close-circle-line text-xl text-red-400"></i>
-          </div>
-          <p class="text-red-400/90 text-sm font-medium mb-1">注册通道已关闭</p>
-          <p class="text-gray-400 text-sm">系统维护中，请稍后重试</p>
-        </div>
+        <a-divider />
 
-        <!-- 正常状态 -->
-        <div v-else class="space-y-6">
-          <!-- 二维码显示区域 -->
-          <div v-if="qrCodeUrl" class="space-y-4">
-            <div
-              class="bg-gray-900/50 p-6 rounded-2xl border border-gray-700/30 flex flex-col items-center qr-container hover:border-emerald-700/30 transition-colors duration-300"
-            >
-              <div class="qr-overlay flex items-center justify-center">
-                <button @click="fetchQRCode" class="refresh-qr-button">
-                  <i class="ri-refresh-line mr-1.5"></i>
-                  刷新二维码
-                </button>
-              </div>
-              <img
-                :src="qrCodeUrl"
-                alt="认证二维码"
-                class="mx-auto w-48 h-48 qr-image"
-              />
-              <p class="text-xs text-gray-500 mt-2">
-                <i class="ri-time-line mr-1"></i>
-                二维码有效期为10分钟
-              </p>
-            </div>
+        <a-form @submit="verifyCode" layout="vertical" class="verify-form">
+          <a-form-item label="验证码" required>
+            <a-input
+              v-model:value="verificationCode"
+              placeholder="请输入6位验证码"
+              maxlength="6"
+              size="large"
+              class="code-input"
+            />
+          </a-form-item>
 
-            <!-- 账户信息区域 -->
-            <div
-              class="bg-gray-900/30 p-5 rounded-xl space-y-3 border border-gray-700/30"
-            >
-              <div class="flex items-center justify-between">
-                <span class="text-sm text-gray-400">账户名称</span>
-                <div class="flex items-center gap-2">
-                  <span class="text-sm text-gray-200 font-mono">{{
-                    accountName
-                  }}</span>
-                  <button
-                    @click="copyAccountName"
-                    class="p-1.5 hover:bg-gray-700/50 rounded-lg transition-colors relative"
-                    :class="{ copied: copied }"
-                    :title="copied ? '已复制' : '复制账户名'"
-                  >
-                    <i
-                      class="ri-file-copy-line text-gray-400 group-hover:text-gray-200"
-                    ></i>
-                    <span v-if="copied" class="copy-indicator"></span>
-                  </button>
-                </div>
-              </div>
-              <div
-                class="flex items-center gap-1.5 text-xs text-gray-500 bg-gray-800/30 p-2 rounded-lg"
-              >
-                <i class="ri-information-line text-blue-400"></i>
-                <span>请妥善保管账户名称，用于登录验证</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- 加载状态 -->
-          <div
-            v-else-if="loading"
-            class="flex flex-col items-center justify-center py-12"
-          >
-            <div class="loading-spinner mb-4"></div>
-            <p class="text-sm text-gray-400">正在生成二维码...</p>
-          </div>
-
-          <!-- 初始状态 -->
-          <div
-            v-else
-            class="bg-gray-900/30 p-5 rounded-xl border border-gray-700/30 space-y-4"
-          >
-            <div class="flex items-start gap-3">
-              <div
-                class="flex-shrink-0 w-8 h-8 rounded-full bg-gray-800/50 flex items-center justify-center text-emerald-400"
-              >
-                <i class="ri-google-line"></i>
-              </div>
-              <div>
-                <h3 class="text-sm font-medium text-gray-300 mb-1">
-                  使用 Google Authenticator
-                </h3>
-                <p class="text-xs text-gray-500 leading-relaxed">
-                  扫描二维码以启用双重认证，增强账户安全性
-                </p>
-              </div>
-            </div>
-
-            <div class="flex items-start gap-3">
-              <div
-                class="flex-shrink-0 w-8 h-8 rounded-full bg-gray-800/50 flex items-center justify-center text-emerald-400"
-              >
-                <i class="ri-lock-password-line"></i>
-              </div>
-              <div>
-                <h3 class="text-sm font-medium text-gray-300 mb-1">
-                  安全登录保障
-                </h3>
-                <p class="text-xs text-gray-500 leading-relaxed">
-                  通过验证码进行二次验证，有效防止未授权访问
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <!-- 按钮区域 -->
-          <div class="space-y-3 pt-2">
-            <button
-              v-if="!qrCodeUrl"
-              @click="fetchQRCode"
-              :disabled="loading"
-              class="primary-button"
-            >
-              <i class="ri-qr-code-line mr-1.5"></i>
-              生成二维码
-            </button>
-
-            <button @click="goToLogin" class="secondary-button">
-              <i class="ri-login-circle-line mr-1.5"></i>
-              去登录
-            </button>
-          </div>
-        </div>
+          <a-form-item>
+            <a-space direction="vertical" style="width: 100%">
+              <a-button type="primary" html-type="submit" size="large" block>
+                验证并启用
+              </a-button>
+              <a-button @click="$emit('back')" size="large" block>
+                返回
+              </a-button>
+            </a-space>
+          </a-form-item>
+        </a-form>
       </div>
-    </div>
-
-    <!-- 通知组件 -->
-    <PopupNotification
-      v-if="showNotification"
-      :message="notificationMessage"
-      :type="notificationType"
-      @close="showNotification = false"
-    />
+    </a-card>
   </div>
 </template>
 
 <script>
-import { ref } from "vue";
-import { useRouter } from "vue-router";
-import { useNotification } from "../../composables/useNotification";
-import api from "../../api/axiosInstance";
-import PopupNotification from "../Utils/PopupNotification.vue";
+import { ref, onMounted } from 'vue';
+import QRCode from 'qrcode';
 
 export default {
-  name: "GoogleAuthQRCode",
-  components: {
-    PopupNotification,
+  name: 'GoogleAuthQRCode',
+  props: {
+    qrCodeUrl: {
+      type: String,
+      required: true
+    }
   },
-  setup() {
-    const router = useRouter();
-    const qrCodeUrl = ref("");
-    const loading = ref(false);
-    const interfaceClosed = ref(false);
-    const accountName = ref("");
-    const copied = ref(false);
+  emits: ['verify', 'back'],
+  setup(props, { emit }) {
+    const qrCanvas = ref(null);
+    const verificationCode = ref('');
 
-    const {
-      showNotification,
-      notificationMessage,
-      notificationType,
-      showSuccess,
-      showError,
-    } = useNotification();
-
-    const copyAccountName = async () => {
-      try {
-        await navigator.clipboard.writeText(accountName.value);
-        copied.value = true;
-        showSuccess("账户名已复制到剪贴板");
-        setTimeout(() => {
-          copied.value = false;
-        }, 2000);
-      } catch (err) {
-        showError("复制失败，请手动复制");
-      }
-    };
-
-    const fetchQRCode = async () => {
-      loading.value = true;
-      try {
-        const response = await api.get("/auth/qrcode");
-        const { qrcode, account } = response.data;
-        qrCodeUrl.value = `data:image/png;base64,${qrcode}`;
-        accountName.value = account;
-        interfaceClosed.value = false;
-        showSuccess("二维码已成功生成");
-      } catch (error) {
-        console.error("获取二维码失败:", error);
-        interfaceClosed.value = true;
-
-        if (error.response?.data?.error === "二维码接口已关闭") {
-          showError("注册接口暂时关闭，请稍后再试");
-        } else {
-          showError("生成二维码失败，请重试");
+    const generateQRCode = async () => {
+      if (qrCanvas.value && props.qrCodeUrl) {
+        try {
+          await QRCode.toCanvas(qrCanvas.value, props.qrCodeUrl);
+        } catch (error) {
+          console.error('生成二维码失败:', error);
         }
-      } finally {
-        loading.value = false;
       }
     };
 
-    const goToLogin = () => {
-      router.push("/login");
+    const verifyCode = () => {
+      if (verificationCode.value && verificationCode.value.length === 6) {
+        emit('verify', verificationCode.value);
+      }
     };
+
+    onMounted(() => {
+      generateQRCode();
+    });
 
     return {
-      qrCodeUrl,
-      loading,
-      interfaceClosed,
-      accountName,
-      copied,
-      fetchQRCode,
-      copyAccountName,
-      showNotification,
-      notificationMessage,
-      notificationType,
-      goToLogin,
+      qrCanvas,
+      verificationCode,
+      verifyCode
     };
-  },
+  }
 };
 </script>
 
 <style scoped>
-/* 卡片进入动画 */
-.register-card {
-  animation: slide-up 0.8s cubic-bezier(0.22, 1, 0.36, 1) forwards;
-  transform: translateY(20px);
-  opacity: 0;
-}
-
-@keyframes slide-up {
-  0% {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  100% {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-/* 背景模糊效果 */
-.backdrop-blur-xl {
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-}
-
-/* 主要按钮样式 */
-.primary-button {
-  @apply w-full px-4 py-3 rounded-xl bg-emerald-600/80 hover:bg-emerald-500/80 text-sm font-medium text-white transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-emerald-600/50 flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed shadow-lg shadow-emerald-900/20;
-}
-
-/* 次要按钮样式 */
-.secondary-button {
-  @apply w-full px-4 py-3 rounded-xl bg-gray-800/70 hover:bg-gray-700/70 text-sm font-medium text-gray-200 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-gray-600/50 flex items-center justify-center gap-2 border border-gray-700/30;
-}
-
-/* 二维码区域样式 */
 .qr-container {
-  position: relative;
-  overflow: hidden;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+  padding: 24px;
 }
 
-.qr-image {
-  transition: filter 0.3s ease;
+.qr-card {
+  width: 100%;
+  max-width: 480px;
+  background: rgba(30, 41, 59, 0.8);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(51, 65, 85, 0.3);
+  border-radius: 16px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
 }
 
-.qr-overlay {
-  position: absolute;
-  inset: 0;
-  background: rgba(17, 24, 39, 0.7);
-  opacity: 0;
-  transition: opacity 0.3s ease;
-  z-index: 10;
-  backdrop-filter: blur(2px);
-}
-
-.qr-container:hover .qr-overlay {
-  opacity: 1;
-}
-
-.qr-container:hover .qr-image {
-  filter: blur(1px);
-}
-
-/* 刷新二维码按钮 */
-.refresh-qr-button {
-  @apply bg-emerald-600/90 hover:bg-emerald-500/90 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center justify-center transition-all duration-200 shadow-lg;
-}
-
-/* 复制状态指示器 */
-.copy-indicator {
-  position: absolute;
-  width: 5px;
-  height: 5px;
-  background-color: #10b981;
-  border-radius: 50%;
-  top: 0;
-  right: 0;
-}
-
-/* 已复制样式 */
-.copied i {
-  color: #10b981 !important;
-}
-
-/* 加载动画 */
-.loading-spinner {
+.icon-wrapper {
   width: 40px;
   height: 40px;
-  border: 3px solid rgba(16, 185, 129, 0.2);
-  border-radius: 50%;
-  border-top: 3px solid rgba(16, 185, 129, 0.8);
-  animation: spin 1s linear infinite;
+  border-radius: 12px;
+  background: rgba(59, 130, 246, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-@keyframes spin {
-  0% {
-    transform: rotate(0deg);
-  }
-  100% {
-    transform: rotate(360deg);
-  }
+.icon-wrapper i {
+  font-size: 20px;
+  color: #3b82f6;
 }
 
-/* 优化按钮点击效果 */
-button:not(:disabled):active {
-  transform: scale(0.98);
+.qr-content {
+  text-align: center;
 }
 
-/* 自定义滚动条 */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+.description {
+  color: #94a3b8;
+  margin-bottom: 32px;
+  font-size: 16px;
+  line-height: 1.6;
 }
 
-::-webkit-scrollbar-track {
+.qr-section {
+  margin-bottom: 32px;
+}
+
+.qr-code {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 16px;
+  padding: 20px;
+  background: white;
+  border-radius: 12px;
+  display: inline-block;
+}
+
+.qr-text {
+  color: #cbd5e1;
+  font-size: 14px;
+  margin: 0;
+}
+
+.code-input {
+  text-align: center;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 4px;
+}
+
+/* Ant Design 样式覆盖 */
+.qr-card :deep(.ant-card-head) {
+  background: rgba(15, 23, 42, 0.8);
+  border-bottom: 1px solid rgba(51, 65, 85, 0.3);
+}
+
+.qr-card :deep(.ant-card-head-title) {
+  color: #f1f5f9;
+  font-weight: 600;
+  font-size: 20px;
+}
+
+.qr-card :deep(.ant-card-body) {
   background: transparent;
+  padding: 32px;
 }
 
-::-webkit-scrollbar-thumb {
-  background: rgba(156, 163, 175, 0.3);
-  border-radius: 3px;
+.qr-card :deep(.ant-form-item-label > label) {
+  color: #e2e8f0;
+  font-weight: 500;
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(156, 163, 175, 0.5);
+.qr-card :deep(.ant-divider) {
+  border-color: rgba(51, 65, 85, 0.3);
+}
+
+/* 响应式设计 */
+@media (max-width: 640px) {
+  .qr-container {
+    padding: 16px;
+  }
+
+  .qr-card :deep(.ant-card-body) {
+    padding: 24px;
+  }
+
+  .description {
+    font-size: 14px;
+  }
+
+  .code-input {
+    font-size: 16px;
+    letter-spacing: 2px;
+  }
 }
 </style>

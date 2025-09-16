@@ -3,16 +3,19 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "serve": "vue-cli-service serve --mode development",
+    "serve": "vue-cli-service serve --mode development --host 0.0.0.0 --port 8080",
     "build": "vue-cli-service build --mode production",
     "build:dev": "vue-cli-service build --mode development",
     "lint": "vue-cli-service lint"
   },
   "dependencies": {
+    "@ant-design/icons-vue": "^7.0.1",
+    "ant-design-vue": "^4.2.6",
     "axios": "^1.7.7",
     "chart.js": "^4.4.4",
     "core-js": "^3.8.3",
     "crypto-js": "^4.2.0",
+    "qrcode": "^1.5.4",
     "remixicon": "^4.5.0",
     "vue": "^3.2.13",
     "vue-chartjs": "^5.3.1",
@@ -25,11 +28,8 @@
     "@vue/cli-plugin-babel": "~5.0.0",
     "@vue/cli-plugin-eslint": "~5.0.0",
     "@vue/cli-service": "~5.0.0",
-    "autoprefixer": "^10.4.20",
     "eslint": "^7.32.0",
-    "eslint-plugin-vue": "^8.0.3",
-    "postcss": "^8.4.47",
-    "tailwindcss": "^3.4.13"
+    "eslint-plugin-vue": "^8.0.3"
   },
   "eslintConfig": {
     "root": true,
