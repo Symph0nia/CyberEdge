@@ -10,6 +10,7 @@ import (
 	"github.com/pquerna/otp/totp"
 	"golang.org/x/crypto/bcrypt"
 	"image/png"
+	"regexp"
 	"time"
 )
 
@@ -23,6 +24,43 @@ func NewUserService(userDAO *dao.UserDAO, jwtSecret string) *UserService {
 		userDAO:   userDAO,
 		jwtSecret: jwtSecret,
 	}
+}
+
+// ValidatePassword 验证密码强度
+func (s *UserService) ValidatePassword(password string) error {
+	if len(password) < 8 {
+		return errors.New("密码长度至少8位")
+	}
+
+	if len(password) > 128 {
+		return errors.New("密码长度不能超过128位")
+	}
+
+	// 检查是否包含大写字母
+	hasUpper, _ := regexp.MatchString(`[A-Z]`, password)
+	if !hasUpper {
+		return errors.New("密码必须包含至少一个大写字母")
+	}
+
+	// 检查是否包含小写字母
+	hasLower, _ := regexp.MatchString(`[a-z]`, password)
+	if !hasLower {
+		return errors.New("密码必须包含至少一个小写字母")
+	}
+
+	// 检查是否包含数字
+	hasDigit, _ := regexp.MatchString(`[0-9]`, password)
+	if !hasDigit {
+		return errors.New("密码必须包含至少一个数字")
+	}
+
+	// 检查是否包含特殊字符
+	hasSpecial, _ := regexp.MatchString(`[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]`, password)
+	if !hasSpecial {
+		return errors.New("密码必须包含至少一个特殊字符")
+	}
+
+	return nil
 }
 
 // GetAllUsers 获取所有用户
@@ -47,6 +85,11 @@ func (s *UserService) GetUserByID(id uint) (*models.User, error) {
 
 // CreateUser 创建用户
 func (s *UserService) CreateUser(username, email, password string) error {
+	// 验证密码强度
+	if err := s.ValidatePassword(password); err != nil {
+		return err
+	}
+
 	// 检查用户名是否已存在
 	if existingUser, _ := s.userDAO.GetByUsername(username); existingUser != nil {
 		return errors.New("用户名已存在")
@@ -82,12 +125,12 @@ func (s *UserService) DeleteUser(id uint) error {
 func (s *UserService) Login(username, password string) (string, error) {
 	user, err := s.userDAO.GetByUsername(username)
 	if err != nil {
-		return "", errors.New("用户不存在")
+		return "", errors.New("INVALID_CREDENTIALS")
 	}
 
 	// 验证密码
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
-		return "", errors.New("密码错误")
+		return "", errors.New("INVALID_CREDENTIALS")
 	}
 
 	// 生成JWT token
@@ -152,9 +195,9 @@ func (s *UserService) Setup2FA(username string) (string, []byte, error) {
 		return "", nil, err
 	}
 
-	// 保存密钥到数据库
+	// 保存密钥到数据库，但暂时不启用2FA
 	user.TOTPSecret = key.Secret()
-	user.Is2FAEnabled = true
+	user.Is2FAEnabled = false // 仅在验证成功后启用
 	if err := s.userDAO.Update(user); err != nil {
 		return "", nil, err
 	}
@@ -173,20 +216,28 @@ func (s *UserService) Setup2FA(username string) (string, []byte, error) {
 	return key.Secret(), buf.Bytes(), nil
 }
 
-// Verify2FA 验证双因子认证
+// Verify2FA 验证双因子认证，验证成功后启用2FA
 func (s *UserService) Verify2FA(username, code string) error {
 	user, err := s.userDAO.GetByUsername(username)
 	if err != nil {
 		return err
 	}
 
-	if !user.Is2FAEnabled || user.TOTPSecret == "" {
-		return errors.New("双因子认证未启用")
+	if user.TOTPSecret == "" {
+		return errors.New("请先设置双因子认证")
 	}
 
 	valid := totp.Validate(code, user.TOTPSecret)
 	if !valid {
 		return errors.New("验证码无效")
+	}
+
+	// 验证成功后才启用2FA
+	if !user.Is2FAEnabled {
+		user.Is2FAEnabled = true
+		if err := s.userDAO.Update(user); err != nil {
+			return err
+		}
 	}
 
 	return nil

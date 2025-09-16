@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -76,7 +77,7 @@ func main() {
 		}
 		allowedOrigins = []string{prodOrigin}
 	} else {
-		// 开发环境允许更多源
+		// 开发环境基础源
 		allowedOrigins = []string{
 			"http://localhost:8080",
 			"http://localhost:8082",
@@ -84,10 +85,18 @@ func main() {
 			"http://127.0.0.1:8082",
 			"http://0.0.0.0:8080",
 			"http://0.0.0.0:8082",
-			"http://10.0.78.2:8080",      // 从启动脚本看到的网络地址
-			"http://10.0.78.2:8082",
-			"http://110.42.47.158:8080",  // 外部访问地址
-			"http://110.42.47.158:8082",
+		}
+
+		// 允许通过环境变量添加额外的开发环境源
+		extraOrigins := os.Getenv("DEV_ALLOWED_ORIGINS")
+		if extraOrigins != "" {
+			// 支持逗号分隔的多个源
+			for _, origin := range strings.Split(extraOrigins, ",") {
+				origin = strings.TrimSpace(origin)
+				if origin != "" {
+					allowedOrigins = append(allowedOrigins, origin)
+				}
+			}
 		}
 	}
 

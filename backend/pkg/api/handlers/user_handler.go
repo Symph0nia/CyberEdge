@@ -1,10 +1,12 @@
 package handlers
 
 import (
+	"cyberedge/pkg/api"
 	"cyberedge/pkg/service"
 	"github.com/gin-gonic/gin"
 	"net/http"
 	"strconv"
+	"strings"
 )
 
 type UserHandler struct {
@@ -23,18 +25,22 @@ func (h *UserHandler) Login(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数无效"})
+		api.RespondWithError(c, http.StatusBadRequest, api.ErrInvalidRequest)
 		return
 	}
 
 	token, err := h.userService.Login(req.Username, req.Password)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		if err.Error() == "INVALID_CREDENTIALS" {
+			api.RespondWithError(c, http.StatusUnauthorized, api.ErrInvalidCredentials)
+		} else {
+			api.RespondWithError(c, http.StatusInternalServerError, api.ErrInternalServer)
+		}
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"token": token,
+	api.RespondWithSuccess(c, map[string]interface{}{
+		"token":   token,
 		"message": "登录成功",
 	})
 }
@@ -44,21 +50,34 @@ func (h *UserHandler) Register(c *gin.Context) {
 	var req struct {
 		Username string `json:"username" binding:"required"`
 		Email    string `json:"email" binding:"required,email"`
-		Password string `json:"password" binding:"required,min=6"`
+		Password string `json:"password" binding:"required,min=8,max=128"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数无效"})
+		api.RespondWithError(c, http.StatusBadRequest, api.ErrInvalidRequest)
 		return
 	}
 
 	err := h.userService.CreateUser(req.Username, req.Email, req.Password)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		// 根据错误类型返回相应的错误码
+		errMsg := err.Error()
+		switch {
+		case strings.Contains(errMsg, "用户名已存在"):
+			api.RespondWithError(c, http.StatusBadRequest, api.ErrUserExists)
+		case strings.Contains(errMsg, "邮箱已被使用"):
+			api.RespondWithError(c, http.StatusBadRequest, api.ErrEmailExists)
+		case strings.Contains(errMsg, "密码"):
+			api.RespondWithError(c, http.StatusBadRequest, api.ErrWeakPassword)
+		default:
+			api.RespondWithError(c, http.StatusInternalServerError, api.ErrInternalServer)
+		}
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"message": "用户注册成功"})
+	api.RespondWithSuccess(c, map[string]interface{}{
+		"message": "用户注册成功",
+	})
 }
 
 // CheckAuth 检查认证状态
@@ -69,7 +88,12 @@ func (h *UserHandler) CheckAuth(c *gin.Context) {
 		return
 	}
 
-	token := authHeader[7:] // 移除 "Bearer " 前缀
+	// 安全地提取Bearer token
+	if !strings.HasPrefix(authHeader, "Bearer ") {
+		c.JSON(http.StatusUnauthorized, gin.H{"authenticated": false})
+		return
+	}
+	token := strings.TrimPrefix(authHeader, "Bearer ")
 	user, err := h.userService.ValidateToken(token)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"authenticated": false})
@@ -130,7 +154,7 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 	var req struct {
 		Username string `json:"username" binding:"required"`
 		Email    string `json:"email" binding:"required,email"`
-		Password string `json:"password" binding:"required,min=6"`
+		Password string `json:"password" binding:"required,min=8,max=128"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -247,7 +271,12 @@ func (h *UserHandler) GetQRCodeStatus(c *gin.Context) {
 		return
 	}
 
-	token := authHeader[7:] // 移除 "Bearer " 前缀
+	// 安全地提取Bearer token
+	if !strings.HasPrefix(authHeader, "Bearer ") {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "无效的认证格式"})
+		return
+	}
+	token := strings.TrimPrefix(authHeader, "Bearer ")
 	user, err := h.userService.ValidateToken(token)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "无效的token"})

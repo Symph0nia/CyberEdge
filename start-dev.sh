@@ -221,6 +221,7 @@ cd backend
 export MYSQL_DSN="root:password@tcp(localhost:3306)/cyberedge?charset=utf8mb4&parseTime=True&loc=Local"
 export JWT_SECRET="your-super-secret-jwt-key-change-this-in-production"
 export PORT="31337"
+export DEV_ALLOWED_ORIGINS="http://10.0.78.2:8080,http://10.0.78.2:8082,http://110.42.47.158:8080,http://110.42.47.158:8082"
 
 # 编译并启动后端
 /usr/local/go/bin/go build -o cyberedge cmd/cyberedge.go
