@@ -238,3 +238,24 @@ func (h *UserHandler) GenerateQRCode(c *gin.Context) {
 func (h *UserHandler) ValidateTOTP(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "请使用 Verify2FA 接口验证双因子认证"})
 }
+
+// GetQRCodeStatus 获取二维码设置状态
+func (h *UserHandler) GetQRCodeStatus(c *gin.Context) {
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "未提供认证token"})
+		return
+	}
+
+	token := authHeader[7:] // 移除 "Bearer " 前缀
+	user, err := h.userService.ValidateToken(token)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "无效的token"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"is2FAEnabled": user.Is2FAEnabled,
+		"username":     user.Username,
+	})
+}

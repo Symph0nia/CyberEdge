@@ -45,6 +45,7 @@ func (r *Router) SetupRouter() *gin.Engine {
 	// 公开的认证API
 	router.GET("/auth/check", r.userHandler.CheckAuth)
 	router.GET("/auth/qrcode", r.userHandler.GenerateQRCode)
+	router.GET("/auth/qrcode/status", r.userHandler.GetQRCodeStatus)
 	router.POST("/auth/validate", r.userHandler.ValidateTOTP)
 	router.POST("/auth/login", r.userHandler.Login)
 	router.POST("/auth/register", r.userHandler.Register)

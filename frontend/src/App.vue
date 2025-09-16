@@ -13,7 +13,7 @@
           <!-- 左侧 Logo 和标题 -->
           <div style="display: flex; align-items: center;">
             <a-avatar :size="40" style="background-color: #1890ff; margin-right: 16px;">
-              <template #icon><SecurityScanOutlined /></template>
+              <template #icon><UserOutlined /></template>
             </a-avatar>
             <h1 style="margin: 0; font-size: 24px; font-weight: 600; color: #1890ff;">CyberEdge</h1>
           </div>
@@ -88,18 +88,6 @@
               <UserOutlined />
               <span>用户管理</span>
             </a-menu-item>
-            <a-menu-item key="security-scan">
-              <SecurityScanOutlined />
-              <span>安全扫描</span>
-            </a-menu-item>
-            <a-menu-item key="vulnerability">
-              <BugOutlined />
-              <span>漏洞管理</span>
-            </a-menu-item>
-            <a-menu-item key="reports">
-              <FileTextOutlined />
-              <span>报告中心</span>
-            </a-menu-item>
             <a-menu-item key="settings">
               <SettingOutlined />
               <span>系统设置</span>
@@ -123,9 +111,6 @@ import { useStore } from 'vuex'
 import { message } from 'ant-design-vue'
 import {
   UserOutlined,
-  SecurityScanOutlined,
-  BugOutlined,
-  FileTextOutlined,
   SettingOutlined,
   LogoutOutlined,
   MenuUnfoldOutlined,
@@ -137,9 +122,6 @@ export default {
   name: 'App',
   components: {
     UserOutlined,
-    SecurityScanOutlined,
-    BugOutlined,
-    FileTextOutlined,
     SettingOutlined,
     LogoutOutlined,
     MenuUnfoldOutlined,
@@ -161,12 +143,6 @@ export default {
     watch(() => route.path, (newPath) => {
       if (newPath === '/user-management') {
         selectedKeys.value = ['user-management']
-      } else if (newPath === '/security-scan') {
-        selectedKeys.value = ['security-scan']
-      } else if (newPath === '/vulnerability') {
-        selectedKeys.value = ['vulnerability']
-      } else if (newPath === '/reports') {
-        selectedKeys.value = ['reports']
       } else if (newPath === '/settings') {
         selectedKeys.value = ['settings']
       }
@@ -177,15 +153,6 @@ export default {
       switch (key) {
         case 'user-management':
           router.push('/user-management')
-          break
-        case 'security-scan':
-          message.info('安全扫描功能开发中...')
-          break
-        case 'vulnerability':
-          message.info('漏洞管理功能开发中...')
-          break
-        case 'reports':
-          message.info('报告中心功能开发中...')
           break
         case 'settings':
           message.info('系统设置功能开发中...')
@@ -204,7 +171,54 @@ export default {
       // 检查认证状态
       store.dispatch('checkAuth')
 
-      // 修复ResizeObserver循环 - 延迟强制重新计算布局
+      // 彻底修复ResizeObserver循环错误 - 全局错误拦截
+      const originalResizeObserver = window.ResizeObserver
+      window.ResizeObserver = class extends originalResizeObserver {
+        constructor(callback) {
+          super((entries, observer) => {
+            requestAnimationFrame(() => {
+              try {
+                callback(entries, observer)
+              } catch (error) {
+                // 忽略ResizeObserver循环错误
+                if (error.message.includes('ResizeObserver loop completed with undelivered notifications')) {
+                  return
+                }
+                throw error
+              }
+            })
+          })
+        }
+      }
+
+      // 拦截console错误并过滤ResizeObserver错误
+      const originalError = console.error
+      console.error = (...args) => {
+        if (args[0] && typeof args[0] === 'string' &&
+            args[0].includes('ResizeObserver loop completed with undelivered notifications')) {
+          return
+        }
+        originalError.apply(console, args)
+      }
+
+      // 拦截window错误事件
+      const handleWindowError = (event) => {
+        if (event.message && event.message.includes('ResizeObserver loop completed with undelivered notifications')) {
+          event.preventDefault()
+          event.stopPropagation()
+          return false
+        }
+      }
+      window.addEventListener('error', handleWindowError, true)
+      window.addEventListener('unhandledrejection', (event) => {
+        if (event.reason && event.reason.message &&
+            event.reason.message.includes('ResizeObserver loop completed with undelivered notifications')) {
+          event.preventDefault()
+          return false
+        }
+      })
+
+      // 延迟强制重新计算布局
       setTimeout(() => {
         window.dispatchEvent(new Event('resize'))
       }, 100)
@@ -275,14 +289,37 @@ export default {
 /* 修复ResizeObserver循环 - 稳定布局尺寸 */
 :deep(.ant-layout) {
   contain: layout style size;
+  transform: translateZ(0); /* 强制创建新的层叠上下文 */
 }
 
 :deep(.ant-layout-sider) {
   will-change: auto;
   transition: none !important;
+  contain: layout style size;
+  overflow: hidden; /* 防止内容溢出触发重新计算 */
 }
 
 :deep(.ant-layout-content) {
   contain: layout style;
+  transform: translateZ(0); /* 强制GPU加速，稳定渲染 */
+}
+
+/* 全局防止ResizeObserver循环的样式 */
+* {
+  box-sizing: border-box;
+}
+
+:deep(.ant-layout-sider-children),
+:deep(.ant-menu),
+:deep(.ant-menu-item) {
+  contain: layout style;
+  transform: translateZ(0);
+}
+
+/* 防止动画和过渡导致的ResizeObserver触发 */
+:deep(.ant-layout-sider-zero-width-trigger),
+:deep(.ant-layout-sider .ant-layout-sider-trigger) {
+  transition: none !important;
+  will-change: auto;
 }
 </style>
