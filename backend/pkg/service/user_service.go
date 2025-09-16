@@ -1,205 +1,155 @@
-// pkg/service/user_service.go
-
 package service
 
 import (
 	"bytes"
-	"crypto/rand"
 	"cyberedge/pkg/dao"
-	"cyberedge/pkg/logging"
 	"cyberedge/pkg/models"
 	"errors"
 	"fmt"
 	"github.com/golang-jwt/jwt"
 	"github.com/pquerna/otp/totp"
+	"golang.org/x/crypto/bcrypt"
 	"image/png"
-	"math/big"
-	"strings"
+	"regexp"
 	"time"
 )
 
 type UserService struct {
 	userDAO   *dao.UserDAO
-	configDAO *dao.ConfigDAO
 	jwtSecret string
 }
 
-func NewUserService(userDAO *dao.UserDAO, configDAO *dao.ConfigDAO, jwtSecret string) *UserService {
+func NewUserService(userDAO *dao.UserDAO, jwtSecret string) *UserService {
 	return &UserService{
 		userDAO:   userDAO,
-		configDAO: configDAO,
 		jwtSecret: jwtSecret,
 	}
 }
 
-// User management methods
-
-func (s *UserService) GetAllUsers() ([]models.User, error) {
-	logging.Info("正在获取所有用户")
-	users, err := s.userDAO.GetAllUsers()
-	if err != nil {
-		logging.Error("获取所有用户失败: %v", err)
-		return nil, err
+// ValidatePassword 验证密码强度
+func (s *UserService) ValidatePassword(password string) error {
+	if len(password) < 8 {
+		return errors.New("密码长度至少8位")
 	}
-	logging.Info("成功获取所有用户，共 %d 个", len(users))
-	return users, nil
-}
 
-func (s *UserService) GetUserByAccount(account string) (*models.User, error) {
-	logging.Info("正在获取用户: %s", account)
-	user, err := s.userDAO.GetUserByAccount(account)
-	if err != nil {
-		logging.Error("获取用户失败: %s, 错误: %v", account, err)
-		return nil, err
+	if len(password) > 128 {
+		return errors.New("密码长度不能超过128位")
 	}
-	logging.Info("成功获取用户: %s", account)
-	return user, nil
-}
 
-func (s *UserService) CreateUser(user *models.User) error {
-	logging.Info("正在创建新用户: %s", user.Account)
-	err := s.userDAO.CreateUser(user)
-	if err != nil {
-		logging.Error("创建用户失败: %s, 错误: %v", user.Account, err)
-		return err
+	// 检查是否包含大写字母
+	hasUpper, _ := regexp.MatchString(`[A-Z]`, password)
+	if !hasUpper {
+		return errors.New("密码必须包含至少一个大写字母")
 	}
-	logging.Info("成功创建用户: %s", user.Account)
+
+	// 检查是否包含小写字母
+	hasLower, _ := regexp.MatchString(`[a-z]`, password)
+	if !hasLower {
+		return errors.New("密码必须包含至少一个小写字母")
+	}
+
+	// 检查是否包含数字
+	hasDigit, _ := regexp.MatchString(`[0-9]`, password)
+	if !hasDigit {
+		return errors.New("密码必须包含至少一个数字")
+	}
+
+	// 检查是否包含特殊字符
+	hasSpecial, _ := regexp.MatchString(`[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]`, password)
+	if !hasSpecial {
+		return errors.New("密码必须包含至少一个特殊字符")
+	}
+
 	return nil
 }
 
-type DeleteResult struct {
-	Success []string          `json:"success"`
-	Failed  map[string]string `json:"failed"` // account -> error message
+// GetAllUsers 获取所有用户
+func (s *UserService) GetAllUsers() ([]*models.User, error) {
+	return s.userDAO.GetAll()
 }
 
-func (s *UserService) DeleteUsers(accounts []string) (*DeleteResult, error) {
-	logging.Info("正在批量删除用户: %v", accounts)
-
-	result := &DeleteResult{
-		Success: make([]string, 0),
-		Failed:  make(map[string]string),
-	}
-
-	// 使用 DAO 层的批量删除方法
-	deleteResult, err := s.userDAO.DeleteUsers(accounts)
-	if err != nil {
-		logging.Error("批量删除用户失败: %v", err)
-		return nil, err
-	}
-
-	result.Success = deleteResult.DeletedAccounts
-	result.Failed = deleteResult.FailedAccounts
-
-	logging.Info("批量删除用户完成，成功: %d, 失败: %d",
-		len(result.Success), len(result.Failed))
-
-	return result, nil
+// GetUserByUsername 根据用户名获取用户
+func (s *UserService) GetUserByUsername(username string) (*models.User, error) {
+	return s.userDAO.GetByUsername(username)
 }
 
-func (s *UserService) GenerateQRCode() ([]byte, string, error) { // 修改返回值
-	logging.Info("开始生成二维码")
-
-	qrcodeEnabled, err := s.configDAO.GetQRCodeStatus()
-	if err != nil {
-		logging.Error("获取二维码状态失败: %v", err)
-		return nil, "", errors.New("无法获取二维码状态")
-	}
-
-	if !qrcodeEnabled {
-		logging.Warn("二维码接口已关闭")
-		return nil, "", errors.New("二维码接口已关闭")
-	}
-
-	accountName, err := generateRandomString(16)
-	if err != nil {
-		logging.Error("生成账户名称失败: %v", err)
-		return nil, "", errors.New("无法生成账户名称")
-	}
-
-	key, err := totp.Generate(totp.GenerateOpts{
-		Issuer:      "CyberEdgeAdmin",
-		AccountName: accountName,
-	})
-	if err != nil {
-		logging.Error("生成TOTP密钥失败: %v", err)
-		return nil, "", errors.New("无法生成密钥")
-	}
-
-	newUser := &models.User{
-		Account: accountName,
-		Secret:  key.Secret(),
-	}
-	err = s.CreateUser(newUser)
-	if err != nil {
-		logging.Error("存储用户信息失败: %v", err)
-		return nil, "", errors.New("无法存储密钥")
-	}
-
-	img, err := key.Image(200, 200)
-	if err != nil {
-		logging.Error("生成二维码图像失败: %v", err)
-		return nil, "", errors.New("无法生成二维码")
-	}
-
-	var buf bytes.Buffer
-	if err := png.Encode(&buf, img); err != nil {
-		logging.Error("编码二维码图像失败: %v", err)
-		return nil, "", errors.New("无法编码二维码")
-	}
-
-	logging.Info("二维码生成成功")
-	return buf.Bytes(), accountName, nil
+// GetUserByEmail 根据邮箱获取用户
+func (s *UserService) GetUserByEmail(email string) (*models.User, error) {
+	return s.userDAO.GetByEmail(email)
 }
 
-func (s *UserService) ValidateTOTP(code, account string) (string, int, error) {
-	logging.Info("开始验证TOTP: 账户 %s", account)
+// GetUserByID 根据ID获取用户
+func (s *UserService) GetUserByID(id uint) (*models.User, error) {
+	return s.userDAO.GetByID(id)
+}
 
-	user, err := s.GetUserByAccount(account)
+// CreateUser 创建用户
+func (s *UserService) CreateUser(username, email, password string) error {
+	// 验证密码强度
+	if err := s.ValidatePassword(password); err != nil {
+		return err
+	}
+
+	// 检查用户名是否已存在
+	if existingUser, _ := s.userDAO.GetByUsername(username); existingUser != nil {
+		return errors.New("用户名已存在")
+	}
+
+	// 检查邮箱是否已存在
+	if existingUser, _ := s.userDAO.GetByEmail(email); existingUser != nil {
+		return errors.New("邮箱已被使用")
+	}
+
+	// 生成密码哈希
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
-		logging.Error("获取用户信息失败: %v", err)
-		return "", 0, errors.New("无法找到密钥")
+		return err
 	}
 
-	if !totp.Validate(code, user.Secret) {
-		logging.Warn("TOTP验证失败: 账户 %s", account)
-		return "", 0, errors.New("验证码无效")
+	user := &models.User{
+		Username:     username,
+		Email:        email,
+		PasswordHash: string(hashedPassword),
+		Role:         "user",
 	}
 
-	newLoginCount, err := s.userDAO.IncrementLoginCount(account)
+	return s.userDAO.Create(user)
+}
+
+// DeleteUser 删除用户
+func (s *UserService) DeleteUser(id uint) error {
+	return s.userDAO.Delete(id)
+}
+
+// Login 用户登录
+func (s *UserService) Login(username, password string) (string, error) {
+	user, err := s.userDAO.GetByUsername(username)
 	if err != nil {
-		logging.Error("更新登录次数失败: %v", err)
-		return "", 0, errors.New("无法更新登录次数")
+		return "", errors.New("INVALID_CREDENTIALS")
 	}
 
+	// 验证密码
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
+		return "", errors.New("INVALID_CREDENTIALS")
+	}
+
+	// 生成JWT token
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"account": account,
-		"exp":     time.Now().Add(time.Hour * 72).Unix(),
+		"username": user.Username,
+		"id":       user.ID,
+		"exp":      time.Now().Add(time.Hour * 24).Unix(),
 	})
 
 	tokenString, err := token.SignedString([]byte(s.jwtSecret))
 	if err != nil {
-		logging.Error("生成JWT令牌失败: %v", err)
-		return "", 0, errors.New("无法生成令牌")
+		return "", err
 	}
 
-	logging.Info("TOTP验证成功: 账户 %s", account)
-	return tokenString, newLoginCount, nil
+	return tokenString, nil
 }
 
-func (s *UserService) CheckAuth(tokenString string) (bool, string, error) {
-	logging.Info("开始验证JWT令牌")
-
-	if tokenString == "" {
-		logging.Warn("未提供JWT令牌")
-		return false, "", errors.New("未提供令牌")
-	}
-
-	tokenString = strings.TrimPrefix(tokenString, "Bearer ")
-	if tokenString == "" {
-		logging.Warn("无效的JWT令牌格式")
-		return false, "", errors.New("无效的令牌格式")
-	}
-
+// ValidateToken 验证JWT token
+func (s *UserService) ValidateToken(tokenString string) (*models.User, error) {
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
@@ -207,37 +157,100 @@ func (s *UserService) CheckAuth(tokenString string) (bool, string, error) {
 		return []byte(s.jwtSecret), nil
 	})
 
-	if err != nil || !token.Valid {
-		logging.Warn("无效的JWT令牌")
-		return false, "", errors.New("无效的令牌")
+	if err != nil {
+		return nil, err
 	}
 
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
-		logging.Warn("无法解析JWT令牌声明")
-		return false, "", errors.New("无效的令牌")
+	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
+		username, ok := claims["username"].(string)
+		if !ok {
+			return nil, errors.New("invalid token claims")
+		}
+
+		user, err := s.userDAO.GetByUsername(username)
+		if err != nil {
+			// 用户不存在时返回无效token错误，而不是数据库错误
+			return nil, errors.New("invalid token: user not found")
+		}
+
+		return user, nil
 	}
 
-	account, ok := claims["account"].(string)
-	if !ok {
-		logging.Warn("JWT令牌中缺少账户信息")
-		return false, "", errors.New("无效的令牌")
-	}
-
-	logging.Info("JWT令牌验证成功: 账户 %s", account)
-	return true, account, nil
+	return nil, errors.New("invalid token")
 }
 
-// Helper function
-func generateRandomString(length int) (string, error) {
-	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	result := make([]byte, length)
-	for i := range result {
-		num, err := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
-		if err != nil {
-			return "", fmt.Errorf("无法生成随机字符串: %w", err)
-		}
-		result[i] = charset[num.Int64()]
+// Setup2FA 设置双因子认证
+func (s *UserService) Setup2FA(username string) (string, []byte, error) {
+	user, err := s.userDAO.GetByUsername(username)
+	if err != nil {
+		return "", nil, err
 	}
-	return string(result), nil
+
+	// 生成TOTP密钥
+	key, err := totp.Generate(totp.GenerateOpts{
+		Issuer:      "CyberEdge",
+		AccountName: user.Username,
+	})
+	if err != nil {
+		return "", nil, err
+	}
+
+	// 保存密钥到数据库，但暂时不启用2FA
+	user.TOTPSecret = key.Secret()
+	user.Is2FAEnabled = false // 仅在验证成功后启用
+	if err := s.userDAO.Update(user); err != nil {
+		return "", nil, err
+	}
+
+	// 生成二维码
+	img, err := key.Image(256, 256)
+	if err != nil {
+		return "", nil, err
+	}
+
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		return "", nil, err
+	}
+
+	return key.Secret(), buf.Bytes(), nil
+}
+
+// Verify2FA 验证双因子认证，验证成功后启用2FA
+func (s *UserService) Verify2FA(username, code string) error {
+	user, err := s.userDAO.GetByUsername(username)
+	if err != nil {
+		return err
+	}
+
+	if user.TOTPSecret == "" {
+		return errors.New("请先设置双因子认证")
+	}
+
+	valid := totp.Validate(code, user.TOTPSecret)
+	if !valid {
+		return errors.New("验证码无效")
+	}
+
+	// 验证成功后才启用2FA
+	if !user.Is2FAEnabled {
+		user.Is2FAEnabled = true
+		if err := s.userDAO.Update(user); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// Disable2FA 禁用双因子认证
+func (s *UserService) Disable2FA(username string) error {
+	user, err := s.userDAO.GetByUsername(username)
+	if err != nil {
+		return err
+	}
+
+	user.Is2FAEnabled = false
+	user.TOTPSecret = ""
+	return s.userDAO.Update(user)
 }
