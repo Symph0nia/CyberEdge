@@ -5,8 +5,6 @@ import (
 	"cyberedge/pkg/middleware"
 	"cyberedge/pkg/service"
 	"github.com/gin-contrib/cors"
-	"github.com/gin-contrib/sessions"
-	"github.com/gin-contrib/sessions/cookie"
 	"github.com/gin-gonic/gin"
 	"time"
 )
@@ -14,20 +12,17 @@ import (
 type Router struct {
 	userHandler    *handlers.UserHandler
 	jwtSecret      string
-	sessionSecret  string
 	allowedOrigins []string
 }
 
 func NewRouter(
 	userService *service.UserService,
 	jwtSecret string,
-	sessionSecret string,
 	allowedOrigins []string,
 ) *Router {
 	return &Router{
 		userHandler:    handlers.NewUserHandler(userService),
 		jwtSecret:      jwtSecret,
-		sessionSecret:  sessionSecret,
 		allowedOrigins: allowedOrigins,
 	}
 }
@@ -46,9 +41,6 @@ func (r *Router) SetupRouter() *gin.Engine {
 		MaxAge:           12 * time.Hour,
 	}))
 
-	// 设置Session中间件
-	store := cookie.NewStore([]byte(r.sessionSecret))
-	router.Use(sessions.Sessions("mysession", store))
 
 	// 公开的认证API
 	router.GET("/auth/check", r.userHandler.CheckAuth)

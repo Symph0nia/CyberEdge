@@ -95,7 +95,16 @@ func (h *UserHandler) GetUsers(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"users": users})
+	// 转换用户数据为前端期望的格式
+	var userList []map[string]interface{}
+	for _, user := range users {
+		userList = append(userList, map[string]interface{}{
+			"account":    user.Username, // 映射 username 到 account
+			"loginCount": 0,             // 临时设置为0，后续可以添加登录次数追踪
+		})
+	}
+
+	c.JSON(http.StatusOK, userList)
 }
 
 // GetUser 根据ID获取用户

@@ -126,7 +126,8 @@ func (s *UserService) ValidateToken(tokenString string) (*models.User, error) {
 
 		user, err := s.userDAO.GetByUsername(username)
 		if err != nil {
-			return nil, err
+			// 用户不存在时返回无效token错误，而不是数据库错误
+			return nil, errors.New("invalid token: user not found")
 		}
 
 		return user, nil

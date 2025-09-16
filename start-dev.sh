@@ -220,7 +220,6 @@ cd backend
 # 设置环境变量
 export MYSQL_DSN="root:password@tcp(localhost:3306)/cyberedge?charset=utf8mb4&parseTime=True&loc=Local"
 export JWT_SECRET="your-super-secret-jwt-key-change-this-in-production"
-export SESSION_SECRET="your-super-secret-session-key-change-this-in-production"
 export PORT="31337"
 
 # 编译并启动后端

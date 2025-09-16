@@ -370,16 +370,9 @@ export default {
           password: values.password
         })
 
-        if (response.data.success) {
-          if (response.data.requires_2fa) {
-            // 需要2FA验证
-            pendingUsername.value = values.username
-            show2FA.value = true
-            message.info('请输入双重认证码')
-          } else {
-            // 直接登录成功
-            handleLoginSuccess(response.data)
-          }
+        if (response.data.token) {
+          // 登录成功，直接设置token并跳转
+          handleLoginSuccess(response.data)
         } else {
           message.error(response.data.message || '登录失败')
         }
@@ -494,12 +487,14 @@ export default {
 
     // 登录成功处理
     const handleLoginSuccess = (data) => {
+      // 保存token到localStorage
+      localStorage.setItem('token', data.token)
+
       store.dispatch('login', {
-        user: data.user,
         token: data.token
       })
       message.success('登录成功！')
-      router.push('/')
+      router.push('/user-management')
     }
 
     // 返回登录

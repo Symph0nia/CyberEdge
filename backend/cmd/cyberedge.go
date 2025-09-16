@@ -57,7 +57,6 @@ func main() {
 
 	// 初始化 Service - 只保留用户服务
 	jwtSecret := os.Getenv("JWT_SECRET")
-	sessionSecret := os.Getenv("SESSION_SECRET")
 
 	userService := service.NewUserService(userDAO, jwtSecret)
 
@@ -91,7 +90,6 @@ func main() {
 	router := api.NewRouter(
 		userService,
 		jwtSecret,
-		sessionSecret,
 		allowedOrigins,
 	)
 	engine := router.SetupRouter()
