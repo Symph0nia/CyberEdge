@@ -60,8 +60,20 @@ wait_for_service() {
             return 0
         fi
 
-        print_info "等待 $service_name 启动 ($attempt/$max_attempts)..."
-        sleep 2
+        # 前端服务检测频率降低，因为编译需要更多时间
+        if [[ "$service_name" == *"前端"* ]]; then
+            if [ $attempt -eq 1 ]; then
+                print_info "前端正在编译，请稍候..."
+                sleep 10  # 首次等待更长时间让前端编译
+            else
+                print_info "等待 $service_name 启动 ($attempt/$max_attempts)..."
+                sleep 5   # 前端检测间隔更长
+            fi
+        else
+            print_info "等待 $service_name 启动 ($attempt/$max_attempts)..."
+            sleep 2
+        fi
+
         attempt=$((attempt + 1))
     done
 
@@ -77,7 +89,7 @@ wait_for_mysql() {
     print_info "等待 MySQL 完全准备好..."
 
     while [ $attempt -le $max_attempts ]; do
-        if docker exec cyberedge-mysql mysqladmin ping -uroot -ppassword --silent 2>/dev/null; then
+        if MYSQL_PWD=password docker exec cyberedge-mysql mysqladmin ping -uroot --silent 2>/dev/null; then
             print_success "MySQL 已完全准备好"
             return 0
         fi
@@ -88,6 +100,30 @@ wait_for_mysql() {
     done
 
     print_error "MySQL 准备超时"
+    return 1
+}
+
+# 等待MySQL可以接受Go连接
+wait_for_mysql_go_connection() {
+    local max_attempts=20
+    local attempt=1
+
+    print_info "等待 MySQL 可以接受Go连接..."
+
+    while [ $attempt -le $max_attempts ]; do
+        # 测试Go能否连接MySQL
+        if MYSQL_DSN="root:password@tcp(localhost:3306)/cyberedge?charset=utf8mb4&parseTime=True&loc=Local" \
+           timeout 5 docker exec cyberedge-mysql mysql -uroot -ppassword cyberedge -e "SELECT 1" >/dev/null 2>&1; then
+            print_success "MySQL 可以接受Go连接"
+            return 0
+        fi
+
+        print_info "等待 MySQL Go连接 ($attempt/$max_attempts)..."
+        sleep 2
+        attempt=$((attempt + 1))
+    done
+
+    print_error "MySQL Go连接超时"
     return 1
 }
 
@@ -173,6 +209,9 @@ if [ $? -eq 0 ]; then
 else
     print_warning "数据库初始化失败，但继续启动..."
 fi
+
+# 等待MySQL可以接受Go程序的连接
+wait_for_mysql_go_connection
 
 # 2. 启动后端
 print_info "启动后端服务..."

@@ -1,6 +1,5 @@
 <template>
-  <a-config-provider :theme="theme">
-    <div class="app-container">
+  <div class="app-container">
       <!-- 侧边栏菜单 -->
       <LeftSidebarMenu
         :isVisible="isMenuVisible"
@@ -59,13 +58,12 @@
         @click.stop="closeAllTools"
       ></div>
     </div>
-  </a-config-provider>
 </template>
 
 <script>
 import LeftSidebarMenu from "./components/LeftSidebarMenu.vue";
 import RightSidebarMenu from "./components/RightSidebarMenu.vue";
-import { ref, computed, inject } from "vue";
+import { ref, computed } from "vue";
 import { useStore } from "vuex";
 
 export default {
@@ -76,7 +74,6 @@ export default {
   },
   setup() {
     const store = useStore();
-    const theme = inject('antdTheme');
     const isAuthenticated = computed(() => store.state.isAuthenticated);
     const isMenuVisible = ref(false);
     const isRequestToolVisible = ref(false);
@@ -114,7 +111,6 @@ export default {
     };
 
     return {
-      theme,
       isAuthenticated,
       isMenuVisible,
       isRequestToolVisible,

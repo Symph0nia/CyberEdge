@@ -1,9 +1,9 @@
 <template>
   <a-drawer
     v-model:open="localVisible"
-    title="加密解密工具箱"
+    title="用户管理"
     placement="left"
-    :width="400"
+    :width="300"
     :closable="true"
     :mask="true"
     :keyboard="true"
@@ -12,26 +12,31 @@
   >
     <template #title>
       <div class="drawer-title">
-        <i class="ri-lock-unlock-line cyber-icon"></i>
-        加密解密工具箱
+        <i class="ri-user-line cyber-icon"></i>
+        用户管理
       </div>
     </template>
 
     <div class="drawer-content">
-      <CryptoTools />
+      <a-menu mode="vertical" theme="dark">
+        <a-menu-item key="profile">
+          <i class="ri-user-line"></i>
+          个人资料
+        </a-menu-item>
+        <a-menu-item key="security">
+          <i class="ri-shield-line"></i>
+          安全设置
+        </a-menu-item>
+      </a-menu>
     </div>
   </a-drawer>
 </template>
 
 <script>
 import { ref, watch } from "vue";
-import CryptoTools from "./Tools/CryptoTools.vue";
 
 export default {
   name: "LeftSidebarMenu",
-  components: {
-    CryptoTools,
-  },
   props: {
     isVisible: {
       type: Boolean,
