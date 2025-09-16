@@ -2,7 +2,6 @@ import { createRouter, createWebHistory } from "vue-router";
 import store from "../store";
 import LoginPage from "@/components/Login/LoginPage.vue";
 import UserManagement from "@/components/User/UserManagement.vue";
-import GoogleAuthQRCode from "@/components/Login/GoogleAuthQRCode.vue";
 
 const routes = [
   {
@@ -20,11 +19,6 @@ const routes = [
     name: "UserManagement",
     component: UserManagement,
   },
-  {
-    path: "/setup-2fa",
-    name: "Setup2FA",
-    component: GoogleAuthQRCode,
-  },
 ];
 
 const router = createRouter({
@@ -38,8 +32,7 @@ router.beforeEach(async (to, from, next) => {
   const isAuthenticated = store.state.isAuthenticated;
   if (
     !isAuthenticated &&
-    to.name !== "LoginPage" &&
-    to.name !== "Setup2FA"
+    to.name !== "LoginPage"
   ) {
     next({ name: "LoginPage" });
   } else {
