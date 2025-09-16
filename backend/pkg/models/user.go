@@ -10,7 +10,7 @@ type User struct {
 	Username     string `gorm:"uniqueIndex;size:50;not null" json:"username"`
 	Email        string `gorm:"uniqueIndex;size:100;not null" json:"email"`
 	PasswordHash string `gorm:"size:255;not null" json:"-"`
-	Is2FAEnabled bool   `gorm:"default:false" json:"is_2fa_enabled"`
+	Is2FAEnabled bool   `gorm:"column:is_2fa_enabled;default:false" json:"is_2fa_enabled"`
 	TOTPSecret   string `gorm:"size:32" json:"-"`
 	Role         string `gorm:"type:enum('admin','user');default:'user'" json:"role"`
 	CreatedAt    int64  `gorm:"autoCreateTime" json:"created_at"`

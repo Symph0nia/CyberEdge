@@ -77,9 +77,13 @@ func main() {
 		}
 		allowedOrigins = []string{prodOrigin}
 	} else {
+		// 开发环境允许更多源
 		allowedOrigins = []string{
 			"http://localhost:8080",
 			"http://127.0.0.1:8080",
+			"http://0.0.0.0:8080",
+			"http://10.0.78.2:8080",      // 从启动脚本看到的网络地址
+			"http://110.42.47.158:8080",  // 外部访问地址
 		}
 	}
 
