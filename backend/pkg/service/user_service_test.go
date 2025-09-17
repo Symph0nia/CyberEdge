@@ -130,13 +130,13 @@ func TestCreateUser(t *testing.T) {
 	}
 
 	tests := []struct {
-		name     string
-		username string
-		email    string
-		password string
-		setup    func()
-		wantErr  bool
-		errMsg   string
+		name        string
+		username    string
+		email       string
+		password    string
+		setup       func()
+		wantErr     bool
+		expectedErr error
 	}{
 		{
 			name:     "Valid user creation",
@@ -151,38 +151,38 @@ func TestCreateUser(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:     "Username already exists",
-			username: "existinguser",
-			email:    "new@example.com",
-			password: "Password123!",
+			name:        "Username already exists",
+			username:    "existinguser",
+			email:       "new@example.com",
+			password:    "Password123!",
 			setup: func() {
 				existingUser := &models.User{Username: "existinguser"}
 				mockDAO.On("GetByUsername", "existinguser").Return(existingUser, nil)
 			},
-			wantErr: true,
-			errMsg:  "用户名已存在",
+			wantErr:     true,
+			expectedErr: ErrUserExists,
 		},
 		{
-			name:     "Email already exists",
-			username: "newuser",
-			email:    "existing@example.com",
-			password: "Password123!",
+			name:        "Email already exists",
+			username:    "newuser",
+			email:       "existing@example.com",
+			password:    "Password123!",
 			setup: func() {
 				mockDAO.On("GetByUsername", "newuser").Return(nil, errors.New("user not found"))
 				existingUser := &models.User{Email: "existing@example.com"}
 				mockDAO.On("GetByEmail", "existing@example.com").Return(existingUser, nil)
 			},
-			wantErr: true,
-			errMsg:  "邮箱已被使用",
+			wantErr:     true,
+			expectedErr: ErrEmailExists,
 		},
 		{
-			name:     "Invalid password",
-			username: "testuser2",
-			email:    "test2@example.com",
-			password: "weak",
-			setup:    func() {},
-			wantErr:  true,
-			errMsg:   "密码长度至少8位",
+			name:        "Invalid password",
+			username:    "testuser2",
+			email:       "test2@example.com",
+			password:    "weak",
+			setup:       func() {},
+			wantErr:     true,
+			expectedErr: ErrWeakPassword,
 		},
 	}
 
@@ -198,7 +198,7 @@ func TestCreateUser(t *testing.T) {
 
 			if tt.wantErr {
 				assert.Error(t, err)
-				assert.Contains(t, err.Error(), tt.errMsg)
+				assert.ErrorIs(t, err, tt.expectedErr)
 			} else {
 				assert.NoError(t, err)
 			}
@@ -314,7 +314,7 @@ func TestChangePassword(t *testing.T) {
 		newPassword     string
 		setup           func()
 		wantErr         bool
-		errMsg          string
+		expectedErr     error
 	}{
 		{
 			name:            "Valid password change",
@@ -355,8 +355,8 @@ func TestChangePassword(t *testing.T) {
 				}
 				mockDAO.On("GetByUsername", "testuser").Return(user, nil)
 			},
-			wantErr: true,
-			errMsg:  "INVALID_PASSWORD",
+			wantErr:     true,
+			expectedErr: ErrInvalidPassword,
 		},
 		{
 			name:            "Invalid new password",
@@ -371,8 +371,8 @@ func TestChangePassword(t *testing.T) {
 				}
 				mockDAO.On("GetByUsername", "testuser").Return(user, nil)
 			},
-			wantErr: true,
-			errMsg:  "密码长度至少8位",
+			wantErr:     true,
+			expectedErr: ErrWeakPassword,
 		},
 	}
 
@@ -388,8 +388,8 @@ func TestChangePassword(t *testing.T) {
 
 			if tt.wantErr {
 				assert.Error(t, err)
-				if tt.errMsg != "" {
-					assert.Contains(t, err.Error(), tt.errMsg)
+				if tt.expectedErr != nil {
+					assert.ErrorIs(t, err, tt.expectedErr)
 				}
 			} else {
 				assert.NoError(t, err)

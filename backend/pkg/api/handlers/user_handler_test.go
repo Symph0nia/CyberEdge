@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"cyberedge/pkg/models"
+	"cyberedge/pkg/service"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -119,7 +120,7 @@ func TestUserHandler_Login(t *testing.T) {
 				"password": "wrongpassword",
 			},
 			setup: func(mockService *MockUserService) {
-				mockService.On("Login", "testuser", "wrongpassword").Return("", errors.New("INVALID_CREDENTIALS"))
+				mockService.On("Login", "testuser", "wrongpassword").Return("", service.ErrInvalidCredentials)
 			},
 			expectedStatus: http.StatusUnauthorized,
 			expectedBody: map[string]interface{}{
@@ -201,7 +202,7 @@ func TestUserHandler_Register(t *testing.T) {
 				"password": "Password123",
 			},
 			setup: func(mockService *MockUserService) {
-				mockService.On("CreateUser", "existinguser", "new@example.com", "Password123").Return(errors.New("用户名已存在"))
+				mockService.On("CreateUser", "existinguser", "new@example.com", "Password123").Return(service.ErrUserExists)
 			},
 			expectedStatus: http.StatusBadRequest,
 			expectedBody: map[string]interface{}{
