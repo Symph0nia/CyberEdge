@@ -1,6 +1,10 @@
 name: Claude Code
 
 on:
+  # PR首次创建时自动触发
+  pull_request:
+    types: [opened]
+  # 手动触发(@claude)
   issue_comment:
     types: [created]
   pull_request_review_comment:
@@ -13,6 +17,7 @@ on:
 jobs:
   claude:
     if: |
+      (github.event_name == 'pull_request' && github.event.action == 'opened') ||
       (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
       (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
       (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
@@ -20,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: read
+      pull-requests: write # 需要读写权限来读取PR评论和创建评论
       issues: read
       id-token: write
       actions: read # Required for Claude to read CI results on PRs
@@ -28,7 +33,35 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          fetch-depth: 0 # 获取完整的git历史以支持增量分析
+
+      # 检测审计类型：首次审计 vs 增量审计
+      - name: Detect audit type and get commit range
+        id: audit-info
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ] && [ "${{ github.event.action }}" = "opened" ]; then
+            echo "audit_type=initial" >> $GITHUB_OUTPUT
+            echo "commit_range=full" >> $GITHUB_OUTPUT
+            echo "🚀 首次PR审计 - 审计所有变更"
+          else
+            # 查找上一次Claude评论的时间
+            PR_NUMBER=${{ github.event.pull_request.number || github.event.issue.number }}
+            LAST_CLAUDE_COMMENT=$(gh pr view $PR_NUMBER --json comments --jq '.comments[] | select(.author.login == "github-actions[bot]" or .body | contains("Claude Code")) | .createdAt' | tail -1)
+
+            if [ -z "$LAST_CLAUDE_COMMENT" ]; then
+              echo "audit_type=initial" >> $GITHUB_OUTPUT
+              echo "commit_range=full" >> $GITHUB_OUTPUT
+              echo "🚀 首次审计 - 没有找到之前的Claude评论"
+            else
+              echo "audit_type=incremental" >> $GITHUB_OUTPUT
+              # 获取上次审计后的commits
+              COMMITS_SINCE=$(git log --since="$LAST_CLAUDE_COMMENT" --pretty=format:"%H" | tr '\n' ' ')
+              echo "commit_range=$COMMITS_SINCE" >> $GITHUB_OUTPUT
+              echo "🔄 增量审计 - 审计自 $LAST_CLAUDE_COMMENT 以来的提交: $COMMITS_SINCE"
+            fi
+          fi
 
       - name: Run Claude Code
         id: claude
@@ -39,22 +72,40 @@ jobs:
           # This is an optional setting that allows Claude to read CI results on PRs
           additional_permissions: |
             actions: read
-          
+
           # Optional: Specify model (defaults to Claude Sonnet 4, uncomment for Claude Opus 4.1)
           # model: "claude-opus-4-1-20250805"
-          
+
           # Optional: Customize the trigger phrase (default: @claude)
           # trigger_phrase: "/claude"
-          
+
           # Optional: Trigger when specific user is assigned to an issue
           # assignee_trigger: "claude-bot"
-          
+
           # Optional: Allow Claude to run specific commands
           # allowed_tools: "Bash(npm install),Bash(npm run build),Bash(npm run test:*),Bash(npm run lint:*)"
-          
+
           # Custom instructions for Claude to customize its behavior for your project
           custom_instructions: |
-            你是CyberEdge网络安全渗透测试平台的专业代码助手，请：
+            你是CyberEdge网络安全渗透测试平台的专业代码助手。
+
+            ## 审计类型: ${{ steps.audit-info.outputs.audit_type }}
+
+            ${{ steps.audit-info.outputs.audit_type == 'initial' && '
+            🚀 **首次PR审计** - 请全面审查本PR中的所有变更：
+            - 审查所有新增、修改、删除的文件
+            - 重点关注代码质量、安全性、性能
+            - 检查是否遵循项目编码标准
+            - 确保新功能有对应的测试
+            ' || '
+            🔄 **增量审计** - 请重点审查最近的变更：
+            - 主要关注自上次审计以来的新commit
+            - 比较与之前审计版本的差异
+            - 重点关注新引入的安全风险和代码质量问题
+            - 如果发现改进点，提供具体的修改建议
+            ' }}
+
+            ## 通用审计要求：
             - 始终用中文回复
             - 遵循项目的编码标准
             - 确保所有新代码都有相应的测试
@@ -62,8 +113,17 @@ jobs:
             - 对于前端Vue.js代码，注重用户体验和可维护性
             - 特别关注安全漏洞和潜在的安全风险
             - 对渗透测试工具的集成给出专业建议
-          
-          # Optional: Custom environment variables for Claude
-          # claude_env: |
-          #   NODE_ENV: test
+            - 提供具体、可执行的改进建议
+
+            ${{ steps.audit-info.outputs.commit_range != 'full' && format('
+            ## 增量审计范围：
+            本次审计的commit范围: {0}
+            请使用 `git show` 或 `git diff` 命令查看这些特定commit的变更内容。
+            ', steps.audit-info.outputs.commit_range) || '' }}
+
+          # Custom environment variables for Claude
+          claude_env: |
+            AUDIT_TYPE: ${{ steps.audit-info.outputs.audit_type }}
+            COMMIT_RANGE: ${{ steps.audit-info.outputs.commit_range }}
+            PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
 
