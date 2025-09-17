@@ -114,7 +114,7 @@ func TestValidatePassword(t *testing.T) {
 			err := service.ValidatePassword(tt.password)
 			if tt.wantErr {
 				assert.Error(t, err)
-				assert.Contains(t, err.Error(), tt.errMsg)
+				assert.ErrorIs(t, err, ErrWeakPassword)
 			} else {
 				assert.NoError(t, err)
 			}

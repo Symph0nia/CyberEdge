@@ -2,10 +2,10 @@ package handlers
 
 import (
 	"cyberedge/pkg/service"
+	"errors"
 	"github.com/gin-gonic/gin"
 	"net/http"
 	"strconv"
-	"strings"
 )
 
 type UserHandler struct {
@@ -30,7 +30,7 @@ func (h *UserHandler) Login(c *gin.Context) {
 
 	token, err := h.userService.Login(req.Username, req.Password)
 	if err != nil {
-		if err.Error() == "INVALID_CREDENTIALS" {
+		if errors.Is(err, service.ErrInvalidCredentials) {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误"})
 		} else {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "服务器内部错误"})
@@ -61,13 +61,12 @@ func (h *UserHandler) Register(c *gin.Context) {
 	err := h.userService.CreateUser(req.Username, req.Email, req.Password)
 	if err != nil {
 		// 根据错误类型返回相应的错误码
-		errMsg := err.Error()
 		switch {
-		case strings.Contains(errMsg, "用户名已存在"):
+		case errors.Is(err, service.ErrUserExists):
 			c.JSON(http.StatusBadRequest, gin.H{"error": "用户名已存在"})
-		case strings.Contains(errMsg, "邮箱已被使用"):
+		case errors.Is(err, service.ErrEmailExists):
 			c.JSON(http.StatusBadRequest, gin.H{"error": "邮箱已被使用"})
-		case strings.Contains(errMsg, "密码"):
+		case errors.Is(err, service.ErrWeakPassword):
 			c.JSON(http.StatusBadRequest, gin.H{"error": "密码强度不足"})
 		default:
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "服务器内部错误"})
