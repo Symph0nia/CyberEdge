@@ -9,6 +9,14 @@ export default createStore({
     user: null,
   },
   mutations: {
+    SET_AUTH(state, { isAuthenticated, user = null }) {
+      state.isAuthenticated = isAuthenticated;
+      state.user = user;
+    },
+    CLEAR_AUTH(state) {
+      state.isAuthenticated = false;
+      state.user = null;
+    },
     setAuthentication(state, status) {
       state.isAuthenticated = status;
     },
@@ -56,5 +64,6 @@ export default createStore({
   getters: {
     isAuthenticated: (state) => state.isAuthenticated,
     currentUser: (state) => state.user,
+    isAdmin: (state) => state.user?.role === 'admin',
   },
 });

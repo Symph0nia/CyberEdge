@@ -60,6 +60,9 @@ func (r *Router) SetupRouter() *gin.Engine {
 		authenticated.POST("/users", r.userHandler.CreateUser)
 		authenticated.DELETE("/users/:id", r.userHandler.DeleteUser)
 
+		// 用户个人操作
+		authenticated.POST("/auth/change-password", r.userHandler.ChangePassword)
+
 		// 2FA管理
 		authenticated.POST("/auth/2fa/setup", r.userHandler.Setup2FA)
 		authenticated.POST("/auth/2fa/verify", r.userHandler.Verify2FA)

@@ -33,17 +33,17 @@
                   </a-space>
                 </a-button>
                 <template #overlay>
-                  <a-menu>
+                  <a-menu @click="handleUserMenuClick">
                     <a-menu-item key="profile">
                       <UserOutlined />
                       个人资料
                     </a-menu-item>
-                    <a-menu-item key="settings">
+                    <a-menu-item key="user-settings">
                       <SettingOutlined />
                       设置
                     </a-menu-item>
                     <a-menu-divider />
-                    <a-menu-item key="logout" @click="handleLogout">
+                    <a-menu-item key="logout">
                       <LogoutOutlined />
                       退出登录
                     </a-menu-item>
@@ -155,7 +155,22 @@ export default {
           router.push('/user-management')
           break
         case 'settings':
-          message.info('系统设置功能开发中...')
+          router.push('/settings')
+          break
+      }
+    }
+
+    // 处理用户菜单点击
+    const handleUserMenuClick = ({ key }) => {
+      switch (key) {
+        case 'profile':
+          router.push('/profile')
+          break
+        case 'user-settings':
+          router.push('/profile')
+          break
+        case 'logout':
+          handleLogout()
           break
       }
     }
@@ -230,6 +245,7 @@ export default {
       isAuthenticated,
       currentUser,
       handleMenuClick,
+      handleUserMenuClick,
       handleLogout
     }
   }

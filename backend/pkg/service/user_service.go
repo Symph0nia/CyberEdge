@@ -4,9 +4,8 @@ import (
 	"bytes"
 	"cyberedge/pkg/dao"
 	"cyberedge/pkg/models"
-	"errors"
 	"fmt"
-	"github.com/golang-jwt/jwt"
+	"github.com/golang-jwt/jwt/v4"
 	"github.com/pquerna/otp/totp"
 	"golang.org/x/crypto/bcrypt"
 	"image/png"
@@ -15,11 +14,11 @@ import (
 )
 
 type UserService struct {
-	userDAO   *dao.UserDAO
+	userDAO   dao.UserDAOInterface
 	jwtSecret string
 }
 
-func NewUserService(userDAO *dao.UserDAO, jwtSecret string) *UserService {
+func NewUserService(userDAO dao.UserDAOInterface, jwtSecret string) *UserService {
 	return &UserService{
 		userDAO:   userDAO,
 		jwtSecret: jwtSecret,
@@ -29,35 +28,35 @@ func NewUserService(userDAO *dao.UserDAO, jwtSecret string) *UserService {
 // ValidatePassword 验证密码强度
 func (s *UserService) ValidatePassword(password string) error {
 	if len(password) < 8 {
-		return errors.New("密码长度至少8位")
+		return ErrWeakPassword
 	}
 
 	if len(password) > 128 {
-		return errors.New("密码长度不能超过128位")
+		return ErrWeakPassword
 	}
 
 	// 检查是否包含大写字母
 	hasUpper, _ := regexp.MatchString(`[A-Z]`, password)
 	if !hasUpper {
-		return errors.New("密码必须包含至少一个大写字母")
+		return ErrWeakPassword
 	}
 
 	// 检查是否包含小写字母
 	hasLower, _ := regexp.MatchString(`[a-z]`, password)
 	if !hasLower {
-		return errors.New("密码必须包含至少一个小写字母")
+		return ErrWeakPassword
 	}
 
 	// 检查是否包含数字
 	hasDigit, _ := regexp.MatchString(`[0-9]`, password)
 	if !hasDigit {
-		return errors.New("密码必须包含至少一个数字")
+		return ErrWeakPassword
 	}
 
 	// 检查是否包含特殊字符
 	hasSpecial, _ := regexp.MatchString(`[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]`, password)
 	if !hasSpecial {
-		return errors.New("密码必须包含至少一个特殊字符")
+		return ErrWeakPassword
 	}
 
 	return nil
@@ -92,12 +91,12 @@ func (s *UserService) CreateUser(username, email, password string) error {
 
 	// 检查用户名是否已存在
 	if existingUser, _ := s.userDAO.GetByUsername(username); existingUser != nil {
-		return errors.New("用户名已存在")
+		return ErrUserExists
 	}
 
 	// 检查邮箱是否已存在
 	if existingUser, _ := s.userDAO.GetByEmail(email); existingUser != nil {
-		return errors.New("邮箱已被使用")
+		return ErrEmailExists
 	}
 
 	// 生成密码哈希
@@ -125,12 +124,12 @@ func (s *UserService) DeleteUser(id uint) error {
 func (s *UserService) Login(username, password string) (string, error) {
 	user, err := s.userDAO.GetByUsername(username)
 	if err != nil {
-		return "", errors.New("INVALID_CREDENTIALS")
+		return "", ErrInvalidCredentials
 	}
 
 	// 验证密码
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
-		return "", errors.New("INVALID_CREDENTIALS")
+		return "", ErrInvalidCredentials
 	}
 
 	// 生成JWT token
@@ -164,19 +163,19 @@ func (s *UserService) ValidateToken(tokenString string) (*models.User, error) {
 	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
 		username, ok := claims["username"].(string)
 		if !ok {
-			return nil, errors.New("invalid token claims")
+			return nil, ErrInvalidCredentials
 		}
 
 		user, err := s.userDAO.GetByUsername(username)
 		if err != nil {
 			// 用户不存在时返回无效token错误，而不是数据库错误
-			return nil, errors.New("invalid token: user not found")
+			return nil, ErrUserNotFound
 		}
 
 		return user, nil
 	}
 
-	return nil, errors.New("invalid token")
+	return nil, ErrInvalidCredentials
 }
 
 // Setup2FA 设置双因子认证
@@ -224,12 +223,12 @@ func (s *UserService) Verify2FA(username, code string) error {
 	}
 
 	if user.TOTPSecret == "" {
-		return errors.New("请先设置双因子认证")
+		return ErrInvalidCredentials
 	}
 
 	valid := totp.Validate(code, user.TOTPSecret)
 	if !valid {
-		return errors.New("验证码无效")
+		return ErrInvalidCredentials
 	}
 
 	// 验证成功后才启用2FA
@@ -252,5 +251,34 @@ func (s *UserService) Disable2FA(username string) error {
 
 	user.Is2FAEnabled = false
 	user.TOTPSecret = ""
+	return s.userDAO.Update(user)
+}
+
+// ChangePassword 修改用户密码
+func (s *UserService) ChangePassword(username, currentPassword, newPassword string) error {
+	user, err := s.userDAO.GetByUsername(username)
+	if err != nil {
+		return err
+	}
+
+	// 验证当前密码
+	err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(currentPassword))
+	if err != nil {
+		return ErrInvalidPassword
+	}
+
+	// 验证新密码强度
+	if err := s.ValidatePassword(newPassword); err != nil {
+		return err
+	}
+
+	// 加密新密码
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+
+	// 更新密码
+	user.PasswordHash = string(hashedPassword)
 	return s.userDAO.Update(user)
 }
