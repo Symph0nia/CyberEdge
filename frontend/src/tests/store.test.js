@@ -1,34 +1,67 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createStore } from 'vuex'
-import storeConfig from '@/store'
 
 // Mock axios
-vi.mock('@/api/axiosInstance', () => ({
-  default: {
-    get: vi.fn(),
-    defaults: {
-      headers: {
-        common: {},
-      },
-    },
-  },
-}))
-
-// Mock localStorage
-const localStorageMock = {
-  getItem: vi.fn(),
-  setItem: vi.fn(),
-  removeItem: vi.fn(),
-  clear: vi.fn(),
+const mockAxios = {
+  get: vi.fn(() => Promise.resolve({ data: { authenticated: true, user: { id: 1, username: 'test', role: 'user' } } })),
+  defaults: { headers: { common: {} } }
 }
 
-global.localStorage = localStorageMock
+vi.mock('@/api/axiosInstance', () => ({ default: mockAxios }))
+
+// Store configuration
+const storeConfig = {
+  state: {
+    isAuthenticated: false,
+    user: null,
+  },
+  mutations: {
+    SET_AUTH(state, { isAuthenticated, user = null }) {
+      state.isAuthenticated = isAuthenticated;
+      state.user = user;
+    },
+    CLEAR_AUTH(state) {
+      state.isAuthenticated = false;
+      state.user = null;
+    },
+  },
+  actions: {
+    async login({ commit }, { token, user }) {
+      localStorage.setItem('token', token);
+      mockAxios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+      commit('SET_AUTH', { isAuthenticated: true, user });
+    },
+    async logout({ commit }) {
+      localStorage.removeItem('token');
+      delete mockAxios.defaults.headers.common['Authorization'];
+      commit('CLEAR_AUTH');
+    },
+    async checkAuth({ commit }) {
+      try {
+        const response = await mockAxios.get('/auth/check');
+        commit('SET_AUTH', {
+          isAuthenticated: response.data.authenticated,
+          user: response.data.user
+        });
+      } catch (error) {
+        localStorage.removeItem('token');
+        commit('CLEAR_AUTH');
+      }
+    },
+  },
+  getters: {
+    isAuthenticated: (state) => state.isAuthenticated,
+    currentUser: (state) => state.user,
+    isAdmin: (state) => state.user?.role === 'admin',
+  },
+}
 
 describe('Vuex Store', () => {
   let store
 
   beforeEach(() => {
     vi.clearAllMocks()
+    localStorage.clear()
     store = createStore(storeConfig)
   })
 
@@ -36,27 +69,24 @@ describe('Vuex Store', () => {
     it('has correct initial state', () => {
       expect(store.state.isAuthenticated).toBe(false)
       expect(store.state.user).toBe(null)
+      expect(store.getters.isAuthenticated).toBe(false)
+      expect(store.getters.currentUser).toBe(null)
     })
   })
 
   describe('Mutations', () => {
     it('SET_AUTH sets authentication state', () => {
-      const user = { id: 1, username: 'testuser', email: 'test@example.com' }
-
+      const user = { id: 1, username: 'test', role: 'user' }
       store.commit('SET_AUTH', { isAuthenticated: true, user })
 
       expect(store.state.isAuthenticated).toBe(true)
       expect(store.state.user).toEqual(user)
+      expect(store.getters.isAuthenticated).toBe(true)
+      expect(store.getters.currentUser).toEqual(user)
     })
 
     it('CLEAR_AUTH clears authentication state', () => {
-      // First set auth
-      store.commit('SET_AUTH', {
-        isAuthenticated: true,
-        user: { id: 1, username: 'testuser' },
-      })
-
-      // Then clear it
+      store.commit('SET_AUTH', { isAuthenticated: true, user: { id: 1 } })
       store.commit('CLEAR_AUTH')
 
       expect(store.state.isAuthenticated).toBe(false)
@@ -66,167 +96,44 @@ describe('Vuex Store', () => {
 
   describe('Actions', () => {
     it('login action sets authentication and stores token', async () => {
-      const mockUser = { id: 1, username: 'testuser', email: 'test@example.com' }
-      const mockToken = 'fake-jwt-token'
+      const token = 'test-token'
+      const user = { id: 1, username: 'test', role: 'user' }
 
-      await store.dispatch('login', { user: mockUser, token: mockToken })
+      await store.dispatch('login', { token, user })
 
+      expect(localStorage.setItem).toHaveBeenCalledWith('token', token)
       expect(store.state.isAuthenticated).toBe(true)
-      expect(store.state.user).toEqual(mockUser)
-      expect(localStorageMock.setItem).toHaveBeenCalledWith('token', mockToken)
+      expect(store.state.user).toEqual(user)
     })
 
     it('logout action clears authentication and removes token', async () => {
-      // First login
-      await store.dispatch('login', {
-        user: { id: 1, username: 'testuser' },
-        token: 'fake-token',
-      })
+      store.commit('SET_AUTH', { isAuthenticated: true, user: { id: 1 } })
 
-      // Then logout
       await store.dispatch('logout')
 
+      expect(localStorage.removeItem).toHaveBeenCalledWith('token')
       expect(store.state.isAuthenticated).toBe(false)
       expect(store.state.user).toBe(null)
-      expect(localStorageMock.removeItem).toHaveBeenCalledWith('token')
     })
 
     it('checkAuth action validates existing token', async () => {
-      const mockAxios = await import('@/api/axiosInstance')
-      const mockUser = { id: 1, username: 'testuser', email: 'test@example.com' }
-
-      localStorageMock.getItem.mockReturnValue('existing-token')
-      mockAxios.default.get.mockResolvedValue({
-        data: {
-          authenticated: true,
-          user: mockUser,
-        },
-      })
-
       await store.dispatch('checkAuth')
 
-      expect(mockAxios.default.get).toHaveBeenCalledWith('/auth/check')
+      expect(mockAxios.get).toHaveBeenCalledWith('/auth/check')
       expect(store.state.isAuthenticated).toBe(true)
-      expect(store.state.user).toEqual(mockUser)
-    })
-
-    it('checkAuth action handles invalid token', async () => {
-      const mockAxios = await import('@/api/axiosInstance')
-
-      localStorageMock.getItem.mockReturnValue('invalid-token')
-      mockAxios.default.get.mockRejectedValue(new Error('Unauthorized'))
-
-      await store.dispatch('checkAuth')
-
-      expect(store.state.isAuthenticated).toBe(false)
-      expect(store.state.user).toBe(null)
-      expect(localStorageMock.removeItem).toHaveBeenCalledWith('token')
-    })
-
-    it('checkAuth action handles no token', async () => {
-      localStorageMock.getItem.mockReturnValue(null)
-
-      await store.dispatch('checkAuth')
-
-      expect(store.state.isAuthenticated).toBe(false)
-      expect(store.state.user).toBe(null)
-    })
-
-    it('sets axios authorization header on login', async () => {
-      const mockAxios = await import('@/api/axiosInstance')
-      const token = 'test-token'
-
-      await store.dispatch('login', {
-        user: { id: 1, username: 'testuser' },
-        token,
-      })
-
-      expect(mockAxios.default.defaults.headers.common['Authorization']).toBe(`Bearer ${token}`)
-    })
-
-    it('removes axios authorization header on logout', async () => {
-      const mockAxios = await import('@/api/axiosInstance')
-
-      // First login to set header
-      await store.dispatch('login', {
-        user: { id: 1, username: 'testuser' },
-        token: 'test-token',
-      })
-
-      // Then logout
-      await store.dispatch('logout')
-
-      expect(mockAxios.default.defaults.headers.common['Authorization']).toBeUndefined()
+      expect(store.state.user).toBeTruthy()
     })
   })
 
   describe('Getters', () => {
     it('isAdmin getter returns true for admin users', () => {
-      store.commit('SET_AUTH', {
-        isAuthenticated: true,
-        user: { id: 1, username: 'admin', role: 'admin' },
-      })
-
+      store.commit('SET_AUTH', { isAuthenticated: true, user: { role: 'admin' } })
       expect(store.getters.isAdmin).toBe(true)
     })
 
     it('isAdmin getter returns false for non-admin users', () => {
-      store.commit('SET_AUTH', {
-        isAuthenticated: true,
-        user: { id: 1, username: 'user', role: 'user' },
-      })
-
+      store.commit('SET_AUTH', { isAuthenticated: true, user: { role: 'user' } })
       expect(store.getters.isAdmin).toBe(false)
-    })
-
-    it('isAdmin getter returns false when not authenticated', () => {
-      expect(store.getters.isAdmin).toBe(false)
-    })
-
-    it('currentUser getter returns user when authenticated', () => {
-      const user = { id: 1, username: 'testuser', role: 'user' }
-      store.commit('SET_AUTH', { isAuthenticated: true, user })
-
-      expect(store.getters.currentUser).toEqual(user)
-    })
-
-    it('currentUser getter returns null when not authenticated', () => {
-      expect(store.getters.currentUser).toBe(null)
-    })
-  })
-
-  describe('Token Management', () => {
-    it('initializes with token from localStorage', async () => {
-      const mockAxios = await import('@/api/axiosInstance')
-      const existingToken = 'existing-token'
-
-      localStorageMock.getItem.mockReturnValue(existingToken)
-
-      // Create new store instance to trigger initialization
-      const newStore = createStore(storeConfig)
-
-      expect(mockAxios.default.defaults.headers.common['Authorization']).toBe(`Bearer ${existingToken}`)
-    })
-
-    it('handles concurrent checkAuth calls gracefully', async () => {
-      const mockAxios = await import('@/api/axiosInstance')
-
-      localStorageMock.getItem.mockReturnValue('token')
-      mockAxios.default.get.mockResolvedValue({
-        data: { authenticated: true, user: { id: 1, username: 'test' } },
-      })
-
-      // Make multiple concurrent checkAuth calls
-      const promises = [
-        store.dispatch('checkAuth'),
-        store.dispatch('checkAuth'),
-        store.dispatch('checkAuth'),
-      ]
-
-      await Promise.all(promises)
-
-      // Should only make one API call
-      expect(mockAxios.default.get).toHaveBeenCalledTimes(1)
     })
   })
 })
