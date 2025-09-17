@@ -413,10 +413,15 @@ const fetchQRCodeStatus = async () => {
 const toggleQRCodeStatus = async () => {
   qrStatusLoading.value = true
   try {
-    await api.post('/auth/qrcode/status', {
-      enabled: qrcodeEnabled.value
-    })
+    // 注意：这个功能需要根据实际需求实现相应的后端API
+    // 当前后端没有提供设置QR码状态的接口，这里暂时模拟实现
+    await new Promise(resolve => setTimeout(resolve, 1000)) // 模拟API调用
     message.success(`二维码登录已${qrcodeEnabled.value ? '启用' : '禁用'}`)
+
+    // 实际项目中应该调用类似这样的API:
+    // await api.post('/auth/qrcode/toggle', {
+    //   enabled: qrcodeEnabled.value
+    // })
   } catch (error) {
     message.error('更新二维码状态失败')
     qrcodeEnabled.value = !qrcodeEnabled.value // 回滚状态

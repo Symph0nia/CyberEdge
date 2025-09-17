@@ -2,6 +2,8 @@ import { createRouter, createWebHistory } from "vue-router";
 import store from "../store";
 import LoginPage from "@/components/Login/LoginPage.vue";
 import UserManagement from "@/components/User/UserManagement.vue";
+import ProfilePage from "@/components/Profile/ProfilePage.vue";
+import SettingsPage from "@/components/Settings/SettingsPage.vue";
 
 const routes = [
   {
@@ -18,6 +20,16 @@ const routes = [
     path: "/user-management",
     name: "UserManagement",
     component: UserManagement,
+  },
+  {
+    path: "/profile",
+    name: "ProfilePage",
+    component: ProfilePage,
+  },
+  {
+    path: "/settings",
+    name: "SettingsPage",
+    component: SettingsPage,
   },
 ];
 

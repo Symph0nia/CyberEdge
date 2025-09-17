@@ -6,7 +6,9 @@
     "serve": "vue-cli-service serve --mode development --host 0.0.0.0 --port 8080",
     "build": "vue-cli-service build --mode production",
     "build:dev": "vue-cli-service build --mode development",
-    "lint": "vue-cli-service lint"
+    "lint": "vue-cli-service lint",
+    "test": "vitest",
+    "test:run": "vitest run"
   },
   "dependencies": {
     "@ant-design/icons-vue": "^7.0.1",
@@ -25,11 +27,15 @@
   "devDependencies": {
     "@babel/core": "^7.12.16",
     "@babel/eslint-parser": "^7.12.16",
+    "@vitejs/plugin-vue": "^5.2.4",
     "@vue/cli-plugin-babel": "~5.0.0",
     "@vue/cli-plugin-eslint": "~5.0.0",
     "@vue/cli-service": "~5.0.0",
+    "@vue/test-utils": "^2.4.0-alpha.2",
     "eslint": "^7.32.0",
-    "eslint-plugin-vue": "^8.0.3"
+    "eslint-plugin-vue": "^8.0.3",
+    "jsdom": "^26.1.0",
+    "vitest": "^3.2.4"
   },
   "eslintConfig": {
     "root": true,
