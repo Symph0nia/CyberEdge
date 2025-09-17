@@ -15,11 +15,11 @@ import (
 )
 
 type UserService struct {
-	userDAO   *dao.UserDAO
+	userDAO   dao.UserDAOInterface
 	jwtSecret string
 }
 
-func NewUserService(userDAO *dao.UserDAO, jwtSecret string) *UserService {
+func NewUserService(userDAO dao.UserDAOInterface, jwtSecret string) *UserService {
 	return &UserService{
 		userDAO:   userDAO,
 		jwtSecret: jwtSecret,
@@ -252,5 +252,34 @@ func (s *UserService) Disable2FA(username string) error {
 
 	user.Is2FAEnabled = false
 	user.TOTPSecret = ""
+	return s.userDAO.Update(user)
+}
+
+// ChangePassword 修改用户密码
+func (s *UserService) ChangePassword(username, currentPassword, newPassword string) error {
+	user, err := s.userDAO.GetByUsername(username)
+	if err != nil {
+		return err
+	}
+
+	// 验证当前密码
+	err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(currentPassword))
+	if err != nil {
+		return errors.New("INVALID_PASSWORD")
+	}
+
+	// 验证新密码强度
+	if err := s.ValidatePassword(newPassword); err != nil {
+		return err
+	}
+
+	// 加密新密码
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+
+	// 更新密码
+	user.PasswordHash = string(hashedPassword)
 	return s.userDAO.Update(user)
 }

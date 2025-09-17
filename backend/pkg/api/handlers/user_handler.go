@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"cyberedge/pkg/api"
 	"cyberedge/pkg/service"
 	"github.com/gin-gonic/gin"
 	"net/http"
@@ -10,10 +9,10 @@ import (
 )
 
 type UserHandler struct {
-	userService *service.UserService
+	userService service.UserServiceInterface
 }
 
-func NewUserHandler(userService *service.UserService) *UserHandler {
+func NewUserHandler(userService service.UserServiceInterface) *UserHandler {
 	return &UserHandler{userService: userService}
 }
 
@@ -25,21 +24,22 @@ func (h *UserHandler) Login(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		api.RespondWithError(c, http.StatusBadRequest, api.ErrInvalidRequest)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数无效"})
 		return
 	}
 
 	token, err := h.userService.Login(req.Username, req.Password)
 	if err != nil {
 		if err.Error() == "INVALID_CREDENTIALS" {
-			api.RespondWithError(c, http.StatusUnauthorized, api.ErrInvalidCredentials)
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误"})
 		} else {
-			api.RespondWithError(c, http.StatusInternalServerError, api.ErrInternalServer)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "服务器内部错误"})
 		}
 		return
 	}
 
-	api.RespondWithSuccess(c, map[string]interface{}{
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
 		"token":   token,
 		"message": "登录成功",
 	})
@@ -54,7 +54,7 @@ func (h *UserHandler) Register(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		api.RespondWithError(c, http.StatusBadRequest, api.ErrInvalidRequest)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数无效"})
 		return
 	}
 
@@ -64,18 +64,19 @@ func (h *UserHandler) Register(c *gin.Context) {
 		errMsg := err.Error()
 		switch {
 		case strings.Contains(errMsg, "用户名已存在"):
-			api.RespondWithError(c, http.StatusBadRequest, api.ErrUserExists)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "用户名已存在"})
 		case strings.Contains(errMsg, "邮箱已被使用"):
-			api.RespondWithError(c, http.StatusBadRequest, api.ErrEmailExists)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "邮箱已被使用"})
 		case strings.Contains(errMsg, "密码"):
-			api.RespondWithError(c, http.StatusBadRequest, api.ErrWeakPassword)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "密码强度不足"})
 		default:
-			api.RespondWithError(c, http.StatusInternalServerError, api.ErrInternalServer)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "服务器内部错误"})
 		}
 		return
 	}
 
-	api.RespondWithSuccess(c, map[string]interface{}{
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
 		"message": "用户注册成功",
 	})
 }
@@ -286,5 +287,52 @@ func (h *UserHandler) GetQRCodeStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"is2FAEnabled": user.Is2FAEnabled,
 		"username":     user.Username,
+	})
+}
+
+// ChangePassword 修改密码
+func (h *UserHandler) ChangePassword(c *gin.Context) {
+	// 先检查认证
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "未提供认证token"})
+		return
+	}
+
+	var req struct {
+		CurrentPassword string `json:"currentPassword" binding:"required"`
+		NewPassword     string `json:"newPassword" binding:"required,min=8,max=128"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数无效"})
+		return
+	}
+
+	if !strings.HasPrefix(authHeader, "Bearer ") {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "无效的认证格式"})
+		return
+	}
+	token := strings.TrimPrefix(authHeader, "Bearer ")
+	user, err := h.userService.ValidateToken(token)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "无效的token"})
+		return
+	}
+
+	// 修改密码
+	err = h.userService.ChangePassword(user.Username, req.CurrentPassword, req.NewPassword)
+	if err != nil {
+		if err.Error() == "INVALID_PASSWORD" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "当前密码错误"})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "修改密码失败"})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "密码修改成功",
 	})
 }
