@@ -8,10 +8,10 @@ import (
 )
 
 type ScanService struct {
-	scanDAO *dao.ScanDAO
+	scanDAO dao.ScanDAOInterface
 }
 
-func NewScanService(scanDAO *dao.ScanDAO) *ScanService {
+func NewScanService(scanDAO dao.ScanDAOInterface) *ScanService {
 	return &ScanService{
 		scanDAO: scanDAO,
 	}
