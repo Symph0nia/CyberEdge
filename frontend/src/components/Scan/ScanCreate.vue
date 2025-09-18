@@ -179,9 +179,9 @@ export default {
   },
   computed: {
     isFormValid() {
-      return this.scanForm.projectId &&
-             this.scanForm.target &&
-             this.scanForm.pipelineName
+      return !!(this.scanForm.projectId &&
+                this.scanForm.target &&
+                this.scanForm.pipelineName)
     },
     toolsByCategory() {
       return this.availableTools.reduce((acc, tool) => {
