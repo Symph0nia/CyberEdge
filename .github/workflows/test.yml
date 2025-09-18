@@ -34,7 +34,7 @@ jobs:
       uses: actions/cache@v3
       with:
         path: ~/go/pkg/mod
-        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        key: ${{ runner.os }}-go-${{ hashFiles('backend/go.sum') }}
         restore-keys: |
           ${{ runner.os }}-go-
 
@@ -56,7 +56,7 @@ jobs:
         JWT_SECRET: test-secret-for-github-actions
         MYSQL_DSN: root:password@tcp(127.0.0.1:3306)/cyberedge_test?charset=utf8mb4&parseTime=True&loc=Local
       run: |
-        go test -v -coverprofile=coverage.out ./pkg/...
+        go test -v -coverprofile=coverage.out ./pkg/... .
         go tool cover -func=coverage.out
 
     - name: Upload coverage reports
