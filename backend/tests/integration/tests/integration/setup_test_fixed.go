@@ -3,11 +3,12 @@ package integration
 import (
 	"cyberedge/pkg/api"
 	"cyberedge/pkg/dao"
+	"cyberedge/pkg/models"
 	"cyberedge/pkg/service"
 	"cyberedge/pkg/logging"
-	"cyberedge/pkg/database"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
+	"gorm.io/driver/mysql"
 	"testing"
 	"os"
 	"log"
@@ -44,7 +45,7 @@ func setupTest() {
 
 	// Connect to test database
 	dsn := "root:password@tcp(localhost:3306)/cyberedge_test?charset=utf8mb4&parseTime=True&loc=Local"
-	testDB, err = database.Connect(dsn)
+	testDB, err = gorm.Open(mysql.Open(dsn), &gorm.Config{})
 	if err != nil {
 		log.Printf("Warning: Failed to connect to MySQL, skipping integration tests: %v", err)
 		return
@@ -52,7 +53,8 @@ func setupTest() {
 
 	// Auto-migrate test tables
 	err = testDB.AutoMigrate(
-		&dao.User{},
+		&models.User{},
+		&models.ProjectOptimized{},
 		// Add other models as needed
 	)
 	if err != nil {
@@ -66,12 +68,14 @@ func setupTest() {
 	jwtSecret := "test-secret-key"
 	userService := service.NewUserService(userDAO, jwtSecret)
 
-	// Create scan service (simplified for testing)
-	scanService := service.NewScanService(testDB)
+	// Create scan DAO and service
+	scanDAO := dao.NewScanDAO(testDB)
+	scanService := service.NewScanService(scanDAO)
 
 	// Initialize router
 	allowedOrigins := []string{"http://localhost:8080"}
-	testRouter = api.NewRouter(userService, scanService, jwtSecret, allowedOrigins)
+	router := api.NewRouter(userService, scanService, jwtSecret, allowedOrigins)
+	testRouter = router.SetupRouter()
 }
 
 func teardownTest() {
@@ -79,4 +83,14 @@ func teardownTest() {
 		// Clean up test data
 		testDB.Exec("DROP DATABASE IF EXISTS cyberedge_test")
 	}
+}
+
+// GetTestRouter returns the test router for integration tests
+func GetTestRouter() *gin.Engine {
+	if testRouter == nil {
+		log.Printf("Warning: testRouter is nil, database connection may have failed")
+		// Return a basic router for testing
+		return gin.New()
+	}
+	return testRouter
 }

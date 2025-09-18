@@ -194,13 +194,13 @@ func validateIndexes(t *testing.T, db *gorm.DB) {
 		t.Fatalf("Failed to get database connection: %v", err)
 	}
 
-	// 检查关键索引
+	// 检查关键索引 - GORM创建的索引名包含表名前缀
 	expectedIndexes := map[string][]string{
-		"users": {"idx_username", "idx_email"},
-		"project_optimizeds": {"idx_name"},
-		"scan_targets": {"idx_project_id", "idx_type", "idx_address"},
-		"scan_result_optimizeds": {"idx_project_id", "idx_target_id", "idx_port", "idx_service_name"},
-		"vulnerability_optimizeds": {"idx_scan_result_id", "idx_severity", "idx_status"},
+		"users": {"idx_users_username", "idx_users_email"},
+		"project_optimizeds": {"idx_project_optimizeds_name"},
+		"scan_targets": {"idx_scan_targets_project_id", "idx_scan_targets_type", "idx_scan_targets_address"},
+		"scan_result_optimizeds": {"idx_scan_result_optimizeds_project_id", "idx_scan_result_optimizeds_target_id", "idx_scan_result_optimizeds_port", "idx_scan_result_optimizeds_service_name"},
+		"vulnerability_optimizeds": {"idx_vulnerability_optimizeds_scan_result_id", "idx_vulnerability_optimizeds_severity", "idx_vulnerability_optimizeds_status"},
 	}
 
 	for table, indexes := range expectedIndexes {
