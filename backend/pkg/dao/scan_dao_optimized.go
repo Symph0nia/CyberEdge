@@ -394,7 +394,7 @@ func (d *ScanDAOOptimized) GetProjectHierarchy(projectID uint) ([]models.ScanTar
 	return rootTargets, nil
 }
 
-// 搜索功能
+// 搜索功能 - 添加分页支持
 func (d *ScanDAOOptimized) SearchTargets(projectID uint, searchTerm string) ([]models.ScanTarget, error) {
 	var targets []models.ScanTarget
 
@@ -402,7 +402,32 @@ func (d *ScanDAOOptimized) SearchTargets(projectID uint, searchTerm string) ([]m
 
 	err := d.db.Where("project_id = ? AND LOWER(address) LIKE ?", projectID, searchPattern).
 		Order("type, address").
+		Limit(1000). // 限制最大返回数量
 		Find(&targets).Error
 
 	return targets, err
+}
+
+// SearchTargetsWithPagination 带分页的搜索功能
+func (d *ScanDAOOptimized) SearchTargetsWithPagination(projectID uint, searchTerm string, page, pageSize int) ([]models.ScanTarget, int64, error) {
+	var targets []models.ScanTarget
+	var total int64
+
+	searchPattern := "%" + strings.ToLower(searchTerm) + "%"
+
+	query := d.db.Where("project_id = ? AND LOWER(address) LIKE ?", projectID, searchPattern)
+
+	// 获取总数
+	if err := query.Model(&models.ScanTarget{}).Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// 获取分页数据
+	offset := (page - 1) * pageSize
+	err := query.Order("type, address").
+		Offset(offset).
+		Limit(pageSize).
+		Find(&targets).Error
+
+	return targets, total, err
 }
