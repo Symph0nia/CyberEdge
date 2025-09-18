@@ -18,7 +18,7 @@ type NucleiScanner struct {
 // NewNucleiScanner 创建Nuclei扫描工具
 func NewNucleiScanner() scanner.Scanner {
 	return &NucleiScanner{
-		BaseScannerTool: NewBaseScannerTool("nuclei", scanner.CategoryVulnerability, "nuclei"),
+		BaseScannerTool: NewBaseScannerToolWithVersionArgs("nuclei", scanner.CategoryVulnerability, "nuclei", []string{"-version"}),
 	}
 }
 

@@ -11,18 +11,25 @@ import (
 
 // BaseScannerTool 基础扫描工具实现
 type BaseScannerTool struct {
-	name      string
-	category  scanner.ScanCategory
-	cmdPath   string
-	available bool
+	name        string
+	category    scanner.ScanCategory
+	cmdPath     string
+	available   bool
+	versionArgs []string // 用于检查可用性的参数
 }
 
 // NewBaseScannerTool 创建基础扫描工具
 func NewBaseScannerTool(name string, category scanner.ScanCategory, cmdPath string) *BaseScannerTool {
+	return NewBaseScannerToolWithVersionArgs(name, category, cmdPath, []string{"--version"})
+}
+
+// NewBaseScannerToolWithVersionArgs 创建带自定义版本检查参数的基础扫描工具
+func NewBaseScannerToolWithVersionArgs(name string, category scanner.ScanCategory, cmdPath string, versionArgs []string) *BaseScannerTool {
 	tool := &BaseScannerTool{
-		name:     name,
-		category: category,
-		cmdPath:  cmdPath,
+		name:        name,
+		category:    category,
+		cmdPath:     cmdPath,
+		versionArgs: versionArgs,
 	}
 
 	// 检查工具是否可用
@@ -51,8 +58,14 @@ func (b *BaseScannerTool) checkAvailability() bool {
 		return false
 	}
 
-	// 尝试执行 --version 或 --help 检查工具是否可用
-	cmd := exec.Command(b.cmdPath, "--version")
+	// 尝试执行指定的版本检查参数
+	if len(b.versionArgs) == 0 {
+		// 如果没有版本参数，只检查命令是否存在
+		_, err := exec.LookPath(b.cmdPath)
+		return err == nil
+	}
+
+	cmd := exec.Command(b.cmdPath, b.versionArgs...)
 	return cmd.Run() == nil
 }
 

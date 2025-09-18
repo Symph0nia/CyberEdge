@@ -19,7 +19,7 @@ type SubfinderScanner struct {
 // NewSubfinderScanner 创建Subfinder扫描工具
 func NewSubfinderScanner() scanner.Scanner {
 	return &SubfinderScanner{
-		BaseScannerTool: NewBaseScannerTool("subfinder", scanner.CategorySubdomain, "subfinder"),
+		BaseScannerTool: NewBaseScannerToolWithVersionArgs("subfinder", scanner.CategorySubdomain, "subfinder", []string{"-version"}),
 	}
 }
 

@@ -20,7 +20,7 @@ type HttpxScanner struct {
 // NewHttpxScanner 创建Httpx扫描工具
 func NewHttpxScanner() scanner.Scanner {
 	return &HttpxScanner{
-		BaseScannerTool: NewBaseScannerTool("httpx", scanner.CategoryWebTech, "httpx"),
+		BaseScannerTool: NewBaseScannerToolWithVersionArgs("httpx", scanner.CategoryWebTech, "httpx", []string{"-version"}),
 	}
 }
 

@@ -297,7 +297,7 @@ func (d *ScanDAO) CreateScanTarget(target *models.ScanTarget) error {
 
 func (d *ScanDAO) GetScanTargetByTarget(projectID uint, target string) (*models.ScanTarget, error) {
 	var scanTarget models.ScanTarget
-	err := d.db.Where("project_id = ? AND target = ?", projectID, target).First(&scanTarget).Error
+	err := d.db.Where("project_id = ? AND address = ?", projectID, target).First(&scanTarget).Error
 	return &scanTarget, err
 }
 
@@ -318,22 +318,22 @@ func (d *ScanDAO) UpdateScanResult(result *models.ScanResultOptimized) error {
 
 func (d *ScanDAO) GetScanResultByID(id uint) (*models.ScanResultOptimized, error) {
 	var result models.ScanResultOptimized
-	err := d.db.Preload("ScanTarget").First(&result, id).Error
+	err := d.db.Preload("Target").First(&result, id).Error
 	return &result, err
 }
 
 func (d *ScanDAO) GetScanResultsByProject(projectID uint) ([]models.ScanResultOptimized, error) {
 	var results []models.ScanResultOptimized
 	err := d.db.Where("project_id = ?", projectID).
-		Preload("ScanTarget").
+		Preload("Target").
 		Find(&results).Error
 	return results, err
 }
 
 func (d *ScanDAO) GetScanResultsByStatus(status string) ([]models.ScanResultOptimized, error) {
 	var results []models.ScanResultOptimized
-	err := d.db.Where("status = ?", status).
-		Preload("ScanTarget").
+	err := d.db.Where("state = ?", status).
+		Preload("Target").
 		Find(&results).Error
 	return results, err
 }
@@ -345,16 +345,18 @@ func (d *ScanDAO) CreateVulnerabilityOptimized(vuln *models.VulnerabilityOptimiz
 
 func (d *ScanDAO) GetVulnerabilitiesByProject(projectID uint) ([]models.VulnerabilityOptimized, error) {
 	var vulns []models.VulnerabilityOptimized
-	err := d.db.Where("project_id = ?", projectID).
-		Preload("ScanTarget").
+	err := d.db.Joins("JOIN scan_result_optimizeds ON vulnerability_optimizeds.scan_result_id = scan_result_optimizeds.id").
+		Where("scan_result_optimizeds.project_id = ?", projectID).
+		Preload("ScanResult").
 		Find(&vulns).Error
 	return vulns, err
 }
 
 func (d *ScanDAO) GetVulnerabilitiesBySeverity(projectID uint, severity string) ([]models.VulnerabilityOptimized, error) {
 	var vulns []models.VulnerabilityOptimized
-	err := d.db.Where("project_id = ? AND severity = ?", projectID, severity).
-		Preload("ScanTarget").
+	err := d.db.Joins("JOIN scan_result_optimizeds ON vulnerability_optimizeds.scan_result_id = scan_result_optimizeds.id").
+		Where("scan_result_optimizeds.project_id = ? AND vulnerability_optimizeds.severity = ?", projectID, severity).
+		Preload("ScanResult").
 		Find(&vulns).Error
 	return vulns, err
 }
@@ -369,10 +371,11 @@ func (d *ScanDAO) GetVulnerabilityStats(projectID uint) (map[string]int, error) 
 	}
 
 	rows, err := d.db.Raw(`
-		SELECT severity, COUNT(*) as count
-		FROM vulnerability_optimizeds
-		WHERE project_id = ?
-		GROUP BY severity
+		SELECT v.severity, COUNT(*) as count
+		FROM vulnerability_optimizeds v
+		JOIN scan_result_optimizeds s ON v.scan_result_id = s.id
+		WHERE s.project_id = ?
+		GROUP BY v.severity
 	`, projectID).Rows()
 
 	if err != nil {

@@ -19,7 +19,7 @@ type NmapScanner struct {
 // NewNmapScanner 创建Nmap扫描工具
 func NewNmapScanner() scanner.Scanner {
 	return &NmapScanner{
-		BaseScannerTool: NewBaseScannerTool("nmap", scanner.CategoryPort, "nmap"),
+		BaseScannerTool: NewBaseScannerToolWithVersionArgs("nmap", scanner.CategoryPort, "nmap", []string{"--version"}),
 	}
 }
 

@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -11,7 +10,6 @@ import (
 
 	"cyberedge/pkg/dao"
 	"cyberedge/pkg/models"
-	"cyberedge/pkg/scanner"
 	"cyberedge/pkg/services"
 	"github.com/gin-gonic/gin"
 	"gorm.io/driver/sqlite"
@@ -45,9 +43,8 @@ func setupTestHandler() (*ScanFrameworkHandler, *gorm.DB, error) {
 	}
 
 	scanDAO := dao.NewScanDAO(db)
-	projectDAO := dao.NewProjectDAO(db)
 
-	scanService, err := services.NewScanService(scanDAO, projectDAO)
+	scanService, err := services.NewScanService(scanDAO)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -161,7 +158,7 @@ func TestScanFrameworkHandler_StartScan(t *testing.T) {
 				}
 
 				if data, ok := response["data"].(map[string]interface{}); ok {
-					requiredFields := []string{"scan_id", "project_id", "target", "status", "start_time", "pipeline"}
+					requiredFields := []string{"scan_id", "project_id", "target_id", "state", "created_at", "pipeline"}
 					for _, field := range requiredFields {
 						if _, exists := data[field]; !exists {
 							t.Errorf("Expected field '%s' in data", field)
@@ -181,15 +178,25 @@ func TestScanFrameworkHandler_GetScanStatus(t *testing.T) {
 		t.Fatalf("Failed to setup test handler: %v", err)
 	}
 
+	// 创建测试扫描目标
+	scanTarget := &models.ScanTarget{
+		ProjectID: 1,
+		Address:   "example.com",
+		Type:      "domain",
+		CreatedAt: time.Now(),
+	}
+	db.Create(scanTarget)
+
 	// 创建测试扫描结果
 	scanResult := &models.ScanResultOptimized{
 		ProjectID:   1,
-		Target:      "example.com",
-		ScanType:    "test",
-		ScannerName: "test-scanner",
-		Status:      "completed",
-		StartTime:   time.Now(),
-		EndTime:     time.Now().Add(time.Minute),
+		TargetID:    scanTarget.ID,
+		Port:        80,
+		Protocol:    "tcp",
+		State:       "completed",
+		ServiceName: "test-scanner",
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now().Add(time.Minute),
 	}
 	db.Create(scanResult)
 
@@ -207,7 +214,7 @@ func TestScanFrameworkHandler_GetScanStatus(t *testing.T) {
 			name:           "Valid scan ID",
 			scanID:         "1",
 			expectedStatus: http.StatusOK,
-			checkFields:    []string{"scan_id", "project_id", "target", "status"},
+			checkFields:    []string{"scan_id", "project_id", "target_id", "state"},
 		},
 		{
 			name:           "Invalid scan ID",
@@ -386,23 +393,22 @@ func TestScanFrameworkHandler_GetProjectScanResults(t *testing.T) {
 	db.Create(project)
 
 	target := &models.ScanTarget{
-		ProjectID:  project.ID,
-		Target:     "example.com",
-		TargetType: "domain",
-		CreatedAt:  time.Now(),
+		ProjectID: project.ID,
+		Address:   "example.com",
+		Type:      "domain",
+		CreatedAt: time.Now(),
 	}
 	db.Create(target)
 
 	scanResult := &models.ScanResultOptimized{
-		ProjectID:    project.ID,
-		ScanTargetID: target.ID,
-		Target:       "example.com",
-		ScanType:     "subdomain",
-		ScannerName:  "subfinder",
-		Status:       "completed",
-		StartTime:    time.Now(),
-		EndTime:      time.Now().Add(time.Minute),
-		ScanTarget:   target,
+		ProjectID:   project.ID,
+		TargetID:    target.ID,
+		Port:        80,
+		Protocol:    "tcp",
+		State:       "completed",
+		ServiceName: "subdomain",
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now().Add(time.Minute),
 	}
 	db.Create(scanResult)
 
@@ -473,7 +479,7 @@ func TestScanFrameworkHandler_GetProjectScanResults(t *testing.T) {
 					if tt.expectedCount > 0 {
 						// 验证结果结构
 						if result, ok := data[0].(map[string]interface{}); ok {
-							requiredFields := []string{"id", "target", "scan_type", "scanner_name", "status", "start_time"}
+							requiredFields := []string{"id", "target_id", "port", "protocol", "state", "service_name"}
 							for _, field := range requiredFields {
 								if _, exists := result[field]; !exists {
 									t.Errorf("Result should have field '%s'", field)
@@ -507,32 +513,41 @@ func TestScanFrameworkHandler_GetVulnerabilityStats(t *testing.T) {
 	db.Create(project)
 
 	target := &models.ScanTarget{
-		ProjectID:  project.ID,
-		Target:     "example.com",
-		TargetType: "domain",
-		CreatedAt:  time.Now(),
+		ProjectID: project.ID,
+		Address:   "example.com",
+		Type:      "domain",
+		CreatedAt: time.Now(),
 	}
 	db.Create(target)
+
+	scanResult := &models.ScanResultOptimized{
+		ProjectID:   project.ID,
+		TargetID:    target.ID,
+		Port:        80,
+		Protocol:    "tcp",
+		State:       "completed",
+		ServiceName: "nuclei",
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+	db.Create(scanResult)
 
 	// 创建不同严重程度的漏洞
 	vulnerabilities := []*models.VulnerabilityOptimized{
 		{
-			ProjectID:    project.ID,
-			ScanTargetID: target.ID,
+			ScanResultID: scanResult.ID,
 			Title:        "Critical Vuln",
 			Severity:     "critical",
 			CreatedAt:    time.Now(),
 		},
 		{
-			ProjectID:    project.ID,
-			ScanTargetID: target.ID,
+			ScanResultID: scanResult.ID,
 			Title:        "High Vuln",
 			Severity:     "high",
 			CreatedAt:    time.Now(),
 		},
 		{
-			ProjectID:    project.ID,
-			ScanTargetID: target.ID,
+			ScanResultID: scanResult.ID,
 			Title:        "Medium Vuln",
 			Severity:     "medium",
 			CreatedAt:    time.Now(),

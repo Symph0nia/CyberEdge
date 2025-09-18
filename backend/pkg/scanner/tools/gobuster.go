@@ -19,7 +19,7 @@ type GobusterScanner struct {
 // NewGobusterScanner 创建Gobuster扫描工具
 func NewGobusterScanner() scanner.Scanner {
 	return &GobusterScanner{
-		BaseScannerTool: NewBaseScannerTool("gobuster", scanner.CategoryWebPath, "gobuster"),
+		BaseScannerTool: NewBaseScannerToolWithVersionArgs("gobuster", scanner.CategoryWebPath, "gobuster", []string{"--version"}),
 	}
 }
 

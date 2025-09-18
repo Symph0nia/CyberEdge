@@ -13,12 +13,12 @@ import (
 
 // ScanService 扫描服务
 type ScanService struct {
-	scanDAO     dao.ScanDAO
+	scanDAO     *dao.ScanDAO
 	registry    *scanner.ScannerRegistry
 }
 
 // NewScanService 创建扫描服务
-func NewScanService(scanDAO dao.ScanDAO) (*ScanService, error) {
+func NewScanService(scanDAO *dao.ScanDAO) (*ScanService, error) {
 	registry := scanner.NewScannerRegistry()
 
 	// 注册所有扫描工具
@@ -33,7 +33,7 @@ func NewScanService(scanDAO dao.ScanDAO) (*ScanService, error) {
 }
 
 // StartScan 启动扫描任务
-func (s *ScanService) StartScan(ctx context.Context, projectID uint, target string, pipelineName string) (*models.ScanFrameworkResult, error) {
+func (s *ScanService) StartScan(ctx context.Context, projectID uint, target string, pipelineName string) (*models.ScanResultOptimized, error) {
 	// 获取扫描流水线
 	pipeline, exists := scanner.GetPipeline(pipelineName)
 	if !exists {
@@ -44,23 +44,36 @@ func (s *ScanService) StartScan(ctx context.Context, projectID uint, target stri
 	pipeline.ProjectID = projectID
 	pipeline.Target = target
 
-	// 创建扫描记录
-	scanResult := &models.ScanFrameworkResult{
+	// 创建扫描目标
+	scanTarget := &models.ScanTarget{
+		ProjectID: projectID,
+		Type:      "pipeline",
+		Address:   target,
+		CreatedAt: time.Now(),
+	}
+
+	if err := s.scanDAO.CreateScanTarget(scanTarget); err != nil {
+		return nil, fmt.Errorf("创建扫描目标失败: %w", err)
+	}
+
+	// 创建扫描记录 (使用端口0表示流水线扫描)
+	scanResult := &models.ScanResultOptimized{
 		ProjectID:   projectID,
-		Target:      target,
-		ScanType:    pipelineName,
-		Status:      "running",
-		StartTime:   time.Now(),
-		ScannerName: "pipeline:" + pipelineName,
+		TargetID:    scanTarget.ID,
+		Port:        0, // 流水线扫描使用端口0
+		Protocol:    "pipeline",
+		State:       "running",
+		ServiceName: pipelineName,
+		CreatedAt:   time.Now(),
 	}
 
 	// 保存初始扫描记录
-	if err := s.scanDAO.CreateScanFrameworkResult(scanResult); err != nil {
+	if err := s.scanDAO.CreateScanResult(scanResult); err != nil {
 		return nil, fmt.Errorf("创建扫描记录失败: %w", err)
 	}
 
-	// 异步执行扫描
-	go s.executeScanPipeline(context.Background(), scanResult, pipeline)
+	// 异步执行扫描 (使用传入的context)
+	go s.executeScanPipeline(ctx, scanResult, pipeline)
 
 	return scanResult, nil
 }
@@ -73,18 +86,18 @@ func (s *ScanService) executeScanPipeline(ctx context.Context, scanRecord *model
 	results, err := manager.ExecutePipeline(ctx, pipeline)
 
 	// 更新扫描记录状态
-	scanRecord.EndTime = time.Now()
+	scanRecord.UpdatedAt = time.Now()
 	if err != nil {
-		scanRecord.Status = "failed"
-		scanRecord.ErrorMessage = err.Error()
+		scanRecord.State = "failed"
+		// Note: ErrorMessage field doesn't exist in ScanResultOptimized
 	} else {
-		scanRecord.Status = "completed"
+		scanRecord.State = "completed"
 	}
 
 	// 保存扫描结果
 	if err := s.processScanResults(scanRecord, results); err != nil {
-		scanRecord.Status = "failed"
-		scanRecord.ErrorMessage = fmt.Sprintf("处理扫描结果失败: %v", err)
+		scanRecord.State = "failed"
+		// Note: ErrorMessage field doesn't exist in ScanResultOptimized
 	}
 
 	// 更新数据库记录
@@ -137,15 +150,13 @@ func (s *ScanService) processSubdomainResults(scanRecord *models.ScanResultOptim
 
 		// 创建子域名扫描结果
 		subResult := &models.ScanResultOptimized{
-			ProjectID:    scanRecord.ProjectID,
-			ScanTargetID: target.ID,
-			Target:       subdomain.Subdomain,
-			ScanType:     "subdomain",
-			ScannerName:  result.ScannerName,
-			Status:       "completed",
-			StartTime:    result.StartTime,
-			EndTime:      result.EndTime,
-			RawData:      fmt.Sprintf(`{"ips": %v, "source": "%s"}`, subdomain.IPs, subdomain.Source),
+			ProjectID:   scanRecord.ProjectID,
+			TargetID:    target.ID,
+			Port:        0, // 子域名扫描不涉及端口
+			Protocol:    "dns",
+			State:       "discovered",
+			ServiceName: "subdomain-" + result.ScannerName,
+			CreatedAt:   result.EndTime,
 		}
 
 		s.scanDAO.CreateScanResult(subResult)
@@ -170,15 +181,15 @@ func (s *ScanService) processPortResults(scanRecord *models.ScanResultOptimized,
 
 		// 创建端口扫描结果
 		portResult := &models.ScanResultOptimized{
-			ProjectID:    scanRecord.ProjectID,
-			ScanTargetID: target.ID,
-			Target:       fmt.Sprintf("%s:%d", result.Target, port.Port),
-			ScanType:     "port",
-			ScannerName:  result.ScannerName,
-			Status:       "completed",
-			StartTime:    result.StartTime,
-			EndTime:      result.EndTime,
-			RawData:      s.serializePortInfo(port),
+			ProjectID:   scanRecord.ProjectID,
+			TargetID:    target.ID,
+			Port:        port.Port,
+			Protocol:    port.Protocol,
+			State:       port.State,
+			ServiceName: port.Service.Name,
+			Version:     port.Service.Version,
+			Banner:      port.Service.Banner,
+			CreatedAt:   result.EndTime,
 		}
 
 		s.scanDAO.CreateScanResult(portResult)
@@ -203,14 +214,15 @@ func (s *ScanService) processWebTechResults(scanRecord *models.ScanResultOptimiz
 	// 创建Web技术扫描结果
 	webResult := &models.ScanResultOptimized{
 		ProjectID:    scanRecord.ProjectID,
-		ScanTargetID: target.ID,
-		Target:       webTechData.URL,
-		ScanType:     "webtech",
-		ScannerName:  result.ScannerName,
-		Status:       "completed",
-		StartTime:    result.StartTime,
-		EndTime:      result.EndTime,
-		RawData:      s.serializeWebTechData(webTechData),
+		TargetID:     target.ID,
+		Port:         80, // 默认HTTP端口
+		Protocol:     "tcp",
+		State:        "open",
+		ServiceName:  "http",
+		IsWebService: true,
+		HTTPTitle:    webTechData.Title,
+		HTTPStatus:   webTechData.StatusCode,
+		CreatedAt:    result.EndTime,
 	}
 
 	return s.scanDAO.CreateScanResult(webResult)
@@ -233,14 +245,15 @@ func (s *ScanService) processWebPathResults(scanRecord *models.ScanResultOptimiz
 		// 创建路径扫描结果
 		pathResult := &models.ScanResultOptimized{
 			ProjectID:    scanRecord.ProjectID,
-			ScanTargetID: target.ID,
-			Target:       path.URL,
-			ScanType:     "webpath",
-			ScannerName:  result.ScannerName,
-			Status:       "completed",
-			StartTime:    result.StartTime,
-			EndTime:      result.EndTime,
-			RawData:      s.serializeWebPathInfo(path),
+			TargetID:     target.ID,
+			Port:         80, // 默认HTTP端口
+			Protocol:     "tcp",
+			State:        "open",
+			ServiceName:  "http-path",
+			IsWebService: true,
+			HTTPTitle:    path.Title,
+			HTTPStatus:   path.StatusCode,
+			CreatedAt:    result.EndTime,
 		}
 
 		s.scanDAO.CreateScanResult(pathResult)
@@ -263,10 +276,24 @@ func (s *ScanService) processVulnerabilityResults(scanRecord *models.ScanResultO
 			continue
 		}
 
+		// 首先创建漏洞扫描结果记录
+		vulnResult := &models.ScanResultOptimized{
+			ProjectID:   scanRecord.ProjectID,
+			TargetID:    target.ID,
+			Port:        0, // 漏洞扫描端口待定
+			Protocol:    "tcp",
+			State:       "vulnerable",
+			ServiceName: "vulnerability-" + result.ScannerName,
+			CreatedAt:   result.EndTime,
+		}
+
+		if err := s.scanDAO.CreateScanResult(vulnResult); err != nil {
+			continue
+		}
+
 		// 创建漏洞记录
 		vulnRecord := &models.VulnerabilityOptimized{
-			ProjectID:    scanRecord.ProjectID,
-			ScanTargetID: target.ID,
+			ScanResultID: vulnResult.ID,
 			CVEID:        vuln.CVEID,
 			Title:        vuln.Title,
 			Description:  vuln.Description,
@@ -275,6 +302,7 @@ func (s *ScanService) processVulnerabilityResults(scanRecord *models.ScanResultO
 			Location:     vuln.Location,
 			Parameter:    vuln.Parameter,
 			Payload:      vuln.Payload,
+			Status:       "open",
 			CreatedAt:    time.Now(),
 		}
 
@@ -282,20 +310,6 @@ func (s *ScanService) processVulnerabilityResults(scanRecord *models.ScanResultO
 			continue
 		}
 
-		// 创建漏洞扫描结果
-		vulnResult := &models.ScanResultOptimized{
-			ProjectID:    scanRecord.ProjectID,
-			ScanTargetID: target.ID,
-			Target:       vuln.Target,
-			ScanType:     "vulnerability",
-			ScannerName:  result.ScannerName,
-			Status:       "completed",
-			StartTime:    result.StartTime,
-			EndTime:      result.EndTime,
-			RawData:      s.serializeVulnerabilityInfo(vuln),
-		}
-
-		s.scanDAO.CreateScanResult(vulnResult)
 	}
 
 	return nil
@@ -311,10 +325,10 @@ func (s *ScanService) findOrCreateScanTarget(projectID uint, target string, targ
 
 	// 创建新目标
 	newTarget := &models.ScanTarget{
-		ProjectID:  projectID,
-		Target:     target,
-		TargetType: targetType,
-		CreatedAt:  time.Now(),
+		ProjectID: projectID,
+		Address:   target,
+		Type:      targetType,
+		CreatedAt: time.Now(),
 	}
 
 	if err := s.scanDAO.CreateScanTarget(newTarget); err != nil {
@@ -324,26 +338,6 @@ func (s *ScanService) findOrCreateScanTarget(projectID uint, target string, targ
 	return newTarget, nil
 }
 
-// 辅助方法：序列化数据
-func (s *ScanService) serializePortInfo(port scanner.PortInfo) string {
-	return fmt.Sprintf(`{"port": %d, "protocol": "%s", "state": "%s", "service": %v}`,
-		port.Port, port.Protocol, port.State, port.Service)
-}
-
-func (s *ScanService) serializeWebTechData(data scanner.WebTechData) string {
-	return fmt.Sprintf(`{"url": "%s", "status_code": %d, "title": "%s", "technologies": %v}`,
-		data.URL, data.StatusCode, data.Title, data.Technologies)
-}
-
-func (s *ScanService) serializeWebPathInfo(path scanner.WebPathInfo) string {
-	return fmt.Sprintf(`{"url": "%s", "path": "%s", "status_code": %d, "length": %d, "title": "%s"}`,
-		path.URL, path.Path, path.StatusCode, path.Length, path.Title)
-}
-
-func (s *ScanService) serializeVulnerabilityInfo(vuln scanner.VulnerabilityInfo) string {
-	return fmt.Sprintf(`{"target": "%s", "title": "%s", "severity": "%s", "cvss": %f, "location": "%s"}`,
-		vuln.Target, vuln.Title, vuln.Severity, vuln.CVSS, vuln.Location)
-}
 
 // GetScanStatus 获取扫描状态
 func (s *ScanService) GetScanStatus(scanID uint) (*models.ScanResultOptimized, error) {
@@ -374,7 +368,7 @@ func (s *ScanService) GetProjectScanResults(projectID uint, scanType string, sta
 		var filtered []models.ScanResultOptimized
 		for _, result := range results {
 			if result.ProjectID == projectID {
-				if scanType == "" || result.ScanType == scanType {
+				if scanType == "" || result.ServiceName == scanType {
 					filtered = append(filtered, result)
 				}
 			}
@@ -389,7 +383,7 @@ func (s *ScanService) GetProjectScanResults(projectID uint, scanType string, sta
 		if scanType != "" {
 			var filtered []models.ScanResultOptimized
 			for _, result := range results {
-				if result.ScanType == scanType {
+				if result.ServiceName == scanType {
 					filtered = append(filtered, result)
 				}
 			}

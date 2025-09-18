@@ -63,9 +63,9 @@ func (h *ScanFrameworkHandler) StartScan(c *gin.Context) {
 		"data": gin.H{
 			"scan_id":     scanResult.ID,
 			"project_id":  scanResult.ProjectID,
-			"target":      scanResult.Target,
-			"status":      scanResult.Status,
-			"start_time":  scanResult.StartTime,
+			"target_id":   scanResult.TargetID,
+			"state":       scanResult.State,
+			"created_at":  scanResult.CreatedAt,
 			"pipeline":    req.PipelineName,
 		},
 		"message": "扫描任务已启动",
@@ -88,21 +88,15 @@ func (h *ScanFrameworkHandler) GetScanStatus(c *gin.Context) {
 	}
 
 	response := gin.H{
-		"scan_id":    scanResult.ID,
-		"project_id": scanResult.ProjectID,
-		"target":     scanResult.Target,
-		"scan_type":  scanResult.ScanType,
-		"status":     scanResult.Status,
-		"start_time": scanResult.StartTime,
-	}
-
-	if !scanResult.EndTime.IsZero() {
-		response["end_time"] = scanResult.EndTime
-		response["duration"] = scanResult.EndTime.Sub(scanResult.StartTime).String()
-	}
-
-	if scanResult.ErrorMessage != "" {
-		response["error"] = scanResult.ErrorMessage
+		"scan_id":      scanResult.ID,
+		"project_id":   scanResult.ProjectID,
+		"target_id":    scanResult.TargetID,
+		"port":         scanResult.Port,
+		"protocol":     scanResult.Protocol,
+		"state":        scanResult.State,
+		"service_name": scanResult.ServiceName,
+		"created_at":   scanResult.CreatedAt,
+		"updated_at":   scanResult.UpdatedAt,
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -193,24 +187,18 @@ func (h *ScanFrameworkHandler) GetProjectScanResults(c *gin.Context) {
 	for _, result := range results {
 		item := gin.H{
 			"id":           result.ID,
-			"target":       result.Target,
-			"scan_type":    result.ScanType,
-			"scanner_name": result.ScannerName,
-			"status":       result.Status,
-			"start_time":   result.StartTime,
+			"target_id":    result.TargetID,
+			"port":         result.Port,
+			"protocol":     result.Protocol,
+			"state":        result.State,
+			"service_name": result.ServiceName,
+			"created_at":   result.CreatedAt,
+			"updated_at":   result.UpdatedAt,
 		}
 
-		if !result.EndTime.IsZero() {
-			item["end_time"] = result.EndTime
-			item["duration"] = result.EndTime.Sub(result.StartTime).String()
-		}
-
-		if result.ErrorMessage != "" {
-			item["error"] = result.ErrorMessage
-		}
-
-		if result.ScanTarget != nil {
-			item["target_type"] = result.ScanTarget.TargetType
+		if result.Target.ID > 0 {
+			item["target_address"] = result.Target.Address
+			item["target_type"] = result.Target.Type
 		}
 
 		responseData = append(responseData, item)
@@ -258,10 +246,9 @@ func (h *ScanFrameworkHandler) GetProjectVulnerabilities(c *gin.Context) {
 			"created_at":  vuln.CreatedAt,
 		}
 
-		if vuln.ScanTarget != nil {
-			item["target"] = vuln.ScanTarget.Target
-			item["target_type"] = vuln.ScanTarget.TargetType
-		}
+		// Note: VulnerabilityOptimized doesn't have direct ScanTarget relation
+		// Need to implement target info through ScanResult if needed
+		item["scan_result_id"] = vuln.ScanResultID
 
 		responseData = append(responseData, item)
 	}
