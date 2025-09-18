@@ -7,6 +7,9 @@ import SettingsPage from "@/components/Settings/SettingsPage.vue";
 import ProjectList from "@/components/Project/ProjectList.vue";
 import ProjectDetail from "@/components/Project/ProjectDetail.vue";
 import VulnerabilityList from "@/components/Vulnerability/VulnerabilityList.vue";
+import ScanList from "@/components/Scan/ScanList.vue";
+import ScanCreate from "@/components/Scan/ScanCreate.vue";
+import ScanDetail from "@/components/Scan/ScanDetail.vue";
 
 const routes = [
   {
@@ -38,6 +41,21 @@ const routes = [
     path: "/vulnerabilities/:projectId",
     name: "ProjectVulnerabilities",
     component: VulnerabilityList,
+  },
+  {
+    path: "/scans",
+    name: "ScanList",
+    component: ScanList,
+  },
+  {
+    path: "/scans/create",
+    name: "ScanCreate",
+    component: ScanCreate,
+  },
+  {
+    path: "/scans/:id",
+    name: "ScanDetail",
+    component: ScanDetail,
   },
   {
     path: "/user-management",

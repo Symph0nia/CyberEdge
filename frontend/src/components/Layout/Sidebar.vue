@@ -14,6 +14,10 @@
           <span class="nav-icon">📁</span>
           <span class="nav-text">扫描项目</span>
         </router-link>
+        <router-link to="/scans" class="nav-item" active-class="active">
+          <span class="nav-icon">🔍</span>
+          <span class="nav-text">扫描任务</span>
+        </router-link>
         <router-link to="/vulnerabilities" class="nav-item" active-class="active">
           <span class="nav-icon">🚨</span>
           <span class="nav-text">漏洞管理</span>
