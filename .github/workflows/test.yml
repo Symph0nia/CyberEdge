@@ -19,7 +19,7 @@ jobs:
           MYSQL_DATABASE: cyberedge_test
         ports:
           - 3306:3306
-        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=5
 
     steps:
     - name: Checkout code
@@ -28,7 +28,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v4
       with:
-        go-version: '1.23.4'
+        go-version: '1.24.7'
 
     - name: Cache Go modules
       uses: actions/cache@v3
@@ -44,10 +44,17 @@ jobs:
 
     - name: Wait for MySQL
       run: |
-        until mysqladmin ping -h"127.0.0.1" -P"3306" -uroot -ppassword --silent; do
-          echo 'waiting for mysql...'
-          sleep 1
+        echo "Waiting for MySQL to be ready..."
+        for i in {1..30}; do
+          if mysqladmin ping -h"127.0.0.1" -P"3306" -uroot -ppassword --silent; then
+            echo "MySQL is ready!"
+            break
+          fi
+          echo "MySQL not ready yet, waiting... ($i/30)"
+          sleep 2
         done
+        # Verify database exists
+        mysql -h"127.0.0.1" -P"3306" -uroot -ppassword -e "SHOW DATABASES;"
 
     - name: Run tests
       working-directory: ./backend
@@ -105,7 +112,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v4
       with:
-        go-version: '1.23.4'
+        go-version: '1.24.7'
 
     - name: Set up Node.js
       uses: actions/setup-node@v3
