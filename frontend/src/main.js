@@ -4,6 +4,7 @@ import "./main.css";
 import "remixicon/fonts/remixicon.css";
 import router from "./router";
 import store from "./store";
+import { ToastPlugin } from "./utils/toast";
 
 // Ant Design Vue
 import Antd from 'ant-design-vue';
@@ -69,4 +70,5 @@ const app = createApp(App);
 app.use(router)
    .use(store)
    .use(Antd)
+   .use(ToastPlugin)
    .mount("#app");

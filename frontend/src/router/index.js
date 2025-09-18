@@ -4,17 +4,40 @@ import LoginPage from "@/components/Login/LoginPage.vue";
 import UserManagement from "@/components/User/UserManagement.vue";
 import ProfilePage from "@/components/Profile/ProfilePage.vue";
 import SettingsPage from "@/components/Settings/SettingsPage.vue";
+import ProjectList from "@/components/Project/ProjectList.vue";
+import ProjectDetail from "@/components/Project/ProjectDetail.vue";
+import VulnerabilityList from "@/components/Vulnerability/VulnerabilityList.vue";
 
 const routes = [
   {
     path: "/",
     name: "Home",
-    redirect: "/user-management"
+    redirect: "/projects"
   },
   {
     path: "/login",
     name: "LoginPage",
     component: LoginPage,
+  },
+  {
+    path: "/projects",
+    name: "ProjectList",
+    component: ProjectList,
+  },
+  {
+    path: "/projects/:id",
+    name: "ProjectDetail",
+    component: ProjectDetail,
+  },
+  {
+    path: "/vulnerabilities",
+    name: "VulnerabilityList",
+    component: VulnerabilityList,
+  },
+  {
+    path: "/vulnerabilities/:projectId",
+    name: "ProjectVulnerabilities",
+    component: VulnerabilityList,
   },
   {
     path: "/user-management",
