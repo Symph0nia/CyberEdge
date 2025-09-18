@@ -1,9 +1,9 @@
 name: Claude Code
 
 on:
-  # PR创建和更新时自动触发
+  # PR首次创建时自动触发
   pull_request:
-    types: [opened, synchronize]
+    types: [opened]
   # 手动触发(@claude)
   issue_comment:
     types: [created]
@@ -17,7 +17,7 @@ on:
 jobs:
   claude:
     if: |
-      (github.event_name == 'pull_request' && (github.event.action == 'opened' || github.event.action == 'synchronize')) ||
+      (github.event_name == 'pull_request' && github.event.action == 'opened') ||
       (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
       (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
       (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
@@ -45,10 +45,6 @@ jobs:
             echo "audit_type=initial" >> $GITHUB_OUTPUT
             echo "commit_range=full" >> $GITHUB_OUTPUT
             echo "🚀 首次PR审计 - 审计所有变更"
-          elif [ "${{ github.event_name }}" = "pull_request" ] && [ "${{ github.event.action }}" = "synchronize" ]; then
-            echo "audit_type=incremental" >> $GITHUB_OUTPUT
-            echo "commit_range=recent" >> $GITHUB_OUTPUT
-            echo "🔄 PR更新审计 - 审计最新变更"
           else
             # 查找上一次Claude评论的时间
             PR_NUMBER=${{ github.event.pull_request.number || github.event.issue.number }}

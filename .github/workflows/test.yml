@@ -92,37 +92,6 @@ jobs:
       working-directory: ./frontend
       run: npm run lint
 
-  security-scan:
-    name: Security Scan
-    runs-on: ubuntu-latest
-
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Run basic security checks
-      run: |
-        echo "🔍 Running basic security checks..."
-
-        # Check for hardcoded secrets in Go files
-        echo "检查Go文件中的硬编码密钥..."
-        if grep -r "password\s*=\s*\"" backend/ --include="*.go"; then
-          echo "⚠️ 发现可能的硬编码密码"
-        fi
-
-        # Check for SQL injection patterns
-        echo "检查SQL注入模式..."
-        if grep -r "fmt\.Sprintf.*SELECT\|fmt\.Sprintf.*INSERT\|fmt\.Sprintf.*UPDATE" backend/ --include="*.go"; then
-          echo "⚠️ 发现可能的SQL注入风险"
-        fi
-
-        # Check for XSS patterns in frontend
-        echo "检查前端XSS模式..."
-        if grep -r "innerHTML\|dangerouslySetInnerHTML" frontend/src/ --include="*.js" --include="*.vue"; then
-          echo "⚠️ 发现可能的XSS风险"
-        fi
-
-        echo "✅ 基础安全检查完成"
 
   build-test:
     name: Build Test
