@@ -390,6 +390,26 @@ func (s *ScanService) processVulnerabilityResults(projectID uint, result scanner
 
 // findOrCreateScanTarget 查找或创建扫描目标 - 移除TODO，实现完整逻辑
 func (s *ScanService) findOrCreateScanTarget(projectID uint, address string, targetType string) (*models.ScanTarget, error) {
+	// 输入验证 - 核心安全检查
+	if projectID == 0 {
+		return nil, fmt.Errorf("无效的项目ID: %d", projectID)
+	}
+
+	if strings.TrimSpace(address) == "" {
+		return nil, fmt.Errorf("扫描目标地址不能为空")
+	}
+
+	// 地址长度限制
+	if len(address) > 255 {
+		return nil, fmt.Errorf("扫描目标地址过长，最大255字符")
+	}
+
+	// 过滤恶意输入 - SQL注入防护
+	address = strings.TrimSpace(address)
+	if containsSQLInjection(address) {
+		return nil, fmt.Errorf("检测到恶意输入，拒绝处理")
+	}
+
 	// 首先尝试查找已存在的目标
 	existing, err := s.scanDAO.GetScanTargetByAddress(projectID, address)
 	if err == nil && existing != nil {
@@ -479,4 +499,22 @@ func registerAllTools(registry *scanner.ScannerRegistry) error {
 	}
 
 	return nil
+}
+
+// containsSQLInjection 检测SQL注入攻击模式
+func containsSQLInjection(input string) bool {
+	// 常见SQL注入关键词 - 简单但有效的检测
+	sqlPatterns := []string{
+		"DROP TABLE", "DELETE FROM", "INSERT INTO", "UPDATE SET",
+		"--", "/*", "*/", "UNION SELECT", "OR 1=1", "OR '1'='1",
+		"'; ", "' OR ", "\" OR ", "\"; ", "\" AND ", "' AND ",
+	}
+
+	upperInput := strings.ToUpper(input)
+	for _, pattern := range sqlPatterns {
+		if strings.Contains(upperInput, pattern) {
+			return true
+		}
+	}
+	return false
 }
