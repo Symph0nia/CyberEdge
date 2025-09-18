@@ -1,12 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createMemoryHistory } from 'vue-router'
+import { createStore } from 'vuex'
 import ScanList from '@/components/Scan/ScanList.vue'
 import { notification } from 'ant-design-vue'
+import storeConfig from '@/store/index.js'
 
 // Mock router
 const router = createRouter({
-  history: createWebHistory(),
+  history: createMemoryHistory(),
   routes: [
     { path: '/scans', name: 'ScanList' },
     { path: '/scans/:id', name: 'ScanDetail' }
@@ -91,9 +93,40 @@ describe('ScanList.vue', () => {
     const { getScans } = await import('@/api/scanApi')
     getScans.mockResolvedValue({ data: mockScans })
 
+    const store = createStore({
+      state: {
+        isAuthenticated: false,
+        user: null,
+      },
+      getters: {
+        isAuthenticated: (state) => state.isAuthenticated,
+        currentUser: (state) => state.user,
+        isAdmin: (state) => state.user?.role === 'admin',
+      },
+      mutations: {
+        setAuthentication(state, status) {
+          state.isAuthenticated = status;
+        },
+        setUser(state, user) {
+          state.user = user;
+        },
+      },
+      actions: {
+        async login({ commit }, { token }) {
+          localStorage.setItem("token", token);
+          commit("setAuthentication", true);
+          return true;
+        },
+        async logout({ commit }) {
+          localStorage.removeItem("token");
+          commit("setAuthentication", false);
+          commit("setUser", null);
+        },
+      }
+    })
     wrapper = mount(ScanList, {
       global: {
-        plugins: [router]
+        plugins: [router, store]
       }
     })
 

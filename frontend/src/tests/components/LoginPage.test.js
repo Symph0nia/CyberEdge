@@ -1,12 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createMemoryHistory } from 'vue-router'
+import { createStore } from 'vuex'
 import LoginPage from '@/components/Login/LoginPage.vue'
 import { notification } from 'ant-design-vue'
+import storeConfig from '@/store/index.js'
 
 // Mock router
 const router = createRouter({
-  history: createWebHistory(),
+  history: createMemoryHistory(),
   routes: [
     { path: '/', name: 'Dashboard' },
     { path: '/login', name: 'Login' }
@@ -35,12 +37,44 @@ vi.mock('@/api/axiosInstance', () => ({
 
 describe('LoginPage.vue', () => {
   let wrapper
+  let store
 
   beforeEach(() => {
     vi.clearAllMocks()
+    store = createStore({
+      state: {
+        isAuthenticated: false,
+        user: null,
+      },
+      getters: {
+        isAuthenticated: (state) => state.isAuthenticated,
+        currentUser: (state) => state.user,
+        isAdmin: (state) => state.user?.role === 'admin',
+      },
+      mutations: {
+        setAuthentication(state, status) {
+          state.isAuthenticated = status;
+        },
+        setUser(state, user) {
+          state.user = user;
+        },
+      },
+      actions: {
+        async login({ commit }, { token }) {
+          localStorage.setItem("token", token);
+          commit("setAuthentication", true);
+          return true;
+        },
+        async logout({ commit }) {
+          localStorage.removeItem("token");
+          commit("setAuthentication", false);
+          commit("setUser", null);
+        },
+      }
+    })
     wrapper = mount(LoginPage, {
       global: {
-        plugins: [router]
+        plugins: [router, store]
       }
     })
   })
