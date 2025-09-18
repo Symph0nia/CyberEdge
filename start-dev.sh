@@ -184,25 +184,37 @@ wait_for_mysql
 
 # 创建数据库和表
 print_info "初始化数据库..."
-# 首先确保数据库存在，然后创建表
-MYSQL_PWD=password docker exec cyberedge-mysql mysql -uroot -e "
-CREATE DATABASE IF NOT EXISTS cyberedge CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE cyberedge;
-CREATE TABLE IF NOT EXISTS users (
-    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    username VARCHAR(50) UNIQUE NOT NULL,
-    email VARCHAR(100) UNIQUE NOT NULL,
-    password_hash VARCHAR(255) NOT NULL,
-    is_2fa_enabled BOOLEAN DEFAULT FALSE,
-    totp_secret VARCHAR(32),
-    role ENUM('admin', 'user') DEFAULT 'user',
-    created_at BIGINT NOT NULL,
-    updated_at BIGINT NOT NULL,
-    INDEX idx_username (username),
-    INDEX idx_email (email),
-    INDEX idx_role (role),
-    INDEX idx_created_at (created_at)
-) ENGINE=InnoDB;"
+# 检查是否存在完整schema文件
+if [ -f "backend/schema_complete.sql" ]; then
+    print_info "使用完整数据库schema..."
+    # 首先创建数据库
+    MYSQL_PWD=password docker exec cyberedge-mysql mysql -uroot -e "
+    CREATE DATABASE IF NOT EXISTS cyberedge CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+
+    # 然后导入完整schema
+    MYSQL_PWD=password docker exec -i cyberedge-mysql mysql -uroot cyberedge < backend/schema_complete.sql
+else
+    print_warning "完整schema文件不存在，使用基础用户表..."
+    # 回退到基础用户表
+    MYSQL_PWD=password docker exec cyberedge-mysql mysql -uroot -e "
+    CREATE DATABASE IF NOT EXISTS cyberedge CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+    USE cyberedge;
+    CREATE TABLE IF NOT EXISTS users (
+        id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        username VARCHAR(50) UNIQUE NOT NULL,
+        email VARCHAR(100) UNIQUE NOT NULL,
+        password_hash VARCHAR(255) NOT NULL,
+        is_2fa_enabled BOOLEAN DEFAULT FALSE,
+        totp_secret VARCHAR(32),
+        role ENUM('admin', 'user') DEFAULT 'user',
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL,
+        INDEX idx_username (username),
+        INDEX idx_email (email),
+        INDEX idx_role (role),
+        INDEX idx_created_at (created_at)
+    ) ENGINE=InnoDB;"
+fi
 
 if [ $? -eq 0 ]; then
     print_success "数据库初始化完成"
