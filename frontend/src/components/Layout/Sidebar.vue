@@ -60,7 +60,7 @@
 
 <script>
 export default {
-  name: 'Sidebar',
+  name: 'SidebarLayout',
   computed: {
     userInitial() {
       const username = this.$store.state.user?.username || 'U'

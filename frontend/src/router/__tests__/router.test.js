@@ -81,11 +81,6 @@ describe('Router Configuration', () => {
     expect(router).toBeDefined()
     expect(typeof router.beforeEach).toBe('function')
 
-    // Verify that the guard function works
-    const mockTo = { name: 'WAFDashboard' }
-    const mockFrom = { name: 'Home' }
-    const mockNext = vi.fn()
-
     // Since we can't directly access the guard, we test that the router object is properly configured
     expect(router.options).toBeDefined()
   })
