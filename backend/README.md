@@ -38,7 +38,7 @@ TODO：
 
 - 后端：Go Gin
 - 前端：Vue3
-- 数据库：MongoDB
+- 缓存：Redis
 - 任务队列：Asynq
 
 ## 核心组件
@@ -82,8 +82,7 @@ chmod +x start.sh generate_env.sh
 ### 系统组件
 
 该部署包含以下服务:
-- MongoDB: 数据存储
-- Redis: 任务队列
+- Redis: 任务队列和缓存
 - CyberEdge 后端: 核心服务
 - CyberEdge 前端: Web 界面
 - 集成工具: Subfinder、Nmap、Ffuf、HTTPx

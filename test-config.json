@@ -1,0 +1,69 @@
+{
+  "project": "CyberEdge Security Scanning Platform",
+  "version": "1.0.0",
+  "coverage": {
+    "frontend": {
+      "tool": "vitest",
+      "provider": "v8",
+      "thresholds": {
+        "lines": 70,
+        "functions": 70,
+        "branches": 60,
+        "statements": 70
+      },
+      "include": [
+        "src/**/*.{js,vue}"
+      ],
+      "exclude": [
+        "node_modules/",
+        "dist/",
+        "public/",
+        "src/tests/",
+        "test/",
+        "e2e/",
+        "**/*.spec.js",
+        "**/*.test.js",
+        "**/__tests__/**",
+        "**/main.js",
+        "**/router.js"
+      ]
+    },
+    "backend": {
+      "tool": "go test",
+      "mode": "atomic",
+      "threshold": 70.0,
+      "include": [
+        "./..."
+      ],
+      "exclude": [
+        "vendor/",
+        "*_test.go"
+      ]
+    },
+    "e2e": {
+      "tool": "playwright",
+      "browsers": ["chromium", "firefox", "webkit"],
+      "retries": 2,
+      "timeout": 30000
+    }
+  },
+  "reports": {
+    "frontend": {
+      "formats": ["text", "json", "html"],
+      "directory": "./frontend/coverage"
+    },
+    "backend": {
+      "formats": ["text", "html"],
+      "directory": "./backend/coverage"
+    },
+    "e2e": {
+      "format": "html",
+      "directory": "./frontend/playwright-report"
+    }
+  },
+  "ci": {
+    "fail_on_coverage_below_threshold": true,
+    "parallel_execution": true,
+    "cache_dependencies": true
+  }
+}

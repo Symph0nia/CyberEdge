@@ -1,13 +1,6 @@
 version: '3'
 
 services:
-  mongodb:
-    image: mongo:latest
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongodb_data:/data/db
-
   redis:
     image: redis:alpine
     ports:
@@ -22,12 +15,10 @@ services:
     ports:
       - "31337:31337"
     environment:
-      - MONGODB_URI=mongodb://mongodb:27017
       - REDIS_ADDR=redis:6379
     volumes:
       - ./.env:/app/.env
     depends_on:
-      - mongodb
       - redis
 
   frontend:
@@ -40,5 +31,4 @@ services:
       - backend
 
 volumes:
-  mongodb_data:
   redis_data:
