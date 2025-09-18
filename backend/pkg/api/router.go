@@ -11,23 +11,26 @@ import (
 
 type Router struct {
 	userHandler    *handlers.UserHandler
+	scanHandler    *handlers.ScanHandler
 	jwtSecret      string
 	allowedOrigins []string
 }
 
 func NewRouter(
 	userService *service.UserService,
+	scanService *service.ScanService,
 	jwtSecret string,
 	allowedOrigins []string,
 ) *Router {
 	return &Router{
 		userHandler:    handlers.NewUserHandler(userService),
+		scanHandler:    handlers.NewScanHandler(scanService),
 		jwtSecret:      jwtSecret,
 		allowedOrigins: allowedOrigins,
 	}
 }
 
-// SetupRouter 设置并返回 gin.Engine - 只保留用户管理功能
+// SetupRouter 设置并返回 gin.Engine
 func (r *Router) SetupRouter() *gin.Engine {
 	router := gin.Default()
 
@@ -67,6 +70,13 @@ func (r *Router) SetupRouter() *gin.Engine {
 		authenticated.POST("/auth/2fa/setup", r.userHandler.Setup2FA)
 		authenticated.POST("/auth/2fa/verify", r.userHandler.Verify2FA)
 		authenticated.DELETE("/auth/2fa", r.userHandler.Disable2FA)
+	}
+
+	// 扫描相关API
+	api := router.Group("/api")
+	api.Use(middleware.AuthMiddleware(r.jwtSecret))
+	{
+		r.scanHandler.RegisterScanRoutes(api)
 	}
 
 	return router

@@ -6,6 +6,7 @@ import (
 	"context"
 	"cyberedge/pkg/api"
 	"cyberedge/pkg/dao"
+	"cyberedge/pkg/database"
 	"cyberedge/pkg/logging"
 	"cyberedge/pkg/service"
 	"cyberedge/pkg/setup"
@@ -53,13 +54,31 @@ func main() {
 	}
 	logging.Info("MySQL连接成功")
 
-	// 初始化 DAO - 只保留用户相关
+	// 迁移扫描相关数据表
+	if err := database.AutoMigrateScanModels(db); err != nil {
+		logging.Error("扫描数据表迁移失败: %v", err)
+		return
+	}
+	logging.Info("扫描数据表迁移成功")
+
+	// 创建性能索引
+	if err := database.CreateIndexes(db); err != nil {
+		logging.Warn("创建索引失败: %v", err)
+	}
+
+	// 创建数据约束
+	if err := database.CreateConstraints(db); err != nil {
+		logging.Warn("创建数据约束失败: %v", err)
+	}
+
+	// 初始化 DAO
 	userDAO := dao.NewUserDAO(db)
+	scanDAO := dao.NewScanDAO(db)
 
-	// 初始化 Service - 只保留用户服务
+	// 初始化 Service
 	jwtSecret := os.Getenv("JWT_SECRET")
-
 	userService := service.NewUserService(userDAO, jwtSecret)
+	scanService := service.NewScanService(scanDAO)
 
 	if *env == "prod" {
 		gin.SetMode(gin.ReleaseMode)
@@ -100,9 +119,10 @@ func main() {
 		}
 	}
 
-	// 设置API路由 - 只保留用户相关
+	// 设置API路由
 	router := api.NewRouter(
 		userService,
+		scanService,
 		jwtSecret,
 		allowedOrigins,
 	)
