@@ -176,13 +176,13 @@ func TestJSONInputValidation(t *testing.T) {
 
 		// Basic validation
 		username, ok := input["username"].(string)
-		if !ok || len(username) < 3 {
+		if !ok || len(username) < 3 || len(username) > 50 {
 			c.JSON(400, gin.H{"error": "Invalid username"})
 			return
 		}
 
 		email, ok := input["email"].(string)
-		if !ok || !strings.Contains(email, "@") {
+		if !ok || !strings.Contains(email, "@") || len(email) > 100 {
 			c.JSON(400, gin.H{"error": "Invalid email"})
 			return
 		}

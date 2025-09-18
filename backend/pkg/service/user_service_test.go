@@ -25,7 +25,7 @@ func TestPasswordValidation(t *testing.T) {
 		{"Another valid password", "MySecure2024@", false},
 
 		// Invalid passwords - test specific failure modes
-		{"Too short", "Pass1!", false}, // This should actually fail but we need to check the actual implementation
+		{"Too short", "Pass1!", true}, // Password is only 6 chars, requirement is 8+
 		{"No uppercase", "validpassword123!", true},
 		{"No lowercase", "VALIDPASSWORD123!", true},
 		{"No numbers", "ValidPassword!", true},
