@@ -1,0 +1,140 @@
+name: Tests
+
+on:
+  push:
+    branches: [ main, dev, feature/* ]
+  pull_request:
+    branches: [ main, dev ]
+
+jobs:
+  backend-tests:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: password
+          MYSQL_DATABASE: cyberedge_test
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=5
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.24.7'
+
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('backend/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
+    - name: Install dependencies
+      working-directory: ./backend
+      run: go mod download
+
+    - name: Wait for MySQL
+      run: |
+        echo "Waiting for MySQL to be ready..."
+        for i in {1..30}; do
+          if mysqladmin ping -h"127.0.0.1" -P"3306" -uroot -ppassword --silent; then
+            echo "MySQL is ready!"
+            break
+          fi
+          echo "MySQL not ready yet, waiting... ($i/30)"
+          sleep 2
+        done
+        # Verify database exists
+        mysql -h"127.0.0.1" -P"3306" -uroot -ppassword -e "SHOW DATABASES;"
+
+    - name: Run tests
+      working-directory: ./backend
+      env:
+        GIN_MODE: test
+        JWT_SECRET: test-secret-for-github-actions
+        MYSQL_DSN: root:password@tcp(127.0.0.1:3306)/cyberedge_test?charset=utf8mb4&parseTime=True&loc=Local
+      run: |
+        go test -v -coverprofile=coverage.out ./pkg/... .
+        go tool cover -func=coverage.out
+
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./backend/coverage.out
+        flags: backend
+
+  frontend-tests:
+    name: Frontend Tests
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: './frontend/package-lock.json'
+
+    - name: Install dependencies
+      working-directory: ./frontend
+      run: npm ci
+
+    - name: Run tests
+      working-directory: ./frontend
+      run: npm run test:run
+
+    - name: Run lint
+      working-directory: ./frontend
+      run: npm run lint
+
+
+  build-test:
+    name: Build Test
+    runs-on: ubuntu-latest
+    needs: [backend-tests, frontend-tests]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.24.7'
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: './frontend/package-lock.json'
+
+    - name: Build backend
+      working-directory: ./backend
+      run: |
+        go mod download
+        go build -o cyberedge cmd/cyberedge.go
+
+    - name: Build frontend
+      working-directory: ./frontend
+      run: |
+        npm ci
+        npm run build
+
+    - name: Test start script
+      run: |
+        chmod +x start-dev.sh
+        # Test script validation (not actual start)
+        bash -n start-dev.sh

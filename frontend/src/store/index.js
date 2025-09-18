@@ -6,22 +6,31 @@ import api from "../api/axiosInstance"; // 导入 Axios 实例
 export default createStore({
   state: {
     isAuthenticated: false,
+    user: null,
   },
   mutations: {
+    SET_AUTH(state, { isAuthenticated, user = null }) {
+      state.isAuthenticated = isAuthenticated;
+      state.user = user;
+    },
+    CLEAR_AUTH(state) {
+      state.isAuthenticated = false;
+      state.user = null;
+    },
     setAuthentication(state, status) {
       state.isAuthenticated = status;
     },
+    setUser(state, user) {
+      state.user = user;
+    },
   },
   actions: {
-    async login({ commit }, { account, code }) {
+    async login({ commit }, { token }) {
       try {
-        const response = await api.post("/auth/validate", { account, code });
-        if (response.data.status === "验证码有效") {
-          // 存储 JWT
-          localStorage.setItem("token", response.data.token);
-          commit("setAuthentication", true);
-          return true;
-        }
+        // 存储 JWT
+        localStorage.setItem("token", token);
+        commit("setAuthentication", true);
+        return true;
       } catch (error) {
         console.error("Login failed:", error);
         return false;
@@ -32,6 +41,7 @@ export default createStore({
         // 清除 JWT
         localStorage.removeItem("token");
         commit("setAuthentication", false);
+        commit("setUser", null);
       } catch (error) {
         console.error("Logout failed:", error);
       }
@@ -40,9 +50,20 @@ export default createStore({
       try {
         const response = await api.get("/auth/check"); // 使用 Axios 实例
         commit("setAuthentication", response.data.authenticated);
+        if (response.data.authenticated && response.data.user) {
+          commit("setUser", response.data.user);
+        }
       } catch (error) {
+        // 认证失败时清理垃圾token
+        localStorage.removeItem("token");
         commit("setAuthentication", false);
+        commit("setUser", null);
       }
     },
+  },
+  getters: {
+    isAuthenticated: (state) => state.isAuthenticated,
+    currentUser: (state) => state.user,
+    isAdmin: (state) => state.user?.role === 'admin',
   },
 });

@@ -6,6 +6,7 @@ import (
 	"context"
 	"cyberedge/pkg/api"
 	"cyberedge/pkg/dao"
+	"cyberedge/pkg/database"
 	"cyberedge/pkg/logging"
 	"cyberedge/pkg/service"
 	"cyberedge/pkg/setup"
@@ -17,6 +18,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -44,49 +46,39 @@ func main() {
 	env := flag.String("env", "dev", "运行环境 (dev/prod)")
 	flag.Parse()
 
-	// 连接MongoDB数据库
-	client, err := setup.ConnectToMongoDB("mongodb://localhost:27017")
+	// 连接MySQL数据库
+	db, err := setup.ConnectToMySQL("root:password@tcp(localhost:3306)/cyberedge?charset=utf8mb4&parseTime=True&loc=Local")
 	if err != nil {
-		logging.Error("连接MongoDB失败: %v", err)
+		logging.Error("连接MySQL失败: %v", err)
 		return
 	}
-	defer setup.DisconnectMongoDB(client)
-	logging.Info("MongoDB连接成功")
+	logging.Info("MySQL连接成功")
 
-	// 初始化数据库和集合
-	db := client.Database("cyberedgeDB")
-
-	// 初始化任务相关组件
-	taskService, asynqServer, err := setup.InitTaskComponents(db, "localhost:6379")
-	if err != nil {
-		logging.Error("初始化任务组件失败: %v", err)
+	// 迁移扫描相关数据表
+	if err := database.AutoMigrateScanModels(db); err != nil {
+		logging.Error("扫描数据表迁移失败: %v", err)
 		return
 	}
-	defer taskService.Close()
+	logging.Info("扫描数据表迁移成功")
+
+	// 创建性能索引
+	if err := database.CreateIndexes(db); err != nil {
+		logging.Warn("创建索引失败: %v", err)
+	}
+
+	// 创建数据约束
+	if err := database.CreateConstraints(db); err != nil {
+		logging.Warn("创建数据约束失败: %v", err)
+	}
 
 	// 初始化 DAO
-	taskDAO := dao.NewTaskDAO(db.Collection("tasks"))
-	resultDAO := dao.NewResultDAO(db.Collection("results"))
-	userDAO := dao.NewUserDAO(db.Collection("users"))
-	configDAO := dao.NewConfigDAO(db.Collection("config"))
-	targetDAO := dao.NewTargetDAO(db)
-
-	// 初始化任务处理器
-	taskHandler := setup.InitTaskHandler(taskDAO, targetDAO, resultDAO, configDAO)
-
-	// 启动 Asynq 服务器
-	setup.StartAsynqServer(asynqServer, taskHandler)
+	userDAO := dao.NewUserDAO(db)
+	scanDAO := dao.NewScanDAO(db)
 
 	// 初始化 Service
 	jwtSecret := os.Getenv("JWT_SECRET")
-	sessionSecret := os.Getenv("SESSION_SECRET")
-
-	userService := service.NewUserService(userDAO, configDAO, jwtSecret)
-	configService := service.NewConfigService(configDAO)
-	resultService := service.NewResultService(resultDAO)
-	dnsService := service.NewDNSService(resultDAO)
-	httpxService := service.NewHTTPXService(resultDAO)
-	targetService := service.NewTargetService(targetDAO)
+	userService := service.NewUserService(userDAO, jwtSecret)
+	scanService := service.NewScanService(scanDAO)
 
 	if *env == "prod" {
 		gin.SetMode(gin.ReleaseMode)
@@ -97,33 +89,53 @@ func main() {
 	// 根据环境设置 CORS 配置
 	var allowedOrigins []string
 	if *env == "prod" {
-		allowedOrigins = []string{"*"} // 替换为实际的生产环境域名
+		// 生产环境必须指定具体域名，绝不能使用通配符
+		prodOrigin := os.Getenv("ALLOWED_ORIGIN")
+		if prodOrigin == "" {
+			log.Fatal("生产环境必须设置 ALLOWED_ORIGIN 环境变量")
+		}
+		allowedOrigins = []string{prodOrigin}
 	} else {
+		// 开发环境基础源
 		allowedOrigins = []string{
 			"http://localhost:8080",
+			"http://localhost:8082",
 			"http://127.0.0.1:8080",
+			"http://127.0.0.1:8082",
+			"http://0.0.0.0:8080",
+			"http://0.0.0.0:8082",
+		}
+
+		// 允许通过环境变量添加额外的开发环境源
+		extraOrigins := os.Getenv("DEV_ALLOWED_ORIGINS")
+		if extraOrigins != "" {
+			// 支持逗号分隔的多个源
+			for _, origin := range strings.Split(extraOrigins, ",") {
+				origin = strings.TrimSpace(origin)
+				if origin != "" {
+					allowedOrigins = append(allowedOrigins, origin)
+				}
+			}
 		}
 	}
 
-	// 设置API路由，包括任务管理的路由
+	// 设置API路由
 	router := api.NewRouter(
 		userService,
-		configService,
-		taskService,
-		resultService,
-		dnsService,
-		httpxService,
-		targetService,
+		scanService,
 		jwtSecret,
-		sessionSecret,
 		allowedOrigins,
 	)
 	engine := router.SetupRouter()
 	logging.Info("API路由设置完成")
 
 	// 创建 HTTP 服务器
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "31337"
+	}
 	srv := &http.Server{
-		Addr:    ":31337",
+		Addr:    ":" + port,
 		Handler: engine,
 	}
 
@@ -150,8 +162,7 @@ func main() {
 		logging.Error("服务器强制关闭: %v", err)
 	}
 
-	// 关闭 Asynq 服务器
-	asynqServer.Shutdown()
+	// 不再需要关闭Asynq服务器
 
 	logging.Info("服务器已关闭")
 }

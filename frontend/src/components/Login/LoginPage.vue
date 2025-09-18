@@ -1,502 +1,548 @@
 <template>
-  <div class="login-page">
-    <div class="login-container">
-      <a-card class="login-card" :bordered="false">
-        <!-- 标题区域 -->
-        <div class="login-header">
-          <div class="logo-container">
-            <i class="ri-shield-user-line logo-icon"></i>
-          </div>
-          <h2 class="login-title">登录账户</h2>
-          <p class="login-subtitle">登录您的账户以访问完整功能</p>
+  <div style="min-height: 100vh; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+
+    <!-- 主登录表单 -->
+    <a-card
+      v-if="!show2FA"
+      style="width: 400px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);"
+      :bordered="false"
+    >
+      <template #title>
+        <div style="text-align: center;">
+          <a-avatar :size="64" style="background-color: #1890ff; margin-bottom: 16px;">
+            <template #icon><UserOutlined /></template>
+          </a-avatar>
+          <div style="font-size: 24px; font-weight: 600; margin-bottom: 8px;">CyberEdge</div>
+          <div style="color: #8c8c8c; font-size: 14px;">欢迎回来，请登录您的账户</div>
         </div>
+      </template>
 
-        <!-- 表单 -->
-        <a-form
-          :model="formState"
-          name="login"
-          @finish="handleLogin"
-          @finish-failed="handleLoginFailed"
-          autocomplete="off"
-          layout="vertical"
-          class="login-form"
-          :rules="formRules"
-        >
-          <!-- 账户输入 -->
-          <a-form-item
-            name="account"
-            class="form-item"
+      <a-form
+        :model="loginForm"
+        :rules="loginRules"
+        @finish="handleLogin"
+        layout="vertical"
+        size="large"
+        data-testid="login-form"
+      >
+        <a-form-item name="username" label="用户名">
+          <a-input
+            v-model:value="loginForm.username"
+            placeholder="请输入用户名"
+            :prefix="h(UserOutlined)"
+            data-testid="username-input"
+          />
+        </a-form-item>
+
+        <a-form-item name="password" label="密码">
+          <a-input-password
+            v-model:value="loginForm.password"
+            placeholder="请输入密码"
+            :prefix="h(LockOutlined)"
+            data-testid="password-input"
+          />
+        </a-form-item>
+
+        <a-form-item>
+          <a-button
+            type="primary"
+            html-type="submit"
+            block
+            :loading="loginLoading"
+            style="height: 40px; font-size: 16px;"
+            data-testid="login-button"
           >
-            <template #label>
-              <span class="form-label">
-                <i class="ri-user-line"></i>
-                账户
-              </span>
-            </template>
-            <a-input
-              v-model:value="formState.account"
-              placeholder="输入账户名"
-              size="large"
-              class="form-input"
-            >
-              <template #prefix>
-                <i class="ri-account-circle-line input-icon"></i>
-              </template>
-            </a-input>
-          </a-form-item>
+            登录
+          </a-button>
+        </a-form-item>
 
-          <!-- 验证码输入 -->
-          <a-form-item
-            name="code"
-            class="form-item"
+        <a-divider>
+          <span style="color: #8c8c8c; font-size: 12px;">没有账户？</span>
+        </a-divider>
+
+        <a-form-item>
+          <a-button
+            block
+            @click="showRegister = true"
+            style="height: 40px;"
           >
-            <template #label>
-              <span class="form-label">
-                <i class="ri-key-2-line"></i>
-                验证码
-              </span>
-            </template>
-            <a-input
-              v-model:value="formState.code"
-              placeholder="输入验证码"
-              size="large"
-              class="form-input"
-            >
-              <template #prefix>
-                <i class="ri-lock-line input-icon"></i>
-              </template>
-            </a-input>
-          </a-form-item>
+            注册新账户
+          </a-button>
+        </a-form-item>
+      </a-form>
+    </a-card>
 
-          <!-- 登录按钮 -->
-          <a-form-item class="form-item login-button-item">
+    <!-- 2FA验证表单 -->
+    <a-card
+      v-if="show2FA"
+      style="width: 400px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);"
+      :bordered="false"
+    >
+      <template #title>
+        <div style="text-align: center;">
+          <a-avatar :size="64" style="background-color: #52c41a; margin-bottom: 16px;">
+            <template #icon><SafetyOutlined /></template>
+          </a-avatar>
+          <div style="font-size: 24px; font-weight: 600; margin-bottom: 8px;">双重认证</div>
+          <div style="color: #8c8c8c; font-size: 14px;">请输入您的6位验证码</div>
+        </div>
+      </template>
+
+      <a-form
+        :model="totpForm"
+        :rules="totpRules"
+        @finish="handle2FALogin"
+        layout="vertical"
+        size="large"
+      >
+        <a-form-item name="totp" label="验证码">
+          <a-input
+            v-model:value="totpForm.totp"
+            placeholder="请输入6位验证码"
+            :prefix="h(KeyOutlined)"
+            :maxlength="6"
+            style="text-align: center; font-size: 18px; letter-spacing: 4px;"
+          />
+        </a-form-item>
+
+        <a-form-item>
+          <a-space style="width: 100%;" direction="vertical" :size="12">
             <a-button
               type="primary"
               html-type="submit"
-              size="large"
               block
-              :loading="loading"
-              class="login-button"
+              :loading="totpLoading"
+              style="height: 40px; font-size: 16px;"
             >
-              <template #icon v-if="!loading">
-                <i class="ri-login-box-line"></i>
-              </template>
-              {{ loading ? '登录中...' : '登录' }}
+              验证并登录
             </a-button>
-          </a-form-item>
+            <a-button
+              block
+              @click="goBackToLogin"
+              style="height: 40px;"
+            >
+              返回登录
+            </a-button>
+          </a-space>
+        </a-form-item>
+      </a-form>
+    </a-card>
 
-          <!-- 注册链接 -->
-          <div class="register-link">
-            <span class="register-text">还没有账户？</span>
-            <router-link to="/setup-2fa" class="register-btn">
-              注册账户
-            </router-link>
-          </div>
-        </a-form>
-
-        <!-- 错误提示 -->
-        <div v-if="errorMessage" class="error-container">
-          <a-alert
-            :message="errorMessage"
-            type="error"
-            show-icon
-            closable
-            @close="clearError"
-            class="error-alert"
+    <!-- 注册表单 -->
+    <a-modal
+      v-model:open="showRegister"
+      title="注册新账户"
+      :footer="null"
+      width="480px"
+    >
+      <a-form
+        :model="registerForm"
+        :rules="registerRules"
+        @finish="handleRegister"
+        layout="vertical"
+        size="large"
+      >
+        <a-form-item name="username" label="用户名">
+          <a-input
+            v-model:value="registerForm.username"
+            placeholder="请输入用户名"
+            :prefix="h(UserOutlined)"
           />
-        </div>
-      </a-card>
-    </div>
+        </a-form-item>
 
-    <!-- QR码组件 -->
-    <GoogleAuthQRCode
-      :isVisible="showQRCode"
-      @close="showQRCode = false"
-      @success="handleQRSuccess"
-    />
+        <a-form-item name="email" label="邮箱">
+          <a-input
+            v-model:value="registerForm.email"
+            placeholder="请输入邮箱"
+            :prefix="h(MailOutlined)"
+          />
+        </a-form-item>
+
+        <a-form-item name="password" label="密码">
+          <a-input-password
+            v-model:value="registerForm.password"
+            placeholder="请输入密码"
+            :prefix="h(LockOutlined)"
+          />
+        </a-form-item>
+
+        <a-form-item name="confirmPassword" label="确认密码">
+          <a-input-password
+            v-model:value="registerForm.confirmPassword"
+            placeholder="请再次输入密码"
+            :prefix="h(LockOutlined)"
+          />
+        </a-form-item>
+
+        <a-form-item>
+          <a-space style="width: 100%;" direction="vertical" :size="12">
+            <a-button
+              type="primary"
+              html-type="submit"
+              block
+              :loading="registerLoading"
+              style="height: 40px; font-size: 16px;"
+            >
+              注册账户
+            </a-button>
+            <a-button
+              block
+              @click="showRegister = false"
+              style="height: 40px;"
+            >
+              取消
+            </a-button>
+          </a-space>
+        </a-form-item>
+      </a-form>
+    </a-modal>
+
+    <!-- 2FA设置模态框 -->
+    <a-modal
+      v-model:open="showQRSetup"
+      title="设置双重认证"
+      :footer="null"
+      width="480px"
+      :closable="false"
+      :maskClosable="false"
+    >
+      <div style="text-align: center;">
+        <a-steps :current="qrStep" style="margin-bottom: 24px;">
+          <a-step title="扫描二维码" />
+          <a-step title="验证设置" />
+        </a-steps>
+
+        <!-- 步骤1: 显示二维码 -->
+        <div v-if="qrStep === 0">
+          <a-alert
+            message="请使用Google Authenticator扫描下方二维码"
+            type="info"
+            style="margin-bottom: 16px;"
+          />
+          <div style="display: flex; justify-content: center; margin-bottom: 16px;">
+            <img v-if="qrCodeUrl" :src="qrCodeUrl" alt="QR Code" style="width: 200px; height: 200px; border: 1px solid #d9d9d9;" />
+            <a-spin v-else :size="'large'" />
+          </div>
+          <a-button type="primary" @click="qrStep = 1" :disabled="!qrCodeUrl">
+            下一步
+          </a-button>
+        </div>
+
+        <!-- 步骤2: 验证设置 -->
+        <div v-if="qrStep === 1">
+          <a-alert
+            message="请输入Google Authenticator中显示的6位验证码"
+            type="info"
+            style="margin-bottom: 16px;"
+          />
+          <a-form
+            :model="verifyForm"
+            @finish="handleVerify2FA"
+            layout="vertical"
+            size="large"
+          >
+            <a-form-item name="code">
+              <a-input
+                v-model:value="verifyForm.code"
+                placeholder="请输入6位验证码"
+                :maxlength="6"
+                style="text-align: center; font-size: 18px; letter-spacing: 4px;"
+              />
+            </a-form-item>
+            <a-form-item>
+              <a-space>
+                <a-button @click="qrStep = 0">上一步</a-button>
+                <a-button type="primary" html-type="submit" :loading="verifyLoading">
+                  完成设置
+                </a-button>
+              </a-space>
+            </a-form-item>
+          </a-form>
+        </div>
+      </div>
+    </a-modal>
+
   </div>
 </template>
 
 <script>
-import { ref, reactive, onMounted } from 'vue';
-import { useRouter } from 'vue-router';
-import { useStore } from 'vuex';
-import { message } from 'ant-design-vue';
-import GoogleAuthQRCode from './GoogleAuthQRCode.vue';
-import api from '../../api/axiosInstance';
+import { ref, reactive, h, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { useStore } from 'vuex'
+import { message } from 'ant-design-vue'
+import {
+  UserOutlined,
+  LockOutlined,
+  SafetyOutlined,
+  KeyOutlined,
+  MailOutlined
+} from '@ant-design/icons-vue'
+import api from '../../api/axiosInstance'
 
 export default {
   name: 'LoginPage',
-  components: {
-    GoogleAuthQRCode,
-  },
   setup() {
-    const router = useRouter();
-    const store = useStore();
+    const router = useRouter()
+    const store = useStore()
 
-    // 表单状态
-    const formState = reactive({
-      account: '',
-      code: '',
-    });
+    // 状态管理
+    const show2FA = ref(false)
+    const showRegister = ref(false)
+    const showQRSetup = ref(false)
+    const qrStep = ref(0)
+    const qrCodeUrl = ref('')
+    const pendingUsername = ref('')
+
+    // 加载状态
+    const loginLoading = ref(false)
+    const totpLoading = ref(false)
+    const registerLoading = ref(false)
+    const verifyLoading = ref(false)
+
+    // 表单数据
+    const loginForm = reactive({
+      username: '',
+      password: ''
+    })
+
+    const totpForm = reactive({
+      totp: ''
+    })
+
+    const registerForm = reactive({
+      username: '',
+      email: '',
+      password: '',
+      confirmPassword: ''
+    })
+
+    const verifyForm = reactive({
+      code: ''
+    })
 
     // 表单验证规则
-    const formRules = {
-      account: [
-        { required: true, message: '请输入账户名', trigger: 'blur' },
-        { min: 3, max: 20, message: '账户名长度应在3-20个字符之间', trigger: 'blur' },
+    const loginRules = {
+      username: [
+        { required: true, message: '请输入用户名', trigger: 'blur' }
       ],
-      code: [
+      password: [
+        { required: true, message: '请输入密码', trigger: 'blur' }
+      ]
+    }
+
+    const totpRules = {
+      totp: [
         { required: true, message: '请输入验证码', trigger: 'blur' },
-        { len: 6, message: '验证码应为6位数字', trigger: 'blur' },
-        { pattern: /^\d{6}$/, message: '验证码格式不正确', trigger: 'blur' },
+        { len: 6, message: '验证码必须是6位', trigger: 'blur' },
+        { pattern: /^\d{6}$/, message: '验证码必须是6位数字', trigger: 'blur' }
+      ]
+    }
+
+    const registerRules = {
+      username: [
+        { required: true, message: '请输入用户名', trigger: 'blur' },
+        { min: 3, max: 20, message: '用户名长度应在3-20个字符之间', trigger: 'blur' }
       ],
-    };
+      email: [
+        { required: true, message: '请输入邮箱', trigger: 'blur' },
+        { type: 'email', message: '请输入正确的邮箱格式', trigger: 'blur' }
+      ],
+      password: [
+        { required: true, message: '请输入密码', trigger: 'blur' },
+        { min: 6, message: '密码长度至少6位', trigger: 'blur' }
+      ],
+      confirmPassword: [
+        { required: true, message: '请确认密码', trigger: 'blur' },
+        {
+          validator: (_, value) => {
+            if (value !== registerForm.password) {
+              return Promise.reject('两次输入的密码不一致')
+            }
+            return Promise.resolve()
+          },
+          trigger: 'blur'
+        }
+      ]
+    }
 
-    // 组件状态
-    const loading = ref(false);
-    const errorMessage = ref('');
-    const showQRCode = ref(false);
-
-    // 清除错误信息
-    const clearError = () => {
-      errorMessage.value = '';
-    };
-
-    // 处理登录成功
-    const handleLoginSuccess = (data) => {
-      // 存储用户信息
-      store.dispatch('login', {
-        user: data.user,
-        token: data.token,
-      });
-
-      message.success('登录成功！');
-
-      // 跳转到主页
-      setTimeout(() => {
-        router.push('/');
-      }, 1000);
-    };
-
-    // 处理登录
+    // 处理普通登录
     const handleLogin = async (values) => {
-      loading.value = true;
-      clearError();
-
+      loginLoading.value = true
       try {
         const response = await api.post('/auth/login', {
-          username: values.account,
-          totp_code: values.code,
-        });
+          username: values.username,
+          password: values.password
+        })
 
-        if (response.data && response.data.success) {
-          handleLoginSuccess(response.data);
+        if (response.data.token) {
+          // 登录成功，直接设置token并跳转
+          handleLoginSuccess(response.data)
         } else {
-          errorMessage.value = response.data?.message || '登录失败，请检查账户信息';
+          message.error(response.data.message || '登录失败')
         }
       } catch (error) {
-        console.error('登录错误:', error);
-
+        console.error('登录错误:', error)
         if (error.response?.status === 401) {
-          errorMessage.value = '账户名或验证码错误';
-        } else if (error.response?.status === 429) {
-          errorMessage.value = '登录尝试过于频繁，请稍后再试';
-        } else if (error.response?.data?.message) {
-          errorMessage.value = error.response.data.message;
+          message.error('用户名或密码错误')
         } else {
-          errorMessage.value = '登录失败，请检查网络连接后重试';
+          message.error('登录失败，请检查网络连接')
         }
       } finally {
-        loading.value = false;
+        loginLoading.value = false
       }
-    };
+    }
 
-    // 处理登录失败
-    const handleLoginFailed = (errorInfo) => {
-      console.error('表单验证失败:', errorInfo);
-      message.error('请正确填写所有必填项');
-    };
+    // 处理2FA登录
+    const handle2FALogin = async (values) => {
+      totpLoading.value = true
+      try {
+        const response = await api.post('/auth/validate', {
+          username: pendingUsername.value,
+          totp_code: values.totp
+        })
 
-    // 处理QR码成功
-    const handleQRSuccess = () => {
-      showQRCode.value = false;
-      message.success('配置完成，请使用Google Authenticator生成的验证码登录');
-    };
+        if (response.data.success) {
+          handleLoginSuccess(response.data)
+        } else {
+          message.error(response.data.message || '验证码错误')
+        }
+      } catch (error) {
+        console.error('2FA验证错误:', error)
+        message.error('验证失败，请重试')
+      } finally {
+        totpLoading.value = false
+      }
+    }
 
-    // 组件挂载时的初始化
+    // 处理注册
+    const handleRegister = async (values) => {
+      registerLoading.value = true
+      try {
+        const response = await api.post('/auth/register', {
+          username: values.username,
+          email: values.email,
+          password: values.password
+        })
+
+        if (response.data.success) {
+          message.success('注册成功，正在设置双重认证...')
+          showRegister.value = false
+          pendingUsername.value = values.username
+          await setup2FA()
+        } else {
+          message.error(response.data.message || '注册失败')
+        }
+      } catch (error) {
+        console.error('注册错误:', error)
+        message.error('注册失败，请重试')
+      } finally {
+        registerLoading.value = false
+      }
+    }
+
+    // 设置2FA
+    const setup2FA = async () => {
+      try {
+        const response = await api.post('/auth/2fa/setup', {
+          username: pendingUsername.value
+        })
+
+        if (response.data.success) {
+          qrCodeUrl.value = response.data.qr_code
+          showQRSetup.value = true
+          qrStep.value = 0
+        } else {
+          message.error('设置失败')
+        }
+      } catch (error) {
+        console.error('设置2FA错误:', error)
+        message.error('设置失败，请重试')
+      }
+    }
+
+    // 验证2FA设置
+    const handleVerify2FA = async (values) => {
+      verifyLoading.value = true
+      try {
+        const response = await api.post('/auth/2fa/verify', {
+          username: pendingUsername.value,
+          code: values.code
+        })
+
+        if (response.data.success) {
+          message.success('双重认证设置成功！')
+          showQRSetup.value = false
+          qrStep.value = 0
+          verifyForm.code = ''
+          // 重置到登录页面
+          show2FA.value = false
+          loginForm.username = ''
+          loginForm.password = ''
+        } else {
+          message.error(response.data.message || '验证失败')
+        }
+      } catch (error) {
+        console.error('验证2FA错误:', error)
+        message.error('验证失败，请重试')
+      } finally {
+        verifyLoading.value = false
+      }
+    }
+
+    // 登录成功处理
+    const handleLoginSuccess = (data) => {
+      // 保存token到localStorage
+      localStorage.setItem('token', data.token)
+
+      store.dispatch('login', {
+        token: data.token
+      })
+      message.success('登录成功！')
+      router.push('/user-management')
+    }
+
+    // 返回登录
+    const goBackToLogin = () => {
+      show2FA.value = false
+      totpForm.totp = ''
+    }
+
+    // 检查登录状态
     onMounted(() => {
-      // 检查是否已经登录
       if (store.getters.isAuthenticated) {
-        router.push('/');
-        return;
+        router.push('/')
       }
-
-      // 自动聚焦到账户输入框
-      const accountInput = document.querySelector('input[placeholder="输入账户名"]');
-      if (accountInput) {
-        setTimeout(() => accountInput.focus(), 100);
-      }
-    });
+    })
 
     return {
-      formState,
-      formRules,
-      loading,
-      errorMessage,
-      showQRCode,
-      clearError,
+      h,
+      show2FA,
+      showRegister,
+      showQRSetup,
+      qrStep,
+      qrCodeUrl,
+      loginLoading,
+      totpLoading,
+      registerLoading,
+      verifyLoading,
+      loginForm,
+      totpForm,
+      registerForm,
+      verifyForm,
+      loginRules,
+      totpRules,
+      registerRules,
       handleLogin,
-      handleLoginFailed,
-      handleQRSuccess,
-    };
-  },
-};
+      handle2FALogin,
+      handleRegister,
+      handleVerify2FA,
+      goBackToLogin,
+      UserOutlined,
+      LockOutlined,
+      SafetyOutlined,
+      KeyOutlined,
+      MailOutlined
+    }
+  }
+}
 </script>
-
-<style scoped>
-.login-page {
-  background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
-  min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-  position: relative;
-}
-
-.login-page::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: radial-gradient(circle at 50% 50%, rgba(59, 130, 246, 0.1) 0%, transparent 70%);
-  pointer-events: none;
-}
-
-.login-container {
-  width: 100%;
-  max-width: 420px;
-  z-index: 1;
-}
-
-.login-card {
-  background: rgba(30, 41, 59, 0.8) !important;
-  backdrop-filter: blur(20px);
-  border: 1px solid rgba(51, 65, 85, 0.3) !important;
-  border-radius: 24px !important;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3) !important;
-  overflow: hidden;
-  animation: slideInUp 0.6s ease-out;
-}
-
-.login-header {
-  text-align: center;
-  margin-bottom: 32px;
-}
-
-.logo-container {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 64px;
-  height: 64px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(147, 51, 234, 0.2));
-  border: 1px solid rgba(59, 130, 246, 0.3);
-  margin-bottom: 16px;
-}
-
-.logo-icon {
-  font-size: 28px;
-  color: #60a5fa;
-}
-
-.login-title {
-  font-size: 24px;
-  font-weight: 600;
-  color: #f1f5f9;
-  margin-bottom: 8px;
-  letter-spacing: -0.025em;
-}
-
-.login-subtitle {
-  font-size: 14px;
-  color: #94a3b8;
-  line-height: 1.5;
-  max-width: 300px;
-  margin: 0 auto;
-}
-
-.login-form {
-  margin-top: 24px;
-}
-
-.form-item {
-  margin-bottom: 20px;
-}
-
-.form-label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: #cbd5e1;
-  font-weight: 500;
-  font-size: 14px;
-}
-
-.form-label i {
-  font-size: 16px;
-  color: #94a3b8;
-}
-
-.form-input :deep(.ant-input) {
-  background: rgba(15, 23, 42, 0.6);
-  border: 1px solid rgba(51, 65, 85, 0.5);
-  border-radius: 12px;
-  color: #e2e8f0;
-  padding: 12px 16px 12px 44px;
-  font-size: 14px;
-  transition: all 0.3s ease;
-}
-
-.form-input :deep(.ant-input::placeholder) {
-  color: #64748b;
-}
-
-.form-input :deep(.ant-input:focus) {
-  background: rgba(15, 23, 42, 0.8);
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
-}
-
-.form-input :deep(.ant-input-prefix) {
-  left: 16px;
-}
-
-.input-icon {
-  color: #64748b;
-  font-size: 16px;
-}
-
-.login-button-item {
-  margin-bottom: 24px;
-  margin-top: 32px;
-}
-
-.login-button {
-  background: linear-gradient(135deg, #3b82f6, #1d4ed8);
-  border: none;
-  border-radius: 12px;
-  height: 48px;
-  font-weight: 600;
-  font-size: 16px;
-  color: #ffffff;
-  transition: all 0.3s ease;
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
-}
-
-.login-button:hover {
-  background: linear-gradient(135deg, #2563eb, #1e40af);
-  transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(59, 130, 246, 0.4);
-}
-
-.login-button:active {
-  transform: translateY(0);
-}
-
-.register-link {
-  text-align: center;
-  padding-top: 16px;
-  border-top: 1px solid rgba(51, 65, 85, 0.3);
-}
-
-.register-text {
-  color: #94a3b8;
-  font-size: 14px;
-}
-
-.register-btn {
-  color: #60a5fa;
-  text-decoration: none;
-  font-weight: 500;
-  margin-left: 8px;
-  transition: color 0.2s ease;
-}
-
-.register-btn:hover {
-  color: #93c5fd;
-  text-decoration: underline;
-}
-
-.error-container {
-  margin-top: 16px;
-}
-
-.error-alert :deep(.ant-alert) {
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  border-radius: 8px;
-}
-
-.error-alert :deep(.ant-alert-message) {
-  color: #fca5a5;
-}
-
-/* Ant Design表单样式覆盖 */
-.login-form :deep(.ant-form-item-label > label) {
-  color: #cbd5e1;
-  font-weight: 500;
-}
-
-.login-form :deep(.ant-form-item-explain-error) {
-  color: #fca5a5;
-  font-size: 12px;
-  margin-top: 4px;
-}
-
-.login-form :deep(.ant-form-item-has-error .ant-input) {
-  border-color: #ef4444;
-  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2);
-}
-
-/* 动画效果 */
-@keyframes slideInUp {
-  from {
-    opacity: 0;
-    transform: translateY(30px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-/* 响应式设计 */
-@media (max-width: 480px) {
-  .login-container {
-    max-width: 100%;
-  }
-
-  .login-card {
-    margin: 0 8px;
-    border-radius: 16px !important;
-  }
-
-  .login-title {
-    font-size: 20px;
-  }
-
-  .logo-container {
-    width: 56px;
-    height: 56px;
-  }
-
-  .logo-icon {
-    font-size: 24px;
-  }
-}
-</style>
