@@ -431,3 +431,117 @@ func (d *ScanDAO) SearchTargetsWithPagination(projectID uint, searchTerm string,
 
 	return targets, total, err
 }
+
+// === ScanJob 管理方法 ===
+
+func (d *ScanDAO) CreateScanJob(job *models.ScanJob) error {
+	return d.db.Create(job).Error
+}
+
+func (d *ScanDAO) GetScanJobByID(id uint) (*models.ScanJob, error) {
+	var job models.ScanJob
+	err := d.db.First(&job, id).Error
+	return &job, err
+}
+
+func (d *ScanDAO) UpdateScanJob(job *models.ScanJob) error {
+	return d.db.Save(job).Error
+}
+
+func (d *ScanDAO) GetProjectScanJobs(projectID uint, filters map[string]interface{}) ([]models.ScanJob, error) {
+	query := d.db.Where("project_id = ?", projectID)
+
+	// 应用过滤条件
+	if status, ok := filters["status"]; ok && status != "" {
+		query = query.Where("status = ?", status)
+	}
+
+	if target, ok := filters["target"]; ok && target != "" {
+		searchTerm := "%" + target.(string) + "%"
+		query = query.Where("target LIKE ?", searchTerm)
+	}
+
+	if pipeline, ok := filters["pipeline"]; ok && pipeline != "" {
+		query = query.Where("pipeline_name = ?", pipeline)
+	}
+
+	var jobs []models.ScanJob
+	err := query.Order("created_at DESC").Find(&jobs).Error
+	return jobs, err
+}
+
+// === ScanTarget 管理方法 ===
+
+func (d *ScanDAO) CreateScanTarget(target *models.ScanTarget) error {
+	return d.db.Create(target).Error
+}
+
+func (d *ScanDAO) GetScanTargetByAddress(projectID uint, address string) (*models.ScanTarget, error) {
+	var target models.ScanTarget
+	err := d.db.Where("project_id = ? AND address = ?", projectID, address).First(&target).Error
+	if err != nil {
+		return nil, err
+	}
+	return &target, nil
+}
+
+func (d *ScanDAO) GetProjectTargets(projectID uint) ([]models.ScanTarget, error) {
+	var targets []models.ScanTarget
+	err := d.db.Where("project_id = ?", projectID).Order("type, address").Find(&targets).Error
+	return targets, err
+}
+
+// === ScanResult 管理方法 ===
+
+func (d *ScanDAO) CreateScanResult(result *models.ScanResult) error {
+	return d.db.Create(result).Error
+}
+
+func (d *ScanDAO) GetScanResultByID(id uint) (*models.ScanResult, error) {
+	var result models.ScanResult
+	err := d.db.Preload("Target").First(&result, id).Error
+	return &result, err
+}
+
+func (d *ScanDAO) GetTargetScanResults(targetID uint) ([]models.ScanResult, error) {
+	var results []models.ScanResult
+	err := d.db.Where("target_id = ?", targetID).Order("port, protocol").Find(&results).Error
+	return results, err
+}
+
+func (d *ScanDAO) GetProjectScanResults(projectID uint, filters map[string]interface{}) ([]models.ScanResult, error) {
+	query := d.db.Table("scan_results sr").
+		Select("sr.*, st.address as target_address, st.type as target_type").
+		Joins("JOIN scan_targets st ON sr.target_id = st.id").
+		Where("sr.project_id = ?", projectID)
+
+	// 应用过滤条件
+	if port, ok := filters["port"]; ok {
+		query = query.Where("sr.port = ?", port)
+	}
+
+	if protocol, ok := filters["protocol"]; ok && protocol != "" {
+		query = query.Where("sr.protocol = ?", protocol)
+	}
+
+	if state, ok := filters["state"]; ok && state != "" {
+		query = query.Where("sr.state = ?", state)
+	}
+
+	if service, ok := filters["service_name"]; ok && service != "" {
+		query = query.Where("sr.service_name = ?", service)
+	}
+
+	if isWeb, ok := filters["is_web_service"]; ok {
+		query = query.Where("sr.is_web_service = ?", isWeb)
+	}
+
+	if target, ok := filters["target"]; ok && target != "" {
+		searchTerm := "%" + target.(string) + "%"
+		query = query.Where("st.address LIKE ?", searchTerm)
+	}
+
+	var results []models.ScanResult
+	err := query.Order("sr.created_at DESC").Find(&results).Error
+	return results, err
+}

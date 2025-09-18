@@ -22,6 +22,23 @@ type ScanDAOInterface interface {
 	ListProjects() ([]models.Project, error)
 	DeleteProject(id uint) error
 
+	// ScanJob 管理
+	CreateScanJob(job *models.ScanJob) error
+	GetScanJobByID(id uint) (*models.ScanJob, error)
+	UpdateScanJob(job *models.ScanJob) error
+	GetProjectScanJobs(projectID uint, filters map[string]interface{}) ([]models.ScanJob, error)
+
+	// ScanTarget 管理
+	CreateScanTarget(target *models.ScanTarget) error
+	GetScanTargetByAddress(projectID uint, address string) (*models.ScanTarget, error)
+	GetProjectTargets(projectID uint) ([]models.ScanTarget, error)
+
+	// ScanResult 管理
+	CreateScanResult(result *models.ScanResult) error
+	GetScanResultByID(id uint) (*models.ScanResult, error)
+	GetTargetScanResults(targetID uint) ([]models.ScanResult, error)
+	GetProjectScanResults(projectID uint, filters map[string]interface{}) ([]models.ScanResult, error)
+
 	// 项目详情和统计
 	GetProjectDetails(projectID uint) (*models.ProjectStats, []models.ScanTarget, error)
 	GetProjectStats(projectID uint) (*models.ProjectStats, error)

@@ -17,6 +17,23 @@ type Project struct {
 	DeletedAt   gorm.DeletedAt `json:"-" gorm:"index"`
 }
 
+// ScanJob - 扫描任务管理
+type ScanJob struct {
+	ID           uint      `json:"id" gorm:"primaryKey"`
+	ProjectID    uint      `json:"project_id" gorm:"not null;index"`
+	Target       string    `json:"target" gorm:"not null;size:255"`
+	PipelineName string    `json:"pipeline_name" gorm:"not null;size:100"`
+	Status       string    `json:"status" gorm:"not null;size:20;default:'pending'"` // pending, running, completed, failed
+	StartTime    time.Time `json:"start_time"`
+	EndTime      *time.Time `json:"end_time"`
+	ErrorMessage string    `json:"error_message,omitempty" gorm:"type:text"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+
+	// 关联关系
+	Project Project `json:"-" gorm:"foreignKey:ProjectID"`
+}
+
 // ScanTarget - 扫描目标（合并域名、子域名、IP概念）
 type ScanTarget struct {
 	ID        uint      `json:"id" gorm:"primaryKey"`
