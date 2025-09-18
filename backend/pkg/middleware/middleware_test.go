@@ -78,7 +78,7 @@ func TestCORSMiddleware(t *testing.T) {
 
 func TestJWTMiddleware(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	jwtSecret := "test-secret-key"
+	jwtSecret := "test-secret-key-for-unit-tests-only"
 
 	// 生成测试JWT令牌
 	generateTestToken := func(username string, exp time.Time) string {
@@ -176,7 +176,6 @@ func TestJWTMiddleware(t *testing.T) {
 		})
 
 		// 使用错误的密钥生成token
-		wrongSecretToken := generateTestToken("testuser", time.Now().Add(time.Hour))
 		claims := jwt.MapClaims{
 			"username": "testuser",
 			"exp":      time.Now().Add(time.Hour).Unix(),

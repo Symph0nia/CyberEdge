@@ -28,12 +28,18 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-# 数据库连接参数
+# 数据库连接参数 - 从环境变量读取，避免硬编码
 DB_HOST=${DB_HOST:-localhost}
 DB_PORT=${DB_PORT:-3306}
 DB_USER=${DB_USER:-root}
-DB_PASS=${DB_PASS:-password}
+DB_PASS=${DB_PASS:-}
 DB_NAME=${DB_NAME:-cyberedge}
+
+# 验证必要的环境变量
+if [ -z "$DB_PASS" ] && [ "$DB_USER" = "root" ]; then
+    print_warning "使用默认数据库密码可能存在安全风险"
+    DB_PASS="password"
+fi
 
 # 检查MySQL连接
 check_mysql_connection() {

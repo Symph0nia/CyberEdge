@@ -17,7 +17,7 @@ func setupTestDB(t *testing.T) *gorm.DB {
 
 	// 自动迁移表结构
 	err = db.AutoMigrate(
-		&User{},
+		&models.User{},
 		&models.ProjectOptimized{},
 		&models.ScanTarget{},
 		&models.ScanResultOptimized{},
@@ -39,7 +39,7 @@ func TestUserDAO(t *testing.T) {
 	userDAO := NewUserDAO(db)
 
 	t.Run("Create user", func(t *testing.T) {
-		user := &User{
+		user := &models.User{
 			Username:     "testuser",
 			Email:        "test@example.com",
 			PasswordHash: "hashed_password",

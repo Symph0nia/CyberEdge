@@ -19,7 +19,10 @@ import (
 
 func TestSchemaConsistency(t *testing.T) {
 	// 使用测试数据库
-	dsn := "root:password@tcp(localhost:3306)/cyberedge_test?charset=utf8mb4&parseTime=True&loc=Local"
+	dsn := os.Getenv("TEST_DATABASE_URL")
+	if dsn == "" {
+		dsn = "root:password@tcp(localhost:3306)/cyberedge_test?charset=utf8mb4&parseTime=True&loc=Local"
+	}
 
 	// 创建测试数据库
 	createTestDB()
