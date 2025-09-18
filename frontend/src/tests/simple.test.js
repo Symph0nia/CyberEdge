@@ -10,7 +10,7 @@ const validateEmail = (email) => {
 const validatePassword = (password) => {
   if (!password || typeof password !== 'string') return false
   // At least 8 chars, 1 upper, 1 lower, 1 number, 1 special
-  const regex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?])[A-Za-z\d!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]{8,}$/
+  const regex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?])[A-Za-z\d!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]{8,}$/
   return regex.test(password)
 }
 
