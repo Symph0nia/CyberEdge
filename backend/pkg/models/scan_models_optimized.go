@@ -38,9 +38,9 @@ type ScanTarget struct {
 type ScanResultOptimized struct {
 	ID          uint      `json:"id" gorm:"primaryKey"`
 	ProjectID   uint      `json:"project_id" gorm:"not null;index"`
-	TargetID    uint      `json:"target_id" gorm:"not null;index"`
-	Port        int       `json:"port" gorm:"not null;index"`
-	Protocol    string    `json:"protocol" gorm:"not null;size:10"`
+	TargetID    uint      `json:"target_id" gorm:"not null;index;uniqueIndex:idx_target_port_protocol"`
+	Port        int       `json:"port" gorm:"not null;index;uniqueIndex:idx_target_port_protocol"`
+	Protocol    string    `json:"protocol" gorm:"not null;size:10;uniqueIndex:idx_target_port_protocol"`
 	State       string    `json:"state" gorm:"size:20"`
 	ServiceName string    `json:"service_name" gorm:"size:50;index"`
 	Version     string    `json:"version" gorm:"size:100"`

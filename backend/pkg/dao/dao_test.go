@@ -1,18 +1,25 @@
 package dao
 
 import (
+	"os"
 	"testing"
 	"time"
 	"cyberedge/pkg/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/sqlite"
+	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )
 
-// 创建内存数据库用于测试
+// 创建MySQL测试数据库连接
 func setupTestDB(t *testing.T) *gorm.DB {
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	// 从环境变量获取MySQL DSN，如果没有则使用默认测试配置
+	dsn := os.Getenv("MYSQL_DSN")
+	if dsn == "" {
+		dsn = "root:password@tcp(localhost:3306)/cyberedge_test?charset=utf8mb4&parseTime=True&loc=Local"
+	}
+
+	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
 
 	// 自动迁移表结构
@@ -37,6 +44,10 @@ func setupTestDB(t *testing.T) *gorm.DB {
 func TestUserDAO(t *testing.T) {
 	db := setupTestDB(t)
 	userDAO := NewUserDAO(db)
+
+	// 清理之前的测试数据
+	db.Where("username IN ('testuser', 'updatetest', 'deletetest', 'duplicate', 'email_dup1', 'email_dup2')").Delete(&models.User{})
+	db.Where("email IN ('test@example.com', 'updated@example.com', 'dup1@example.com', 'dup2@example.com', 'duplicate@example.com')").Delete(&models.User{})
 
 	t.Run("Create user", func(t *testing.T) {
 		user := &models.User{
@@ -220,6 +231,9 @@ func TestUserDAO(t *testing.T) {
 func TestProjectDAO(t *testing.T) {
 	db := setupTestDB(t)
 
+	// 清理之前的测试数据
+	db.Where("name IN ('Test Project', 'Unique Project')").Delete(&models.ProjectOptimized{})
+
 	t.Run("Create and retrieve project", func(t *testing.T) {
 		project := &models.ProjectOptimized{
 			Name:        "Test Project",
@@ -341,6 +355,11 @@ func TestScanTargetDAO(t *testing.T) {
 func TestScanResultDAO(t *testing.T) {
 	db := setupTestDB(t)
 
+	// 清理之前的测试数据
+	db.Where("project_id > 0").Delete(&models.ScanResultOptimized{})
+	db.Where("name LIKE '%Test%'").Delete(&models.ProjectOptimized{})
+	db.Where("address LIKE '%test%'").Delete(&models.ScanTarget{})
+
 	// 设置测试数据
 	project := &models.ProjectOptimized{
 		Name: "Result Test Project", CreatedAt: time.Now(), UpdatedAt: time.Now(),
@@ -382,7 +401,7 @@ func TestScanResultDAO(t *testing.T) {
 		assert.Equal(t, "open", retrieved.State)
 		assert.Equal(t, "http", retrieved.ServiceName)
 		assert.True(t, retrieved.IsWebService)
-		assert.Equal(t, "nginx/1.20.1", retrieved.GetServiceSignature())
+		assert.Equal(t, "http/nginx/1.20.1", retrieved.GetServiceSignature())
 	})
 
 	t.Run("Unique constraint on target/port/protocol", func(t *testing.T) {
@@ -409,6 +428,12 @@ func TestScanResultDAO(t *testing.T) {
 // 测试漏洞DAO
 func TestVulnerabilityDAO(t *testing.T) {
 	db := setupTestDB(t)
+
+	// 清理之前的测试数据
+	db.Where("scan_result_id > 0").Delete(&models.VulnerabilityOptimized{})
+	db.Where("project_id > 0").Delete(&models.ScanResultOptimized{})
+	db.Where("name LIKE '%Vuln%'").Delete(&models.ProjectOptimized{})
+	db.Where("address LIKE '%vuln%'").Delete(&models.ScanTarget{})
 
 	// 设置测试数据
 	project := &models.ProjectOptimized{Name: "Vuln Test", CreatedAt: time.Now(), UpdatedAt: time.Now()}

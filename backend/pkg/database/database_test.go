@@ -9,14 +9,19 @@ import (
 	"cyberedge/pkg/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/sqlite"
+	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )
 
 func TestDatabaseConnection(t *testing.T) {
 	t.Run("Connect with valid DSN", func(t *testing.T) {
-		// 使用内存SQLite进行测试
-		db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+		// 使用MySQL进行测试
+		dsn := os.Getenv("MYSQL_DSN")
+		if dsn == "" {
+			dsn = "root:password@tcp(localhost:3306)/cyberedge_test?charset=utf8mb4&parseTime=True&loc=Local"
+		}
+
+		db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
 		assert.NoError(t, err)
 		assert.NotNil(t, db)
 
@@ -28,7 +33,11 @@ func TestDatabaseConnection(t *testing.T) {
 	})
 
 	t.Run("Auto migrate models", func(t *testing.T) {
-		db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+		dsn := os.Getenv("MYSQL_DSN")
+	if dsn == "" {
+		dsn = "root:password@tcp(localhost:3306)/cyberedge_test?charset=utf8mb4&parseTime=True&loc=Local"
+	}
+	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
 		require.NoError(t, err)
 
 		// 测试自动迁移
@@ -77,7 +86,11 @@ func TestDatabaseConfiguration(t *testing.T) {
 	})
 
 	t.Run("Database pool configuration", func(t *testing.T) {
-		db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+		dsn := os.Getenv("MYSQL_DSN")
+	if dsn == "" {
+		dsn = "root:password@tcp(localhost:3306)/cyberedge_test?charset=utf8mb4&parseTime=True&loc=Local"
+	}
+	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
 		require.NoError(t, err)
 
 		sqlDB, err := db.DB()
@@ -95,11 +108,18 @@ func TestDatabaseConfiguration(t *testing.T) {
 }
 
 func TestDatabaseTransactions(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	dsn := os.Getenv("MYSQL_DSN")
+	if dsn == "" {
+		dsn = "root:password@tcp(localhost:3306)/cyberedge_test?charset=utf8mb4&parseTime=True&loc=Local"
+	}
+	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
 
 	err = db.AutoMigrate(&models.User{})
 	require.NoError(t, err)
+
+	// 清理测试数据
+	db.Where("username LIKE 'txtest%'").Delete(&models.User{})
 
 	t.Run("Successful transaction", func(t *testing.T) {
 		err := db.Transaction(func(tx *gorm.DB) error {
@@ -154,25 +174,36 @@ func TestDatabaseTransactions(t *testing.T) {
 }
 
 func TestDatabaseIndexes(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	dsn := os.Getenv("MYSQL_DSN")
+	if dsn == "" {
+		dsn = "root:password@tcp(localhost:3306)/cyberedge_test?charset=utf8mb4&parseTime=True&loc=Local"
+	}
+	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
 
 	err = db.AutoMigrate(&models.User{})
 	require.NoError(t, err)
 
 	t.Run("Check table indexes", func(t *testing.T) {
-		// 验证用户表的索引
-		assert.True(t, db.Migrator().HasIndex(&models.User{}, "username"))
-		assert.True(t, db.Migrator().HasIndex(&models.User{}, "email"))
+		// 验证用户表的索引 - MySQL创建的索引名为idx_前缀
+		assert.True(t, db.Migrator().HasIndex(&models.User{}, "idx_users_username"))
+		assert.True(t, db.Migrator().HasIndex(&models.User{}, "idx_users_email"))
 	})
 }
 
 func TestDatabaseErrorHandling(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	dsn := os.Getenv("MYSQL_DSN")
+	if dsn == "" {
+		dsn = "root:password@tcp(localhost:3306)/cyberedge_test?charset=utf8mb4&parseTime=True&loc=Local"
+	}
+	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
 
 	err = db.AutoMigrate(&models.User{})
 	require.NoError(t, err)
+
+	// 清理测试数据
+	db.Where("username LIKE 'duplicate%'").Delete(&models.User{})
 
 	t.Run("Handle duplicate key errors", func(t *testing.T) {
 		user1 := &models.User{
@@ -207,11 +238,18 @@ func TestDatabaseErrorHandling(t *testing.T) {
 }
 
 func TestDatabasePerformance(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	dsn := os.Getenv("MYSQL_DSN")
+	if dsn == "" {
+		dsn = "root:password@tcp(localhost:3306)/cyberedge_test?charset=utf8mb4&parseTime=True&loc=Local"
+	}
+	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
 
 	err = db.AutoMigrate(&models.User{})
 	require.NoError(t, err)
+
+	// 清理测试数据
+	db.Where("username LIKE 'batchuser%'").Delete(&models.User{})
 
 	t.Run("Batch insert performance", func(t *testing.T) {
 		users := make([]*models.User, 100)

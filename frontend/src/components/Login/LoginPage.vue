@@ -23,12 +23,14 @@
         @finish="handleLogin"
         layout="vertical"
         size="large"
+        data-testid="login-form"
       >
         <a-form-item name="username" label="用户名">
           <a-input
             v-model:value="loginForm.username"
             placeholder="请输入用户名"
             :prefix="h(UserOutlined)"
+            data-testid="username-input"
           />
         </a-form-item>
 
@@ -37,6 +39,7 @@
             v-model:value="loginForm.password"
             placeholder="请输入密码"
             :prefix="h(LockOutlined)"
+            data-testid="password-input"
           />
         </a-form-item>
 
@@ -47,6 +50,7 @@
             block
             :loading="loginLoading"
             style="height: 40px; font-size: 16px;"
+            data-testid="login-button"
           >
             登录
           </a-button>
