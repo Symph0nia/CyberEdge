@@ -3,9 +3,12 @@ package service
 import (
 	"errors"
 	"fmt"
+
 	"cyberedge/pkg/dao"
 	"cyberedge/pkg/models"
 )
+
+// CyberEdge 扫描服务 - 简洁的业务逻辑，专注核心功能
 
 type ScanService struct {
 	scanDAO dao.ScanDAOInterface
@@ -17,13 +20,13 @@ func NewScanService(scanDAO dao.ScanDAOInterface) *ScanService {
 	}
 }
 
-// Project 管理
+// Project 管理 - 保持简单直接
 func (s *ScanService) CreateProject(name, description string) (*models.Project, error) {
 	if name == "" {
 		return nil, errors.New("项目名称不能为空")
 	}
 
-	// 检查重名
+	// 检查重名 - 直接查询，不复杂化
 	if _, err := s.scanDAO.GetProjectByName(name); err == nil {
 		return nil, errors.New("项目名称已存在")
 	}
@@ -52,223 +55,196 @@ func (s *ScanService) DeleteProject(id uint) error {
 	return s.scanDAO.DeleteProject(id)
 }
 
-// 扫描结果导入 - 核心业务逻辑
-func (s *ScanService) ImportScanResults(projectID uint, scanData *ScanResultData) error {
+// 项目详情 - 单次查询获取所有必要数据
+func (s *ScanService) GetProjectDetails(projectID uint) (*models.ProjectStats, []models.ScanTarget, error) {
+	return s.scanDAO.GetProjectDetails(projectID)
+}
+
+// 项目统计 - 委托给DAO的高效查询
+func (s *ScanService) GetProjectStats(projectID uint) (*models.ProjectStats, error) {
+	return s.scanDAO.GetProjectStats(projectID)
+}
+
+// 扫描数据导入 - 简化的业务逻辑，委托复杂性给DAO
+func (s *ScanService) ImportScanData(data *models.ScanDataImport) error {
 	// 验证项目存在
-	project, err := s.scanDAO.GetProjectByID(projectID)
+	_, err := s.scanDAO.GetProjectByID(data.ProjectID)
 	if err != nil {
 		return fmt.Errorf("项目不存在: %w", err)
 	}
 
-	// 构建完整的层次结构
-	hierarchyData := s.buildHierarchyFromScanData(project, scanData)
+	// 基本数据验证
+	if err := s.validateScanData(data); err != nil {
+		return fmt.Errorf("数据验证失败: %w", err)
+	}
 
-	// 批量保存
-	return s.scanDAO.CreateOrUpdateHierarchy(hierarchyData)
+	// 委托给DAO执行批量导入
+	return s.scanDAO.ImportScanData(data)
 }
 
-// 从扫描数据构建层次结构
-func (s *ScanService) buildHierarchyFromScanData(project *models.Project, scanData *ScanResultData) *models.Project {
-	domainMap := make(map[string]*models.Domain)
-	subdomainMap := make(map[string]*models.Subdomain)
-	ipMap := make(map[string]*models.IPAddress)
+// 数据验证 - 专注业务规则，不处理数据转换
+func (s *ScanService) validateScanData(data *models.ScanDataImport) error {
+	if len(data.Results) == 0 {
+		return errors.New("扫描结果不能为空")
+	}
 
-	// 处理每个扫描结果
-	for _, result := range scanData.Results {
-		// 获取或创建IP地址
-		ip, exists := ipMap[result.IP]
-		if !exists {
-			ip = &models.IPAddress{
-				Address: result.IP,
-			}
-			ipMap[result.IP] = ip
+	for i, target := range data.Results {
+		if target.Address == "" {
+			return fmt.Errorf("第%d个目标地址不能为空", i+1)
 		}
 
-		// 如果有域名信息，处理域名层次
-		if result.Domain != "" {
-			domain := s.getOrCreateDomain(domainMap, result.Domain, project)
+		if target.Type != "domain" && target.Type != "subdomain" && target.Type != "ip" {
+			return fmt.Errorf("第%d个目标类型无效: %s", i+1, target.Type)
+		}
 
-			subdomainName := result.Subdomain
-			if subdomainName == "" {
-				subdomainName = "@" // 根域
+		for j, port := range target.Ports {
+			if port.Number < 1 || port.Number > 65535 {
+				return fmt.Errorf("第%d个目标的第%d个端口号无效: %d", i+1, j+1, port.Number)
 			}
 
-			subdomain := s.getOrCreateSubdomain(subdomainMap, domain, subdomainName)
-
-			// 关联IP到子域名
-			subdomain.IPAddresses = append(subdomain.IPAddresses, *ip)
-		}
-
-		// 处理端口和服务
-		for _, portData := range result.Ports {
-			port := &models.Port{
-				Number:   portData.Number,
-				Protocol: portData.Protocol,
-				State:    portData.State,
+			if port.Protocol != "tcp" && port.Protocol != "udp" {
+				return fmt.Errorf("第%d个目标的第%d个端口协议无效: %s", i+1, j+1, port.Protocol)
 			}
+		}
+	}
 
-			// 如果检测到服务，创建服务记录
-			if portData.Service != nil {
-				service := &models.Service{
-					Type:        portData.Service.Name,
-					Name:        portData.Service.Name,
-					Version:     portData.Service.Version,
-					Fingerprint: portData.Service.Fingerprint,
-					Banner:      portData.Service.Banner,
-				}
+	return nil
+}
 
-				// 处理Web服务特有的数据
-				if service.IsWebService() {
-					s.processWebServiceData(service, portData.Service.WebData)
-				}
+// 漏洞查询 - 委托给DAO，专注过滤逻辑
+func (s *ScanService) GetVulnerabilities(projectID uint, filters map[string]interface{}) ([]models.Vulnerability, error) {
+	// 验证项目存在
+	_, err := s.scanDAO.GetProjectByID(projectID)
+	if err != nil {
+		return nil, fmt.Errorf("项目不存在: %w", err)
+	}
 
-				// 处理漏洞
-				s.processVulnerabilities(service, portData.Service.Vulnerabilities)
+	// 验证过滤参数
+	if err := s.validateVulnerabilityFilters(filters); err != nil {
+		return nil, fmt.Errorf("过滤参数无效: %w", err)
+	}
 
-				port.Service = service
+	return s.scanDAO.GetVulnerabilities(projectID, filters)
+}
+
+func (s *ScanService) validateVulnerabilityFilters(filters map[string]interface{}) error {
+	validSeverities := map[string]bool{
+		"critical": true,
+		"high":     true,
+		"medium":   true,
+		"low":      true,
+		"info":     true,
+	}
+
+	validStatuses := map[string]bool{
+		"open":           true,
+		"fixed":          true,
+		"false_positive": true,
+	}
+
+	if severity, ok := filters["severity"]; ok {
+		if severityStr, isString := severity.(string); isString && severityStr != "" {
+			if !validSeverities[severityStr] {
+				return fmt.Errorf("无效的严重级别: %s", severityStr)
 			}
-
-			ip.Ports = append(ip.Ports, *port)
 		}
 	}
 
-	return project
-}
-
-// 处理Web服务数据
-func (s *ScanService) processWebServiceData(service *models.Service, webData *WebServiceData) {
-	if webData == nil {
-		return
-	}
-
-	// 处理Web路径
-	for _, pathData := range webData.Paths {
-		webPath := &models.WebPath{
-			Path:       pathData.Path,
-			StatusCode: pathData.StatusCode,
-			Title:      pathData.Title,
-			Length:     pathData.Length,
-		}
-
-		// 处理路径级漏洞
-		for _, vulnData := range pathData.Vulnerabilities {
-			vuln := &models.Vulnerability{
-				CVEID:       vulnData.CVEID,
-				Title:       vulnData.Title,
-				Description: vulnData.Description,
-				Severity:    vulnData.Severity,
-				CVSS:        vulnData.CVSS,
-				Location:    pathData.Path,
-				Parameter:   vulnData.Parameter,
-				Payload:     vulnData.Payload,
+	if status, ok := filters["status"]; ok {
+		if statusStr, isString := status.(string); isString && statusStr != "" {
+			if !validStatuses[statusStr] {
+				return fmt.Errorf("无效的状态: %s", statusStr)
 			}
-			webPath.Vulnerabilities = append(webPath.Vulnerabilities, *vuln)
 		}
-
-		service.WebPaths = append(service.WebPaths, *webPath)
 	}
 
-	// 处理技术栈（这里简化处理，实际应该通过DAO查询或创建）
-	for _, techName := range webData.Technologies {
-		tech := &models.Technology{
-			Name: techName,
-		}
-		service.Technologies = append(service.Technologies, *tech)
-	}
+	return nil
 }
 
-// 处理漏洞数据
-func (s *ScanService) processVulnerabilities(service *models.Service, vulnDataList []VulnerabilityData) {
-	for _, vulnData := range vulnDataList {
-		vuln := &models.Vulnerability{
-			CVEID:       vulnData.CVEID,
-			Title:       vulnData.Title,
-			Description: vulnData.Description,
-			Severity:    vulnData.Severity,
-			CVSS:        vulnData.CVSS,
-			Location:    vulnData.Location,
-			Parameter:   vulnData.Parameter,
-			Payload:     vulnData.Payload,
-		}
-		service.Vulnerabilities = append(service.Vulnerabilities, *vuln)
+// 更新漏洞状态 - 简单的业务逻辑
+func (s *ScanService) UpdateVulnerabilityStatus(vulnID uint, status string) error {
+	validStatuses := map[string]bool{
+		"open":           true,
+		"fixed":          true,
+		"false_positive": true,
 	}
+
+	if !validStatuses[status] {
+		return fmt.Errorf("无效的漏洞状态: %s", status)
+	}
+
+	// TODO: 这里应该在DAO中添加UpdateVulnerabilityStatus方法
+	// 暂时返回未实现错误
+	return errors.New("更新漏洞状态功能未实现")
 }
 
-// 辅助方法
-func (s *ScanService) getOrCreateDomain(domainMap map[string]*models.Domain, domainName string, project *models.Project) *models.Domain {
-	if domain, exists := domainMap[domainName]; exists {
-		return domain
+// 项目层次结构 - 委托给DAO
+func (s *ScanService) GetProjectHierarchy(projectID uint) ([]models.ScanTarget, error) {
+	_, err := s.scanDAO.GetProjectByID(projectID)
+	if err != nil {
+		return nil, fmt.Errorf("项目不存在: %w", err)
 	}
 
-	domain := &models.Domain{
-		Name: domainName,
-	}
-	domainMap[domainName] = domain
-
-	// 添加到项目中
-	project.Domains = append(project.Domains, *domain)
-	return domain
+	return s.scanDAO.GetProjectHierarchy(projectID)
 }
 
-func (s *ScanService) getOrCreateSubdomain(subdomainMap map[string]*models.Subdomain, domain *models.Domain, subdomainName string) *models.Subdomain {
-	key := fmt.Sprintf("%s.%s", subdomainName, domain.Name)
-	if subdomain, exists := subdomainMap[key]; exists {
-		return subdomain
+// 搜索功能 - 简单委托
+func (s *ScanService) SearchTargets(projectID uint, searchTerm string) ([]models.ScanTarget, error) {
+	if searchTerm == "" {
+		return nil, errors.New("搜索条件不能为空")
 	}
 
-	subdomain := &models.Subdomain{
-		Name: subdomainName,
+	_, err := s.scanDAO.GetProjectByID(projectID)
+	if err != nil {
+		return nil, fmt.Errorf("项目不存在: %w", err)
 	}
-	subdomainMap[key] = subdomain
-	domain.Subdomains = append(domain.Subdomains, *subdomain)
-	return subdomain
+
+	return s.scanDAO.SearchTargets(projectID, searchTerm)
 }
 
-// CreateSampleData 创建示例扫描数据用于演示
+// 创建示例数据 - 简化版本，专注演示
 func (s *ScanService) CreateSampleData(projectID uint) error {
-	sampleData := &ScanResultData{
-		Results: []ScanResult{
+	sampleData := &models.ScanDataImport{
+		ProjectID: projectID,
+		Results: []models.ScanTargetImport{
 			{
-				IP:        "192.168.1.100",
-				Domain:    "example.com",
-				Subdomain: "www",
-				Ports: []PortData{
+				Type:    "domain",
+				Address: "example.com",
+				Ports: []models.PortScanImport{
 					{
 						Number:   80,
 						Protocol: "tcp",
 						State:    "open",
-						Service: &ServiceData{
-							Name:        "http",
-							Version:     "Apache/2.4.41",
-							Fingerprint: "Apache httpd 2.4.41 ((Ubuntu))",
-							Banner:      "HTTP/1.1 200 OK Server: Apache/2.4.41",
-							WebData: &WebServiceData{
-								Paths: []WebPathData{
-									{
-										Path:       "/",
-										StatusCode: 200,
-										Title:      "Welcome to Example.com",
-										Length:     2048,
-									},
-									{
-										Path:       "/admin",
-										StatusCode: 200,
-										Title:      "Admin Panel",
-										Length:     1024,
-										Vulnerabilities: []VulnerabilityData{
-											{
-												Title:       "Unprotected Admin Panel",
-												Description: "Admin panel accessible without authentication",
-												Severity:    "high",
-												CVSS:        7.5,
-												Location:    "/admin",
-											},
+						Service: &models.ServiceScanImport{
+							Name:         "http",
+							Version:      "Apache/2.4.41",
+							Fingerprint:  "Apache httpd 2.4.41 ((Ubuntu))",
+							Banner:       "HTTP/1.1 200 OK Server: Apache/2.4.41",
+							IsWebService: true,
+							HTTPTitle:    "Welcome to Example.com",
+							HTTPStatus:   200,
+							WebPaths: []models.WebPathImport{
+								{
+									Path:       "/admin",
+									StatusCode: 200,
+									Title:      "Admin Panel",
+									Length:     1024,
+									Vulnerabilities: []models.VulnerabilityImport{
+										{
+											Title:       "Unprotected Admin Panel",
+											Description: "Admin panel accessible without authentication",
+											Severity:    "high",
+											CVSS:        7.5,
+											Location:    "/admin",
 										},
 									},
 								},
-								Technologies: []string{"Apache", "PHP", "MySQL"},
 							},
-							Vulnerabilities: []VulnerabilityData{
+							Technologies: []models.TechnologyImport{
+								{Name: "Apache", Category: "web_server", Version: "2.4.41"},
+								{Name: "PHP", Category: "language", Version: "7.4"},
+							},
+							Vulnerabilities: []models.VulnerabilityImport{
 								{
 									CVEID:       "CVE-2021-44790",
 									Title:       "Apache HTTP Server Buffer Overflow",
@@ -284,18 +260,66 @@ func (s *ScanService) CreateSampleData(projectID uint) error {
 						Number:   443,
 						Protocol: "tcp",
 						State:    "open",
-						Service: &ServiceData{
-							Name:        "https",
-							Version:     "Apache/2.4.41",
-							Fingerprint: "Apache httpd 2.4.41 ((Ubuntu)) OpenSSL/1.1.1f",
-							Banner:      "HTTP/1.1 200 OK Server: Apache/2.4.41",
+						Service: &models.ServiceScanImport{
+							Name:         "https",
+							Version:      "Apache/2.4.41",
+							IsWebService: true,
+							HTTPStatus:   200,
 						},
 					},
+				},
+			},
+			{
+				Type:    "subdomain",
+				Address: "api.example.com",
+				Parent:  "example.com",
+				Ports: []models.PortScanImport{
+					{
+						Number:   8080,
+						Protocol: "tcp",
+						State:    "open",
+						Service: &models.ServiceScanImport{
+							Name:         "http",
+							Version:      "nginx/1.18.0",
+							IsWebService: true,
+							HTTPTitle:    "API Documentation",
+							HTTPStatus:   200,
+							WebPaths: []models.WebPathImport{
+								{
+									Path:       "/api/v1/users",
+									StatusCode: 401,
+									Title:      "Unauthorized",
+									Length:     256,
+									Vulnerabilities: []models.VulnerabilityImport{
+										{
+											Title:       "SQL Injection",
+											Description: "SQL injection vulnerability in user endpoint",
+											Severity:    "critical",
+											CVSS:        9.1,
+											Location:    "/api/v1/users",
+											Parameter:   "id",
+											Payload:     "1' OR '1'='1",
+										},
+									},
+								},
+							},
+							Technologies: []models.TechnologyImport{
+								{Name: "nginx", Category: "web_server", Version: "1.18.0"},
+								{Name: "Node.js", Category: "runtime", Version: "14.17.0"},
+							},
+						},
+					},
+				},
+			},
+			{
+				Type:    "ip",
+				Address: "192.168.1.200",
+				Ports: []models.PortScanImport{
 					{
 						Number:   22,
 						Protocol: "tcp",
 						State:    "open",
-						Service: &ServiceData{
+						Service: &models.ServiceScanImport{
 							Name:        "ssh",
 							Version:     "OpenSSH 8.2p1",
 							Fingerprint: "SSH-2.0-OpenSSH_8.2p1 Ubuntu-4ubuntu0.5",
@@ -304,172 +328,70 @@ func (s *ScanService) CreateSampleData(projectID uint) error {
 					},
 				},
 			},
-			{
-				IP:        "192.168.1.101",
-				Domain:    "example.com",
-				Subdomain: "api",
-				Ports: []PortData{
-					{
-						Number:   8080,
-						Protocol: "tcp",
-						State:    "open",
-						Service: &ServiceData{
-							Name:        "http",
-							Version:     "nginx/1.18.0",
-							Fingerprint: "nginx/1.18.0 (Ubuntu)",
-							Banner:      "HTTP/1.1 200 OK Server: nginx/1.18.0",
-							WebData: &WebServiceData{
-								Paths: []WebPathData{
-									{
-										Path:       "/api/v1",
-										StatusCode: 200,
-										Title:      "API Documentation",
-										Length:     4096,
-									},
-									{
-										Path:       "/api/v1/users",
-										StatusCode: 401,
-										Title:      "Unauthorized",
-										Length:     256,
-										Vulnerabilities: []VulnerabilityData{
-											{
-												Title:       "SQL Injection",
-												Description: "SQL injection vulnerability in user endpoint",
-												Severity:    "critical",
-												CVSS:        9.1,
-												Location:    "/api/v1/users",
-												Parameter:   "id",
-												Payload:     "1' OR '1'='1",
-											},
-										},
-									},
-								},
-								Technologies: []string{"nginx", "Node.js", "Express"},
-							},
-						},
-					},
-				},
-			},
 		},
 	}
 
-	return s.ImportScanResults(projectID, sampleData)
+	return s.ImportScanData(sampleData)
 }
 
-// 统计和查询服务
-func (s *ScanService) GetProjectStats(projectID uint) (*ProjectStats, error) {
-	project, err := s.scanDAO.GetProjectByID(projectID)
+// 获取项目概览 - 为仪表板提供数据
+func (s *ScanService) GetProjectOverview(projectID uint) (map[string]interface{}, error) {
+	stats, err := s.GetProjectStats(projectID)
 	if err != nil {
 		return nil, err
 	}
 
-	vulnStats, err := s.scanDAO.GetProjectVulnerabilityStats(projectID)
-	if err != nil {
-		return nil, err
+	// 计算风险评分（简化算法）
+	riskScore := s.calculateRiskScore(stats.VulnerabilityStats)
+
+	overview := map[string]interface{}{
+		"project_name":        stats.ProjectName,
+		"target_count":        stats.TargetCount,
+		"vulnerability_count": s.getTotalVulnerabilities(stats.VulnerabilityStats),
+		"risk_score":          riskScore,
+		"risk_level":          s.getRiskLevel(riskScore),
+		"last_scan":           stats.LastScanTime,
+		"vulnerability_stats": stats.VulnerabilityStats,
+		"service_stats": map[string]int{
+			"total":       stats.ServiceCount,
+			"web_service": stats.WebServiceCount,
+		},
 	}
 
-	stats := &ProjectStats{
-		ProjectID:           projectID,
-		ProjectName:         project.Name,
-		DomainCount:         len(project.Domains),
-		VulnerabilityStats:  vulnStats,
+	return overview, nil
+}
+
+// 简化的风险评分算法
+func (s *ScanService) calculateRiskScore(vulnStats map[string]int) float64 {
+	score := float64(vulnStats["critical"])*10 +
+		float64(vulnStats["high"])*7 +
+		float64(vulnStats["medium"])*4 +
+		float64(vulnStats["low"])*1
+
+	// 归一化到0-100
+	if score > 100 {
+		return 100
 	}
-
-	// 计算其他统计信息
-	s.calculateProjectStats(project, stats)
-
-	return stats, nil
+	return score
 }
 
-func (s *ScanService) calculateProjectStats(project *models.Project, stats *ProjectStats) {
-	subdomainCount := 0
-	ipCount := 0
-	portCount := 0
-	serviceCount := 0
-
-	for _, domain := range project.Domains {
-		subdomainCount += len(domain.Subdomains)
-
-		for _, subdomain := range domain.Subdomains {
-			ipCount += len(subdomain.IPAddresses)
-
-			for _, ip := range subdomain.IPAddresses {
-				portCount += len(ip.Ports)
-
-				for _, port := range ip.Ports {
-					if port.Service != nil {
-						serviceCount++
-					}
-				}
-			}
-		}
+func (s *ScanService) getRiskLevel(score float64) string {
+	if score >= 80 {
+		return "critical"
+	} else if score >= 60 {
+		return "high"
+	} else if score >= 30 {
+		return "medium"
+	} else if score > 0 {
+		return "low"
 	}
-
-	stats.SubdomainCount = subdomainCount
-	stats.IPCount = ipCount
-	stats.PortCount = portCount
-	stats.ServiceCount = serviceCount
+	return "none"
 }
 
-// 数据传输对象定义
-type ScanResultData struct {
-	Results []ScanResult `json:"results"`
-}
-
-type ScanResult struct {
-	IP        string     `json:"ip"`
-	Domain    string     `json:"domain,omitempty"`
-	Subdomain string     `json:"subdomain,omitempty"`
-	Ports     []PortData `json:"ports"`
-}
-
-type PortData struct {
-	Number   int          `json:"number"`
-	Protocol string       `json:"protocol"`
-	State    string       `json:"state"`
-	Service  *ServiceData `json:"service,omitempty"`
-}
-
-type ServiceData struct {
-	Name            string              `json:"name"`
-	Version         string              `json:"version"`
-	Fingerprint     string              `json:"fingerprint"`
-	Banner          string              `json:"banner"`
-	WebData         *WebServiceData     `json:"web_data,omitempty"`
-	Vulnerabilities []VulnerabilityData `json:"vulnerabilities"`
-}
-
-type WebServiceData struct {
-	Paths        []WebPathData `json:"paths"`
-	Technologies []string      `json:"technologies"`
-}
-
-type WebPathData struct {
-	Path            string              `json:"path"`
-	StatusCode      int                 `json:"status_code"`
-	Title           string              `json:"title"`
-	Length          int                 `json:"length"`
-	Vulnerabilities []VulnerabilityData `json:"vulnerabilities"`
-}
-
-type VulnerabilityData struct {
-	CVEID       string  `json:"cve_id"`
-	Title       string  `json:"title"`
-	Description string  `json:"description"`
-	Severity    string  `json:"severity"`
-	CVSS        float64 `json:"cvss"`
-	Location    string  `json:"location"`
-	Parameter   string  `json:"parameter"`
-	Payload     string  `json:"payload"`
-}
-
-type ProjectStats struct {
-	ProjectID          uint           `json:"project_id"`
-	ProjectName        string         `json:"project_name"`
-	DomainCount        int            `json:"domain_count"`
-	SubdomainCount     int            `json:"subdomain_count"`
-	IPCount            int            `json:"ip_count"`
-	PortCount          int            `json:"port_count"`
-	ServiceCount       int            `json:"service_count"`
-	VulnerabilityStats map[string]int `json:"vulnerability_stats"`
+func (s *ScanService) getTotalVulnerabilities(vulnStats map[string]int) int {
+	total := 0
+	for _, count := range vulnStats {
+		total += count
+	}
+	return total
 }

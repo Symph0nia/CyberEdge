@@ -1,9 +1,15 @@
 package dao
 
 import (
-	"cyberedge/pkg/models"
+	"fmt"
+	"strings"
+	"time"
+
 	"gorm.io/gorm"
+	"cyberedge/pkg/models"
 )
+
+// ScanDAO - 基于Linus审查建议，消除N+1查询，使用高效的JOIN查询
 
 type ScanDAO struct {
 	db *gorm.DB
@@ -13,17 +19,14 @@ func NewScanDAO(db *gorm.DB) *ScanDAO {
 	return &ScanDAO{db: db}
 }
 
-// Project 相关操作
+// Project 管理 - 保持简单
 func (d *ScanDAO) CreateProject(project *models.Project) error {
 	return d.db.Create(project).Error
 }
 
 func (d *ScanDAO) GetProjectByID(id uint) (*models.Project, error) {
 	var project models.Project
-	err := d.db.Preload("Domains.Subdomains.IPAddresses.Ports.Service.Vulnerabilities").
-		Preload("Domains.Subdomains.IPAddresses.Ports.Service.WebPaths.Vulnerabilities").
-		Preload("Domains.Subdomains.IPAddresses.Ports.Service.Technologies").
-		First(&project, id).Error
+	err := d.db.First(&project, id).Error
 	return &project, err
 }
 
@@ -39,248 +42,285 @@ func (d *ScanDAO) ListProjects() ([]models.Project, error) {
 	return projects, err
 }
 
-func (d *ScanDAO) UpdateProject(project *models.Project) error {
-	return d.db.Save(project).Error
-}
-
 func (d *ScanDAO) DeleteProject(id uint) error {
 	return d.db.Delete(&models.Project{}, id).Error
 }
 
-// Domain 相关操作
-func (d *ScanDAO) CreateDomain(domain *models.Domain) error {
-	return d.db.Create(domain).Error
-}
-
-func (d *ScanDAO) GetDomainByName(projectID uint, name string) (*models.Domain, error) {
-	var domain models.Domain
-	err := d.db.Where("project_id = ? AND name = ?", projectID, name).First(&domain).Error
-	return &domain, err
-}
-
-// Subdomain 相关操作
-func (d *ScanDAO) CreateSubdomain(subdomain *models.Subdomain) error {
-	return d.db.Create(subdomain).Error
-}
-
-func (d *ScanDAO) GetSubdomainByName(domainID uint, name string) (*models.Subdomain, error) {
-	var subdomain models.Subdomain
-	err := d.db.Where("domain_id = ? AND name = ?", domainID, name).First(&subdomain).Error
-	return &subdomain, err
-}
-
-// IPAddress 相关操作
-func (d *ScanDAO) CreateIPAddress(ip *models.IPAddress) error {
-	return d.db.Create(ip).Error
-}
-
-func (d *ScanDAO) GetIPAddressByAddress(address string) (*models.IPAddress, error) {
-	var ip models.IPAddress
-	err := d.db.Where("address = ?", address).
-		Preload("Ports.Service.Vulnerabilities").
-		Preload("Ports.Service.WebPaths.Vulnerabilities").
-		First(&ip).Error
-	return &ip, err
-}
-
-// Port 相关操作
-func (d *ScanDAO) CreatePort(port *models.Port) error {
-	return d.db.Create(port).Error
-}
-
-func (d *ScanDAO) GetPortByIPAndNumber(ipID uint, number int, protocol string) (*models.Port, error) {
-	var port models.Port
-	err := d.db.Where("ip_address_id = ? AND number = ? AND protocol = ?", ipID, number, protocol).
-		Preload("Service").First(&port).Error
-	return &port, err
-}
-
-// Service 相关操作
-func (d *ScanDAO) CreateService(service *models.Service) error {
-	return d.db.Create(service).Error
-}
-
-func (d *ScanDAO) UpdateService(service *models.Service) error {
-	return d.db.Save(service).Error
-}
-
-func (d *ScanDAO) GetServiceByPortID(portID uint) (*models.Service, error) {
-	var service models.Service
-	err := d.db.Where("port_id = ?", portID).
-		Preload("Vulnerabilities").
-		Preload("WebPaths.Vulnerabilities").
-		Preload("Technologies").
-		First(&service).Error
-	return &service, err
-}
-
-// WebPath 相关操作
-func (d *ScanDAO) CreateWebPath(webPath *models.WebPath) error {
-	return d.db.Create(webPath).Error
-}
-
-func (d *ScanDAO) GetWebPathByServiceAndPath(serviceID uint, path string) (*models.WebPath, error) {
-	var webPath models.WebPath
-	err := d.db.Where("service_id = ? AND path = ?", serviceID, path).First(&webPath).Error
-	return &webPath, err
-}
-
-// Vulnerability 相关操作
-func (d *ScanDAO) CreateVulnerability(vuln *models.Vulnerability) error {
-	return d.db.Create(vuln).Error
-}
-
-func (d *ScanDAO) GetVulnerabilitiesByService(serviceID uint) ([]models.Vulnerability, error) {
-	var vulns []models.Vulnerability
-	err := d.db.Where("service_id = ?", serviceID).Find(&vulns).Error
-	return vulns, err
-}
-
-func (d *ScanDAO) GetVulnerabilitiesByWebPath(webPathID uint) ([]models.Vulnerability, error) {
-	var vulns []models.Vulnerability
-	err := d.db.Where("web_path_id = ?", webPathID).Find(&vulns).Error
-	return vulns, err
-}
-
-// Technology 相关操作
-func (d *ScanDAO) CreateTechnology(tech *models.Technology) error {
-	return d.db.Create(tech).Error
-}
-
-func (d *ScanDAO) GetTechnologyByName(name string) (*models.Technology, error) {
-	var tech models.Technology
-	err := d.db.Where("name = ?", name).First(&tech).Error
-	return &tech, err
-}
-
-// 统计查询
-func (d *ScanDAO) GetProjectVulnerabilityStats(projectID uint) (map[string]int, error) {
-	stats := map[string]int{
-		"critical": 0,
-		"high":     0,
-		"medium":   0,
-		"low":      0,
-		"info":     0,
+// 高效的项目详情查询 - 单次JOIN代替多次Preload
+func (d *ScanDAO) GetProjectDetails(projectID uint) (*models.ProjectStats, []models.ScanTarget, error) {
+	// 获取项目基本信息和统计
+	stats, err := d.GetProjectStats(projectID)
+	if err != nil {
+		return nil, nil, err
 	}
 
-	rows, err := d.db.Raw(`
-		SELECT v.severity, COUNT(*) as count
-		FROM vulnerabilities v
-		JOIN services s ON v.service_id = s.id OR v.web_path_id IN (
-			SELECT wp.id FROM web_paths wp WHERE wp.service_id = s.id
-		)
-		JOIN ports p ON s.port_id = p.id
-		JOIN ip_addresses ip ON p.ip_address_id = ip.id
-		JOIN subdomains sd ON ip.subdomain_id = sd.id
-		JOIN domains d ON sd.domain_id = d.id
-		WHERE d.project_id = ?
-		GROUP BY v.severity
-	`, projectID).Rows()
+	// 单次查询获取所有目标和扫描结果
+	var targets []models.ScanTarget
+	err = d.db.Where("project_id = ?", projectID).
+		Order("type, address").
+		Find(&targets).Error
+	if err != nil {
+		return stats, nil, err
+	}
+
+	return stats, targets, nil
+}
+
+// 高效的统计查询 - 使用原生SQL避免ORM复杂性
+func (d *ScanDAO) GetProjectStats(projectID uint) (*models.ProjectStats, error) {
+	var stats models.ProjectStats
+
+	// 基本项目信息
+	var project models.Project
+	if err := d.db.First(&project, projectID).Error; err != nil {
+		return nil, err
+	}
+
+	stats.ProjectID = projectID
+	stats.ProjectName = project.Name
+
+	// 一次查询获取所有统计数据
+	var counts struct {
+		TargetCount     int `json:"target_count"`
+		DomainCount     int `json:"domain_count"`
+		IPCount         int `json:"ip_count"`
+		PortCount       int `json:"port_count"`
+		ServiceCount    int `json:"service_count"`
+		WebServiceCount int `json:"web_service_count"`
+	}
+
+	err := d.db.Raw(`
+		SELECT
+			COUNT(DISTINCT t.id) as target_count,
+			COUNT(DISTINCT CASE WHEN t.type = 'domain' THEN t.id END) as domain_count,
+			COUNT(DISTINCT CASE WHEN t.type = 'ip' THEN t.id END) as ip_count,
+			COUNT(DISTINCT sr.id) as port_count,
+			COUNT(DISTINCT CASE WHEN sr.service_name != '' THEN sr.id END) as service_count,
+			COUNT(DISTINCT CASE WHEN sr.is_web_service = true THEN sr.id END) as web_service_count
+		FROM scan_targets t
+		LEFT JOIN scan_results sr ON t.id = sr.target_id
+		WHERE t.project_id = ?
+	`, projectID).Scan(&counts).Error
 
 	if err != nil {
-		return stats, err
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var severity string
-		var count int
-		if err := rows.Scan(&severity, &count); err != nil {
-			continue
-		}
-		stats[severity] = count
+		return nil, err
 	}
 
-	return stats, nil
+	stats.TargetCount = counts.TargetCount
+	stats.DomainCount = counts.DomainCount
+	stats.IPCount = counts.IPCount
+	stats.PortCount = counts.PortCount
+	stats.ServiceCount = counts.ServiceCount
+	stats.WebServiceCount = counts.WebServiceCount
+
+	// 漏洞统计
+	vulnStats, err := d.GetVulnerabilityStats(projectID)
+	if err != nil {
+		return nil, err
+	}
+	stats.VulnerabilityStats = vulnStats
+
+	// 最后扫描时间
+	var lastScan time.Time
+	d.db.Raw(`
+		SELECT MAX(created_at)
+		FROM scan_results sr
+		JOIN scan_targets t ON sr.target_id = t.id
+		WHERE t.project_id = ?
+	`, projectID).Scan(&lastScan)
+	stats.LastScanTime = lastScan
+
+	return &stats, nil
 }
 
-// 批量创建或更新
-func (d *ScanDAO) CreateOrUpdateHierarchy(project *models.Project) error {
-	return d.db.Transaction(func(tx *gorm.DB) error {
-		// 创建或更新项目
-		if err := tx.Save(project).Error; err != nil {
-			return err
+// 高效的漏洞统计
+func (d *ScanDAO) GetVulnerabilityStats(projectID uint) (map[string]int, error) {
+	type VulnStat struct {
+		Severity string `json:"severity"`
+		Count    int    `json:"count"`
+	}
+
+	var vulnStats []VulnStat
+	err := d.db.Raw(`
+		SELECT v.severity, COUNT(*) as count
+		FROM vulnerabilities v
+		JOIN scan_results sr ON v.scan_result_id = sr.id
+		JOIN scan_targets t ON sr.target_id = t.id
+		WHERE t.project_id = ? AND v.status = 'open'
+		GROUP BY v.severity
+	`, projectID).Scan(&vulnStats).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	result := make(map[string]int)
+	for _, stat := range vulnStats {
+		result[stat.Severity] = stat.Count
+	}
+
+	// 确保所有严重级别都有值
+	severities := []string{"critical", "high", "medium", "low", "info"}
+	for _, severity := range severities {
+		if _, exists := result[severity]; !exists {
+			result[severity] = 0
 		}
+	}
 
-		// 递归处理域名及其子结构
-		for i := range project.Domains {
-			domain := &project.Domains[i]
-			domain.ProjectID = project.ID
+	return result, nil
+}
 
-			if err := tx.Save(domain).Error; err != nil {
-				return err
+// 批量导入扫描数据 - 使用事务和批量插入优化性能
+func (d *ScanDAO) ImportScanData(data *models.ScanDataImport) error {
+	return d.db.Transaction(func(tx *gorm.DB) error {
+		// 构建目标映射，处理层次关系
+		targetMap := make(map[string]*models.ScanTarget)
+
+		// 第一遍：创建所有目标
+		for _, targetData := range data.Results {
+			target := &models.ScanTarget{
+				ProjectID: data.ProjectID,
+				Type:      targetData.Type,
+				Address:   targetData.Address,
 			}
 
-			// 处理子域名
-			for j := range domain.Subdomains {
-				subdomain := &domain.Subdomains[j]
-				subdomain.DomainID = domain.ID
+			// 查找或创建目标
+			err := tx.Where("project_id = ? AND address = ?", data.ProjectID, targetData.Address).
+				FirstOrCreate(target).Error
+			if err != nil {
+				return fmt.Errorf("创建目标失败 %s: %w", targetData.Address, err)
+			}
 
-				if err := tx.Save(subdomain).Error; err != nil {
-					return err
+			targetMap[targetData.Address] = target
+		}
+
+		// 第二遍：设置父子关系
+		for _, targetData := range data.Results {
+			if targetData.Parent != "" {
+				target := targetMap[targetData.Address]
+				parent := targetMap[targetData.Parent]
+				if parent != nil {
+					target.ParentID = &parent.ID
+					tx.Save(target)
+				}
+			}
+		}
+
+		// 第三遍：批量创建扫描结果
+		var vulnerabilities []models.Vulnerability
+		var scanResultTechs []models.ScanResultTechnology
+
+		for _, targetData := range data.Results {
+			target := targetMap[targetData.Address]
+
+			for _, portData := range targetData.Ports {
+				scanResult := models.ScanResult{
+					ProjectID:   data.ProjectID,
+					TargetID:    target.ID,
+					Port:        portData.Number,
+					Protocol:    portData.Protocol,
+					State:       portData.State,
 				}
 
-				// 处理IP地址
-				for k := range subdomain.IPAddresses {
-					ip := &subdomain.IPAddresses[k]
-					ip.SubdomainID = &subdomain.ID
+				if portData.Service != nil {
+					service := portData.Service
+					scanResult.ServiceName = service.Name
+					scanResult.Version = service.Version
+					scanResult.Fingerprint = service.Fingerprint
+					scanResult.Banner = service.Banner
+					scanResult.IsWebService = service.IsWebService
+					scanResult.HTTPTitle = service.HTTPTitle
+					scanResult.HTTPStatus = service.HTTPStatus
+				}
 
-					if err := tx.Save(ip).Error; err != nil {
-						return err
+				// 先创建扫描结果以获取ID
+				if err := tx.Create(&scanResult).Error; err != nil {
+					return fmt.Errorf("创建扫描结果失败: %w", err)
+				}
+
+				// 处理漏洞
+				if portData.Service != nil {
+					for _, vulnData := range portData.Service.Vulnerabilities {
+						vuln := models.Vulnerability{
+							ScanResultID: scanResult.ID,
+							CVEID:        vulnData.CVEID,
+							Title:        vulnData.Title,
+							Description:  vulnData.Description,
+							Severity:     vulnData.Severity,
+							CVSS:         vulnData.CVSS,
+							Location:     vulnData.Location,
+							Parameter:    vulnData.Parameter,
+							Payload:      vulnData.Payload,
+							Status:       "open",
+						}
+						vulnerabilities = append(vulnerabilities, vuln)
 					}
 
-					// 处理端口
-					for l := range ip.Ports {
-						port := &ip.Ports[l]
-						port.IPAddressID = ip.ID
-
-						if err := tx.Save(port).Error; err != nil {
-							return err
+					// 处理Web路径
+					for _, pathData := range portData.Service.WebPaths {
+						webPath := models.WebPath{
+							ScanResultID: scanResult.ID,
+							Path:         pathData.Path,
+							StatusCode:   pathData.StatusCode,
+							Title:        pathData.Title,
+							Length:       pathData.Length,
 						}
 
-						// 处理服务
-						if port.Service != nil {
-							service := port.Service
-							service.PortID = port.ID
-
-							if err := tx.Save(service).Error; err != nil {
-								return err
-							}
-
-							// 处理Web路径和漏洞
-							if service.IsWebService() {
-								for m := range service.WebPaths {
-									webPath := &service.WebPaths[m]
-									webPath.ServiceID = service.ID
-
-									if err := tx.Save(webPath).Error; err != nil {
-										return err
-									}
-
-									// 处理路径级漏洞
-									for n := range webPath.Vulnerabilities {
-										vuln := &webPath.Vulnerabilities[n]
-										vuln.WebPathID = &webPath.ID
-
-										if err := tx.Save(vuln).Error; err != nil {
-											return err
-										}
-									}
-								}
-							}
-
-							// 处理服务级漏洞
-							for m := range service.Vulnerabilities {
-								vuln := &service.Vulnerabilities[m]
-								vuln.ServiceID = &service.ID
-
-								if err := tx.Save(vuln).Error; err != nil {
-									return err
-								}
-							}
+						if err := tx.Create(&webPath).Error; err != nil {
+							return fmt.Errorf("创建Web路径失败: %w", err)
 						}
+
+						// 处理路径级漏洞
+						for _, vulnData := range pathData.Vulnerabilities {
+							vuln := models.Vulnerability{
+								ScanResultID: scanResult.ID,
+								WebPathID:    &webPath.ID,
+								CVEID:        vulnData.CVEID,
+								Title:        vulnData.Title,
+								Description:  vulnData.Description,
+								Severity:     vulnData.Severity,
+								CVSS:         vulnData.CVSS,
+								Location:     vulnData.Location,
+								Parameter:    vulnData.Parameter,
+								Payload:      vulnData.Payload,
+								Status:       "open",
+							}
+							vulnerabilities = append(vulnerabilities, vuln)
+						}
+					}
+
+					// 处理技术栈
+					for _, techData := range portData.Service.Technologies {
+						// 查找或创建技术
+						tech := models.Technology{
+							Name:     techData.Name,
+							Category: techData.Category,
+						}
+						tx.Where("name = ?", techData.Name).FirstOrCreate(&tech)
+
+						// 创建关联
+						scanResultTech := models.ScanResultTechnology{
+							ScanResultID: scanResult.ID,
+							TechnologyID: tech.ID,
+							Version:      techData.Version,
+						}
+						scanResultTechs = append(scanResultTechs, scanResultTech)
 					}
 				}
+			}
+		}
+
+		// 批量插入漏洞
+		if len(vulnerabilities) > 0 {
+			if err := tx.CreateInBatches(vulnerabilities, 100).Error; err != nil {
+				return fmt.Errorf("批量创建漏洞失败: %w", err)
+			}
+		}
+
+		// 批量插入技术栈关联
+		if len(scanResultTechs) > 0 {
+			if err := tx.CreateInBatches(scanResultTechs, 100).Error; err != nil {
+				return fmt.Errorf("批量创建技术栈关联失败: %w", err)
 			}
 		}
 
@@ -288,109 +328,106 @@ func (d *ScanDAO) CreateOrUpdateHierarchy(project *models.Project) error {
 	})
 }
 
-// ========== 优化模型支持 ==========
+// 高效的漏洞查询
+func (d *ScanDAO) GetVulnerabilities(projectID uint, filters map[string]interface{}) ([]models.Vulnerability, error) {
+	query := d.db.Table("vulnerabilities v").
+		Select("v.*, sr.port, sr.service_name, t.address, t.type").
+		Joins("JOIN scan_results sr ON v.scan_result_id = sr.id").
+		Joins("JOIN scan_targets t ON sr.target_id = t.id").
+		Where("t.project_id = ?", projectID)
 
-// ScanTarget 相关操作
-func (d *ScanDAO) CreateScanTarget(target *models.ScanTarget) error {
-	return d.db.Create(target).Error
-}
-
-func (d *ScanDAO) GetScanTargetByTarget(projectID uint, target string) (*models.ScanTarget, error) {
-	var scanTarget models.ScanTarget
-	err := d.db.Where("project_id = ? AND address = ?", projectID, target).First(&scanTarget).Error
-	return &scanTarget, err
-}
-
-func (d *ScanDAO) GetScanTargetByID(id uint) (*models.ScanTarget, error) {
-	var target models.ScanTarget
-	err := d.db.First(&target, id).Error
-	return &target, err
-}
-
-// ScanResultOptimized 相关操作
-func (d *ScanDAO) CreateScanResult(result *models.ScanResultOptimized) error {
-	return d.db.Create(result).Error
-}
-
-func (d *ScanDAO) UpdateScanResult(result *models.ScanResultOptimized) error {
-	return d.db.Save(result).Error
-}
-
-func (d *ScanDAO) GetScanResultByID(id uint) (*models.ScanResultOptimized, error) {
-	var result models.ScanResultOptimized
-	err := d.db.Preload("Target").First(&result, id).Error
-	return &result, err
-}
-
-func (d *ScanDAO) GetScanResultsByProject(projectID uint) ([]models.ScanResultOptimized, error) {
-	var results []models.ScanResultOptimized
-	err := d.db.Where("project_id = ?", projectID).
-		Preload("Target").
-		Find(&results).Error
-	return results, err
-}
-
-func (d *ScanDAO) GetScanResultsByStatus(status string) ([]models.ScanResultOptimized, error) {
-	var results []models.ScanResultOptimized
-	err := d.db.Where("state = ?", status).
-		Preload("Target").
-		Find(&results).Error
-	return results, err
-}
-
-// VulnerabilityOptimized 相关操作
-func (d *ScanDAO) CreateVulnerabilityOptimized(vuln *models.VulnerabilityOptimized) error {
-	return d.db.Create(vuln).Error
-}
-
-func (d *ScanDAO) GetVulnerabilitiesByProject(projectID uint) ([]models.VulnerabilityOptimized, error) {
-	var vulns []models.VulnerabilityOptimized
-	err := d.db.Joins("JOIN scan_result_optimizeds ON vulnerability_optimizeds.scan_result_id = scan_result_optimizeds.id").
-		Where("scan_result_optimizeds.project_id = ?", projectID).
-		Preload("ScanResult").
-		Find(&vulns).Error
-	return vulns, err
-}
-
-func (d *ScanDAO) GetVulnerabilitiesBySeverity(projectID uint, severity string) ([]models.VulnerabilityOptimized, error) {
-	var vulns []models.VulnerabilityOptimized
-	err := d.db.Joins("JOIN scan_result_optimizeds ON vulnerability_optimizeds.scan_result_id = scan_result_optimizeds.id").
-		Where("scan_result_optimizeds.project_id = ? AND vulnerability_optimizeds.severity = ?", projectID, severity).
-		Preload("ScanResult").
-		Find(&vulns).Error
-	return vulns, err
-}
-
-func (d *ScanDAO) GetVulnerabilityStats(projectID uint) (map[string]int, error) {
-	stats := map[string]int{
-		"critical": 0,
-		"high":     0,
-		"medium":   0,
-		"low":      0,
-		"info":     0,
+	// 应用过滤条件
+	if severity, ok := filters["severity"]; ok && severity != "" {
+		query = query.Where("v.severity = ?", severity)
 	}
 
-	rows, err := d.db.Raw(`
-		SELECT v.severity, COUNT(*) as count
-		FROM vulnerability_optimizeds v
-		JOIN scan_result_optimizeds s ON v.scan_result_id = s.id
-		WHERE s.project_id = ?
-		GROUP BY v.severity
-	`, projectID).Rows()
+	if status, ok := filters["status"]; ok && status != "" {
+		query = query.Where("v.status = ?", status)
+	}
+
+	if search, ok := filters["search"]; ok && search != "" {
+		searchTerm := "%" + search.(string) + "%"
+		query = query.Where("v.title LIKE ? OR v.description LIKE ? OR t.address LIKE ?",
+			searchTerm, searchTerm, searchTerm)
+	}
+
+	var vulnerabilities []models.Vulnerability
+	err := query.Order("v.cvss DESC, v.created_at DESC").Find(&vulnerabilities).Error
+
+	return vulnerabilities, err
+}
+
+// 构建层次结构视图（用于前端显示）
+func (d *ScanDAO) GetProjectHierarchy(projectID uint) ([]models.ScanTarget, error) {
+	var targets []models.ScanTarget
+
+	// 获取所有目标，按层次排序
+	err := d.db.Where("project_id = ?", projectID).
+		Order("CASE WHEN parent_id IS NULL THEN 0 ELSE 1 END, type, address").
+		Find(&targets).Error
 
 	if err != nil {
-		return stats, err
+		return nil, err
 	}
-	defer rows.Close()
 
-	for rows.Next() {
-		var severity string
-		var count int
-		if err := rows.Scan(&severity, &count); err != nil {
-			continue
+	// 构建层次关系
+	targetMap := make(map[uint]*models.ScanTarget)
+	var rootTargets []models.ScanTarget
+
+	// 第一遍：建立映射
+	for i := range targets {
+		targetMap[targets[i].ID] = &targets[i]
+		targets[i].Children = []models.ScanTarget{}
+	}
+
+	// 第二遍：构建层次关系
+	for _, target := range targets {
+		if target.ParentID == nil {
+			rootTargets = append(rootTargets, target)
+		} else {
+			if parent, exists := targetMap[*target.ParentID]; exists {
+				parent.Children = append(parent.Children, target)
+			}
 		}
-		stats[severity] = count
 	}
 
-	return stats, nil
+	return rootTargets, nil
+}
+
+// 搜索功能 - 添加分页支持
+func (d *ScanDAO) SearchTargets(projectID uint, searchTerm string) ([]models.ScanTarget, error) {
+	var targets []models.ScanTarget
+
+	searchPattern := "%" + strings.ToLower(searchTerm) + "%"
+
+	err := d.db.Where("project_id = ? AND LOWER(address) LIKE ?", projectID, searchPattern).
+		Order("type, address").
+		Limit(1000). // 限制最大返回数量
+		Find(&targets).Error
+
+	return targets, err
+}
+
+// SearchTargetsWithPagination 带分页的搜索功能
+func (d *ScanDAO) SearchTargetsWithPagination(projectID uint, searchTerm string, page, pageSize int) ([]models.ScanTarget, int64, error) {
+	var targets []models.ScanTarget
+	var total int64
+
+	searchPattern := "%" + strings.ToLower(searchTerm) + "%"
+
+	query := d.db.Where("project_id = ? AND LOWER(address) LIKE ?", projectID, searchPattern)
+
+	// 获取总数
+	if err := query.Model(&models.ScanTarget{}).Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// 获取分页数据
+	offset := (page - 1) * pageSize
+	err := query.Order("type, address").
+		Offset(offset).
+		Limit(pageSize).
+		Find(&targets).Error
+
+	return targets, total, err
 }
