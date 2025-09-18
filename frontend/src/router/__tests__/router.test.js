@@ -10,24 +10,14 @@ describe('Router Configuration', () => {
       }
     }))
 
-    // Mock all components to avoid import issues
-    vi.mock('@/components/HomePage.vue', () => ({ default: { name: 'Home' } }))
+    // Mock actual components used in the router
     vi.mock('@/components/Login/LoginPage.vue', () => ({ default: { name: 'LoginPage' } }))
-    vi.mock('@/components/Dashboard.vue', () => ({ default: { name: 'Dashboard' } }))
-    vi.mock('@/components/Config/SystemConfiguration.vue', () => ({ default: { name: 'SystemConfiguration' } }))
     vi.mock('@/components/User/UserManagement.vue', () => ({ default: { name: 'UserManagement' } }))
-    vi.mock('@/components/Login/GoogleAuthQRCode.vue', () => ({ default: { name: 'GoogleAuthQRCode' } }))
-    vi.mock('@/components/Task/TaskManagement.vue', () => ({ default: { name: 'TaskManagement' } }))
-    vi.mock('@/components/Port/PortScanResults.vue', () => ({ default: { name: 'PortScanResults' } }))
-    vi.mock('@/components/Port/PortScanDetail.vue', () => ({ default: { name: 'PortScanDetail' } }))
-    vi.mock('@/components/Subdomain/SubdomainScanResults.vue', () => ({ default: { name: 'SubdomainScanResults' } }))
-    vi.mock('@/components/Subdomain/SubdomainScanDetail.vue', () => ({ default: { name: 'SubdomainScanDetail' } }))
-    vi.mock('@/components/Path/PathScanResults.vue', () => ({ default: { name: 'PathScanResults' } }))
-    vi.mock('@/components/Path/PathScanDetail.vue', () => ({ default: { name: 'PathScanDetail' } }))
-    vi.mock('@/components/Target/TargetManagement.vue', () => ({ default: { name: 'TargetManagement' } }))
-    vi.mock('@/components/Target/TargetDetail.vue', () => ({ default: { name: 'TargetDetail' } }))
-    vi.mock('@/components/UnderDevelopment.vue', () => ({ default: { name: 'UnderDevelopment' } }))
-    vi.mock('@/components/Config/ToolConfiguration.vue', () => ({ default: { name: 'ToolConfiguration' } }))
+    vi.mock('@/components/Profile/ProfilePage.vue', () => ({ default: { name: 'ProfilePage' } }))
+    vi.mock('@/components/Settings/SettingsPage.vue', () => ({ default: { name: 'SettingsPage' } }))
+    vi.mock('@/components/Project/ProjectList.vue', () => ({ default: { name: 'ProjectList' } }))
+    vi.mock('@/components/Project/ProjectDetail.vue', () => ({ default: { name: 'ProjectDetail' } }))
+    vi.mock('@/components/Vulnerability/VulnerabilityList.vue', () => ({ default: { name: 'VulnerabilityList' } }))
 
     const { default: router } = await import('../index.js')
     const routes = router.getRoutes()
@@ -35,7 +25,7 @@ describe('Router Configuration', () => {
     // Test basic route definitions
     expect(routes.length).toBeGreaterThan(0)
 
-    // Test specific routes
+    // Test specific routes based on actual implementation
     const homeRoute = routes.find(route => route.path === '/')
     expect(homeRoute).toBeDefined()
     expect(homeRoute.name).toBe('Home')
@@ -44,18 +34,22 @@ describe('Router Configuration', () => {
     expect(loginRoute).toBeDefined()
     expect(loginRoute.name).toBe('LoginPage')
 
-    const dashboardRoute = routes.find(route => route.path === '/dashboard')
-    expect(dashboardRoute).toBeDefined()
-    expect(dashboardRoute.name).toBe('WAFDashboard')
+    const projectsRoute = routes.find(route => route.path === '/projects')
+    expect(projectsRoute).toBeDefined()
+    expect(projectsRoute.name).toBe('ProjectList')
 
     // Test parameterized routes
-    const portDetailRoute = routes.find(route => route.path === '/port-scan-results/:id')
-    expect(portDetailRoute).toBeDefined()
-    expect(portDetailRoute.name).toBe('PortScanDetail')
+    const projectDetailRoute = routes.find(route => route.path === '/projects/:id')
+    expect(projectDetailRoute).toBeDefined()
+    expect(projectDetailRoute.name).toBe('ProjectDetail')
 
-    const targetDetailRoute = routes.find(route => route.path === '/target-management/:id')
-    expect(targetDetailRoute).toBeDefined()
-    expect(targetDetailRoute.name).toBe('TargetDetail')
+    const vulnerabilitiesRoute = routes.find(route => route.path === '/vulnerabilities')
+    expect(vulnerabilitiesRoute).toBeDefined()
+    expect(vulnerabilitiesRoute.name).toBe('VulnerabilityList')
+
+    const projectVulnsRoute = routes.find(route => route.path === '/vulnerabilities/:projectId')
+    expect(projectVulnsRoute).toBeDefined()
+    expect(projectVulnsRoute.name).toBe('ProjectVulnerabilities')
   })
 
   it('has router history configuration', async () => {
@@ -106,15 +100,19 @@ describe('Router Configuration', () => {
 
     const { default: router } = await import('../index.js')
 
-    // Test URL resolution
+    // Test URL resolution based on actual routes
     const homeResolved = router.resolve('/')
     expect(homeResolved.name).toBe('Home')
 
     const loginResolved = router.resolve('/login')
     expect(loginResolved.name).toBe('LoginPage')
 
-    const portDetailResolved = router.resolve('/port-scan-results/123')
-    expect(portDetailResolved.name).toBe('PortScanDetail')
-    expect(portDetailResolved.params.id).toBe('123')
+    const projectDetailResolved = router.resolve('/projects/123')
+    expect(projectDetailResolved.name).toBe('ProjectDetail')
+    expect(projectDetailResolved.params.id).toBe('123')
+
+    const projectVulnsResolved = router.resolve('/vulnerabilities/123')
+    expect(projectVulnsResolved.name).toBe('ProjectVulnerabilities')
+    expect(projectVulnsResolved.params.projectId).toBe('123')
   })
 })
