@@ -1,13 +1,22 @@
 use cyberedge::{
-    CyberEdgeService,
+    Authorizer, CyberEdgeService, MemoryRepository,
     proto::{
         CreateScopeRequest, InvocationContext, ScopeTarget, TargetKind,
         cyber_edge_client::CyberEdgeClient,
     },
 };
+use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio_stream::wrappers::TcpListenerStream;
 use tonic::transport::Server;
+
+struct TestAuthorizer;
+
+impl Authorizer for TestAuthorizer {
+    fn authorize(&self, _context: &InvocationContext, _capability: &str) -> bool {
+        true
+    }
+}
 
 #[tokio::test]
 async fn serves_rpc_contract() {
@@ -15,7 +24,13 @@ async fn serves_rpc_contract() {
     let address = listener.local_addr().unwrap();
     let server = tokio::spawn(async move {
         Server::builder()
-            .add_service(CyberEdgeService::default().server())
+            .add_service(
+                CyberEdgeService::new(
+                    Arc::new(MemoryRepository::default()),
+                    Arc::new(TestAuthorizer),
+                )
+                .server(),
+            )
             .serve_with_incoming(TcpListenerStream::new(listener))
             .await
             .unwrap();

@@ -1,20 +1,34 @@
-use std::{env, io, os::unix::fs::FileTypeExt, path::Path};
+use std::{env, io, os::unix::fs::FileTypeExt, path::Path, sync::Arc};
 
-use cyberedge::CyberEdgeService;
+use cyberedge::{CyberEdgeService, PostgresRepository, StaticAuthorizer};
 use tokio::{net::UnixListener, signal};
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::Server;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let database_url = env::var("DATABASE_URL").map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "DATABASE_URL is required for persistent runtime",
+        )
+    })?;
     let socket_path =
         env::var("CYBEREDGE_RPC_SOCKET").unwrap_or_else(|_| "/tmp/cyberedge.sock".to_owned());
+    let policy_path = env::var("CYBEREDGE_AGENT_POLICY").map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "CYBEREDGE_AGENT_POLICY is required",
+        )
+    })?;
     prepare_socket(Path::new(&socket_path))?;
 
+    let repository = Arc::new(PostgresRepository::connect(&database_url).await?);
+    let authorizer = Arc::new(StaticAuthorizer::load(policy_path)?);
     let listener = UnixListener::bind(&socket_path)?;
     println!("CyberEdge RPC listening on unix://{socket_path}");
     Server::builder()
-        .add_service(CyberEdgeService::default().server())
+        .add_service(CyberEdgeService::new(repository, authorizer).server())
         .serve_with_incoming_shutdown(UnixListenerStream::new(listener), shutdown_signal())
         .await?;
 

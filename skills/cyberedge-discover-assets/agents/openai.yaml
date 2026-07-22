@@ -1,0 +1,4 @@
+interface:
+  display_name: "CyberEdge Asset Discovery"
+  short_description: "Run authorized passive asset discovery through CyberEdge RPC"
+  default_prompt: "Discover assets in an authorized CyberEdge scope and report evidence-backed results."

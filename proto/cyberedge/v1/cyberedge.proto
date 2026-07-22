@@ -62,7 +62,8 @@ message CreateScopeRequest {
 }
 
 message GetScopeRequest {
-  string scope_id = 1;
+  InvocationContext context = 1;
+  string scope_id = 2;
 }
 
 enum TaskState {
@@ -90,12 +91,14 @@ message StartScanRequest {
 }
 
 message GetTaskRequest {
-  string task_id = 1;
+  InvocationContext context = 1;
+  string task_id = 2;
 }
 
 message WatchTaskRequest {
-  string task_id = 1;
-  uint64 after_sequence = 2;
+  InvocationContext context = 1;
+  string task_id = 2;
+  uint64 after_sequence = 3;
 }
 
 message CancelTaskRequest {

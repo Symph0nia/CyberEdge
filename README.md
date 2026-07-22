@@ -18,9 +18,11 @@ See [the architecture baseline](docs/architecture.md) for the design boundaries.
 
 ```bash
 cargo test
+DATABASE_URL=postgres://... \
+CYBEREDGE_AGENT_POLICY=config/agents.example.toml \
 cargo run
 ```
 
 The local RPC server listens on `unix:///tmp/cyberedge.sock` by default. Set `CYBEREDGE_RPC_SOCKET` to use another socket path.
 
-The current RPC baseline implements health, authorized Scope creation, Task creation, Task event streaming, cancellation, typed errors, and idempotent mutations. Persistence, capability verification, scanner execution, and the Web read model remain intentionally unimplemented.
+The current foundation implements PostgreSQL persistence and migrations, capability-gated Scope and Task RPCs, durable events, audit/outbox records, typed errors, idempotent mutations, and a validated discovery Skill. Scanner execution and the Web read model are the next implementation layer.

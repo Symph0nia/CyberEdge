@@ -3,6 +3,22 @@ use std::time::Duration;
 use tokio_stream::StreamExt;
 
 use super::*;
+use crate::MemoryRepository;
+
+struct TestAuthorizer;
+
+impl Authorizer for TestAuthorizer {
+    fn authorize(&self, _context: &InvocationContext, _capability: &str) -> bool {
+        true
+    }
+}
+
+fn service() -> CyberEdgeService {
+    CyberEdgeService::new(
+        Arc::new(MemoryRepository::default()),
+        Arc::new(TestAuthorizer),
+    )
+}
 
 fn context() -> InvocationContext {
     InvocationContext {
@@ -32,7 +48,7 @@ async fn create_scope(service: &CyberEdgeService) -> Scope {
 
 #[tokio::test]
 async fn creates_normalized_scope() {
-    let service = CyberEdgeService::default();
+    let service = service();
     let scope = create_scope(&service).await;
 
     assert!(scope.id.starts_with("scope_"));
@@ -41,7 +57,7 @@ async fn creates_normalized_scope() {
 
 #[tokio::test]
 async fn scope_creation_is_idempotent() {
-    let service = CyberEdgeService::default();
+    let service = service();
     let first = create_scope(&service).await;
     let second = create_scope(&service).await;
 
@@ -50,7 +66,7 @@ async fn scope_creation_is_idempotent() {
 
 #[tokio::test]
 async fn rejects_idempotency_key_reuse_with_different_input() {
-    let service = CyberEdgeService::default();
+    let service = service();
     create_scope(&service).await;
     let error = service
         .create_scope(Request::new(CreateScopeRequest {
@@ -72,7 +88,7 @@ async fn rejects_idempotency_key_reuse_with_different_input() {
 
 #[tokio::test]
 async fn rejects_scope_without_authorization() {
-    let service = CyberEdgeService::default();
+    let service = service();
     let error = service
         .create_scope(Request::new(CreateScopeRequest {
             context: Some(context()),
@@ -91,7 +107,7 @@ async fn rejects_scope_without_authorization() {
 
 #[tokio::test]
 async fn streams_and_cancels_task() {
-    let service = CyberEdgeService::default();
+    let service = service();
     let scope = create_scope(&service).await;
     let task = service
         .start_scan(Request::new(StartScanRequest {
@@ -104,6 +120,7 @@ async fn streams_and_cancels_task() {
         .into_inner();
     let mut events = service
         .watch_task(Request::new(WatchTaskRequest {
+            context: Some(context()),
             task_id: task.id.clone(),
             after_sequence: 0,
         }))
@@ -131,4 +148,35 @@ async fn streams_and_cancels_task() {
         .unwrap()
         .unwrap();
     assert_eq!(canceled.event_type, "task.canceled");
+}
+
+#[tokio::test]
+async fn denies_missing_capability() {
+    struct Deny;
+
+    impl Authorizer for Deny {
+        fn authorize(&self, _context: &InvocationContext, _capability: &str) -> bool {
+            false
+        }
+    }
+
+    let service = CyberEdgeService::new(Arc::new(MemoryRepository::default()), Arc::new(Deny));
+    let error = service
+        .create_scope(Request::new(CreateScopeRequest {
+            context: Some(context()),
+            name: "Denied".to_owned(),
+            authorization_ref: "authorization:test".to_owned(),
+            targets: vec![ScopeTarget {
+                kind: TargetKind::Domain.into(),
+                value: "example.com".to_owned(),
+            }],
+        }))
+        .await
+        .unwrap_err();
+
+    assert_eq!(error.code(), Code::PermissionDenied);
+    assert_eq!(
+        ErrorDetail::decode(error.details()).unwrap().code,
+        "CAPABILITY_DENIED"
+    );
 }

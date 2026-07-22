@@ -1,0 +1,11 @@
+[[grants]]
+agent_id = "codex-main"
+skill_name = "asset-discovery"
+skill_version = "1.0.0"
+capabilities = [
+  "scope.manage",
+  "scope.read",
+  "scan.passive",
+  "task.read",
+  "task.cancel",
+]

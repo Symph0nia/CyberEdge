@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "name": "cyberedge-discover-assets",
+  "version": "0.1.0",
+  "protocol": "cyberedge.v1.CyberEdge",
+  "capabilities": [
+    "scope.manage",
+    "scope.read",
+    "scan.passive",
+    "task.read",
+    "task.cancel",
+    "asset.read",
+    "evidence.read"
+  ],
+  "rpc_allowlist": [
+    "CreateScope",
+    "GetScope",
+    "StartScan",
+    "GetTask",
+    "WatchTask",
+    "CancelTask",
+    "SearchAssets",
+    "SearchObservations",
+    "GetEvidence"
+  ]
+}
