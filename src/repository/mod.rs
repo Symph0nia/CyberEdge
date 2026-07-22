@@ -6,8 +6,8 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::proto::{
-    Asset, AssetChange, AuditEvent, Certificate, Evidence, ExposureChange, InvocationContext,
-    Observation, Schedule, Scope, Service, Task, TaskEvent, Website,
+    Asset, AssetChange, AuditEvent, Certificate, Evidence, ExposureChange, Finding,
+    InvocationContext, Observation, Schedule, Scope, Service, Task, TaskEvent, Website,
 };
 
 pub use memory::MemoryRepository;
@@ -58,6 +58,7 @@ pub struct ReadOverview {
     pub services: Vec<Service>,
     pub certificates: Vec<Certificate>,
     pub websites: Vec<Website>,
+    pub findings: Vec<Finding>,
     pub scope_count: i64,
     pub task_count: i64,
     pub asset_count: i64,
@@ -67,6 +68,7 @@ pub struct ReadOverview {
     pub service_count: i64,
     pub certificate_count: i64,
     pub website_count: i64,
+    pub finding_count: i64,
     pub observation_count: i64,
     pub evidence_count: i64,
     pub notification_pending_count: i64,
@@ -154,6 +156,14 @@ pub trait Repository: Send + Sync {
     ) -> Result<Vec<Certificate>, RepositoryError>;
 
     async fn search_websites(&self, scope_id: &str) -> Result<Vec<Website>, RepositoryError>;
+
+    async fn report_finding(
+        &self,
+        mutation: &Mutation,
+        finding: Finding,
+    ) -> Result<MutationResult<Finding>, RepositoryError>;
+
+    async fn search_findings(&self, scope_id: &str) -> Result<Vec<Finding>, RepositoryError>;
 
     async fn search_observations(&self, task_id: &str)
     -> Result<Vec<Observation>, RepositoryError>;

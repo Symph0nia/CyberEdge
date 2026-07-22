@@ -32,6 +32,8 @@ Scheduled active baseline Tasks compare Service and Website observation fingerpr
 
 Set `CYBEREDGE_WEBHOOK_URL` to enable notification delivery. Only `http` and `https` endpoints are accepted; redirects are disabled and requests time out after ten seconds. `CYBEREDGE_WEBHOOK_BEARER_TOKEN` optionally adds a bearer credential and is never included in payloads. Outbox events are atomically leased, retried with exponential backoff capped at fifteen minutes, and dead-lettered after eight failed attempts. The read-only Web reports pending, delivered, and dead-letter counts.
 
+Finding adapters use `ReportFinding` and require `finding.report`. A Finding must reference an Observation from the same running or completed Task; Asset and Evidence linkage is derived server-side. Findings deduplicate by Scope, detector, rule, Asset, and stable fingerprint. This contract does not expose arbitrary execution, template upload, or an online PoC editor.
+
 Do not grant `scan.active` to passive discovery Skills. Keep active grants in a separate Skill binding and verify the Scope before invocation.
 
 ## Native runtime

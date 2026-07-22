@@ -13,11 +13,12 @@ use cyberedge::{
     SystemPortConnector, SystemWebsiteProbe, WebSnapshot, WebsiteProbe,
     proto::{
         AssetChangeKind, CreateScheduleRequest, CreateScopeRequest, ExposureChangeKind,
-        GetEvidenceRequest, GetTaskReportRequest, InvocationContext, ScopeTarget,
-        SearchAssetChangesRequest, SearchAssetsRequest, SearchAuditRequest,
-        SearchCertificatesRequest, SearchExposureChangesRequest, SearchObservationsRequest,
-        SearchSchedulesRequest, SearchServicesRequest, SearchWebsitesRequest, StartScanRequest,
-        TargetKind, TaskState, cyber_edge_server::CyberEdge,
+        FindingSeverity, GetEvidenceRequest, GetTaskReportRequest, InvocationContext,
+        ReportFindingRequest, ScopeTarget, SearchAssetChangesRequest, SearchAssetsRequest,
+        SearchAuditRequest, SearchCertificatesRequest, SearchExposureChangesRequest,
+        SearchFindingsRequest, SearchObservationsRequest, SearchSchedulesRequest,
+        SearchServicesRequest, SearchWebsitesRequest, StartScanRequest, TargetKind, TaskState,
+        cyber_edge_server::CyberEdge,
     },
 };
 use sha2::{Digest, Sha256};
@@ -337,6 +338,92 @@ async fn certificate_inventory_keeps_only_normalized_in_scope_domains() {
             .count(),
         2
     );
+}
+
+#[tokio::test]
+async fn finding_requires_task_observation_and_deduplicates_fingerprint() {
+    let repository: Arc<dyn Repository> = Arc::new(MemoryRepository::default());
+    let service = CyberEdgeService::new(repository.clone(), Arc::new(Allow));
+    let scope = service
+        .create_scope(Request::new(CreateScopeRequest {
+            context: Some(context("finding-scope")),
+            name: "Finding scope".to_owned(),
+            authorization_ref: "authorization:test".to_owned(),
+            targets: vec![ScopeTarget {
+                kind: TargetKind::Domain.into(),
+                value: "example.com".to_owned(),
+            }],
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let task = service
+        .start_scan(Request::new(StartScanRequest {
+            context: Some(context("finding-task")),
+            scope_id: scope.id.clone(),
+            policy_id: "policy_passive_dns".to_owned(),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    DiscoveryWorker::new(repository, Arc::new(Resolver))
+        .run_once()
+        .await
+        .unwrap();
+    let observation = service
+        .search_observations(Request::new(SearchObservationsRequest {
+            context: Some(context("finding-observations")),
+            task_id: task.id.clone(),
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .observations
+        .into_iter()
+        .next()
+        .unwrap();
+    let request = |suffix: &str| ReportFindingRequest {
+        context: Some(context(suffix)),
+        task_id: task.id.clone(),
+        observation_id: observation.id.clone(),
+        detector: "test-detector".to_owned(),
+        rule_id: "dns-observation-review".to_owned(),
+        title: "Observed DNS condition".to_owned(),
+        description: "Evidence-backed test finding".to_owned(),
+        severity: FindingSeverity::Low.into(),
+        fingerprint: "sha256:test-fingerprint".to_owned(),
+    };
+    let first = service
+        .report_finding(Request::new(request("finding-report-1")))
+        .await
+        .unwrap()
+        .into_inner();
+    let repeated = service
+        .report_finding(Request::new(request("finding-report-2")))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(first.id, repeated.id);
+    assert_eq!(first.evidence_id, observation.evidence_id);
+    let findings = service
+        .search_findings(Request::new(SearchFindingsRequest {
+            context: Some(context("finding-search")),
+            scope_id: scope.id,
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .findings;
+    assert_eq!(findings.len(), 1);
+    let report = service
+        .get_task_report(Request::new(GetTaskReportRequest {
+            context: Some(context("finding-report")),
+            task_id: task.id,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(report.findings.len(), 1);
 }
 
 #[tokio::test]

@@ -16,18 +16,20 @@ type Asset = { id: string; scope_id: string; kind: number; value: string; first_
 type Service = { id: string; asset_id: string; transport: string; port: number; service_hint: string; first_seen_at: Stamp; last_seen_at: Stamp }
 type Certificate = { id: string; service_id: string; sha256: string; subject: string; issuer: string; dns_names: string[]; not_before: Stamp; not_after: Stamp; first_seen_at: Stamp; last_seen_at: Stamp }
 type Website = { id: string; service_id: string; url: string; status_code: number; title: string; server: string; content_type: string; content_sha256: string; first_seen_at: Stamp; last_seen_at: Stamp }
+type Finding = { id: string; scope_id: string; task_id: string; asset_id: string; observation_id: string; evidence_id: string; detector: string; rule_id: string; title: string; description: string; severity: number; state: number; fingerprint: string; first_seen_at: Stamp; last_seen_at: Stamp }
 type Schedule = { id: string; scope_id: string; policy_id: string; interval_seconds: number; enabled: boolean; next_run_at: Stamp; last_task_id: string; created_at: Stamp }
 type AssetChange = { id: string; schedule_id: string; task_id: string; asset_id: string; kind: number; detected_at: Stamp }
 type ExposureChange = { id: string; schedule_id: string; task_id: string; resource_kind: string; resource_id: string; kind: number; previous_fingerprint: string; current_fingerprint: string; detected_at: Stamp }
 type AuditEvent = { id: string; request_id: string; operation: string; agent_id: string; skill_name: string; skill_version: string; resource_id: string; occurred_at: Stamp }
 type Overview = {
-  counts: { scopes: number; tasks: number; assets: number; services: number; certificates: number; websites: number; schedules: number; asset_changes: number; exposure_changes: number; observations: number; evidence: number; notifications_pending: number; notifications_delivered: number; notifications_dead_letter: number }
+  counts: { scopes: number; tasks: number; assets: number; services: number; certificates: number; websites: number; findings: number; schedules: number; asset_changes: number; exposure_changes: number; observations: number; evidence: number; notifications_pending: number; notifications_delivered: number; notifications_dead_letter: number }
   scopes: Scope[]
   tasks: Task[]
   assets: Asset[]
   services: Service[]
   certificates: Certificate[]
   websites: Website[]
+  findings: Finding[]
   schedules: Schedule[]
   asset_changes: AssetChange[]
   exposure_changes: ExposureChange[]
@@ -79,6 +81,7 @@ function App() {
           <SideNavLink href="#services" renderIcon={Network_3}>Services</SideNavLink>
           <SideNavLink href="#certificates" renderIcon={DocumentSecurity}>Certificates</SideNavLink>
           <SideNavLink href="#websites" renderIcon={Network_3}>Websites</SideNavLink>
+          <SideNavLink href="#findings" renderIcon={DocumentSecurity}>Findings</SideNavLink>
           <SideNavLink href="#tasks" renderIcon={TaskIcon}>Tasks</SideNavLink>
           <SideNavLink href="#monitoring" renderIcon={DataVis_1}>Monitoring</SideNavLink>
           <SideNavLink href="#evidence" renderIcon={DocumentSecurity}>Evidence</SideNavLink>
@@ -125,6 +128,11 @@ function App() {
             <section id="websites" className="data-section" aria-labelledby="websites-title">
               <div className="section-heading"><div><p className="section-label">HTTP observation</p><h2 id="websites-title">Observed websites</h2></div></div>
               <WebsiteTable websites={data.websites} />
+            </section>
+
+            <section id="findings" className="data-section" aria-labelledby="findings-title">
+              <div className="section-heading"><div><p className="section-label">Evidence-backed risk</p><h2 id="findings-title">Open findings</h2></div><span>{formatNumber(data.counts.findings)} total</span></div>
+              <FindingTable findings={data.findings} assets={data.assets} />
             </section>
 
             <section id="tasks" className="data-section" aria-labelledby="tasks-title">
@@ -248,6 +256,22 @@ function WebsiteTable({ websites }: { websites: Website[] }) {
       <TableCell>{website.title || 'Untitled response'}</TableCell>
       <TableCell>{website.server || 'Not disclosed'}</TableCell>
       <TableCell>{formatTime(website.last_seen_at)}</TableCell>
+    </TableRow>)}</TableBody>
+  </Table></TableContainer>
+}
+
+function FindingTable({ findings, assets }: { findings: Finding[]; assets: Asset[] }) {
+  const assetNames = new Map(assets.map((asset) => [asset.id, asset.value]))
+  const severityLabels: Record<number, string> = { 1: 'Info', 2: 'Low', 3: 'Medium', 4: 'High', 5: 'Critical' }
+  if (findings.length === 0) return <Empty text="No evidence-backed findings have been reported." />
+  return <TableContainer><Table size="lg">
+    <TableHead><TableRow><TableHeader>Finding</TableHeader><TableHeader>Asset</TableHeader><TableHeader>Severity</TableHeader><TableHeader>Detector</TableHeader><TableHeader>Last observed</TableHeader></TableRow></TableHead>
+    <TableBody>{findings.map((finding) => <TableRow key={finding.id}>
+      <TableCell><strong>{finding.title}</strong><code>{finding.rule_id}</code></TableCell>
+      <TableCell>{assetNames.get(finding.asset_id) ?? finding.asset_id}</TableCell>
+      <TableCell><Tag type={finding.severity >= 4 ? 'red' : finding.severity === 3 ? 'magenta' : 'cool-gray'}>{severityLabels[finding.severity] ?? 'Unknown'}</Tag></TableCell>
+      <TableCell>{finding.detector}</TableCell>
+      <TableCell>{formatTime(finding.last_seen_at)}</TableCell>
     </TableRow>)}</TableBody>
   </Table></TableContainer>
 }

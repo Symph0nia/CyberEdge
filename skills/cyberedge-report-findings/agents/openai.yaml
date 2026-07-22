@@ -1,0 +1,4 @@
+interface:
+  display_name: "CyberEdge Report Findings"
+  short_description: "Report evidence-backed scanner findings"
+  default_prompt: "Report and query findings backed by existing CyberEdge task observations."

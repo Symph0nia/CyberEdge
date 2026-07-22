@@ -7,10 +7,11 @@ use std::{
 use base64::{Engine, engine::general_purpose::STANDARD};
 use cyberedge::proto::{
     CancelTaskRequest, CreateScheduleRequest, CreateScopeRequest, ErrorDetail, GetEvidenceRequest,
-    GetScopeRequest, GetTaskReportRequest, GetTaskRequest, InvocationContext, ScopeTarget,
-    SearchAssetChangesRequest, SearchAssetsRequest, SearchAuditRequest, SearchCertificatesRequest,
-    SearchExposureChangesRequest, SearchObservationsRequest, SearchSchedulesRequest,
-    SearchServicesRequest, SearchWebsitesRequest, StartScanRequest, TargetKind, WatchTaskRequest,
+    GetScopeRequest, GetTaskReportRequest, GetTaskRequest, InvocationContext, ReportFindingRequest,
+    ScopeTarget, SearchAssetChangesRequest, SearchAssetsRequest, SearchAuditRequest,
+    SearchCertificatesRequest, SearchExposureChangesRequest, SearchFindingsRequest,
+    SearchObservationsRequest, SearchSchedulesRequest, SearchServicesRequest,
+    SearchWebsitesRequest, StartScanRequest, TargetKind, WatchTaskRequest,
     cyber_edge_client::CyberEdgeClient,
 };
 use hyper_util::rt::TokioIo;
@@ -86,6 +87,19 @@ enum Command {
         scope_id: String,
     },
     SearchWebsites {
+        scope_id: String,
+    },
+    ReportFinding {
+        task_id: String,
+        observation_id: String,
+        detector: String,
+        rule_id: String,
+        title: String,
+        description: String,
+        severity: i32,
+        fingerprint: String,
+    },
+    SearchFindings {
         scope_id: String,
     },
     SearchObservations {
@@ -343,6 +357,45 @@ async fn run() -> Result<(), Value> {
                 .collect::<Vec<_>>();
             emit(json!({"websites": values}));
         }
+        Command::ReportFinding {
+            task_id,
+            observation_id,
+            detector,
+            rule_id,
+            title,
+            description,
+            severity,
+            fingerprint,
+        } => {
+            let value = client
+                .report_finding(ReportFindingRequest {
+                    context,
+                    task_id,
+                    observation_id,
+                    detector,
+                    rule_id,
+                    title,
+                    description,
+                    severity,
+                    fingerprint,
+                })
+                .await
+                .map_err(rpc_error)?
+                .into_inner();
+            emit(finding_json(value));
+        }
+        Command::SearchFindings { scope_id } => {
+            let values = client
+                .search_findings(SearchFindingsRequest { context, scope_id })
+                .await
+                .map_err(rpc_error)?
+                .into_inner()
+                .findings
+                .into_iter()
+                .map(finding_json)
+                .collect::<Vec<_>>();
+            emit(json!({"findings": values}));
+        }
         Command::SearchObservations { task_id } => {
             let values = client.search_observations(SearchObservationsRequest { context, task_id })
                 .await.map_err(rpc_error)?.into_inner().observations.into_iter().map(|item| json!({
@@ -382,6 +435,7 @@ async fn run() -> Result<(), Value> {
                 "services": report.services.into_iter().map(service_json).collect::<Vec<_>>(),
                 "certificates": report.certificates.into_iter().map(certificate_json).collect::<Vec<_>>(),
                 "websites": report.websites.into_iter().map(website_json).collect::<Vec<_>>(),
+                "findings": report.findings.into_iter().map(finding_json).collect::<Vec<_>>(),
                 "generated_at": timestamp_json(report.generated_at)
             }));
         }
@@ -514,6 +568,16 @@ fn website_json(value: cyberedge::proto::Website) -> Value {
     json!({"id": value.id, "service_id": value.service_id, "url": value.url,
         "status_code": value.status_code, "title": value.title, "server": value.server,
         "content_type": value.content_type, "content_sha256": value.content_sha256,
+        "first_seen_at": timestamp_json(value.first_seen_at),
+        "last_seen_at": timestamp_json(value.last_seen_at)})
+}
+
+fn finding_json(value: cyberedge::proto::Finding) -> Value {
+    json!({"id": value.id, "scope_id": value.scope_id, "task_id": value.task_id,
+        "asset_id": value.asset_id, "observation_id": value.observation_id,
+        "evidence_id": value.evidence_id, "detector": value.detector,
+        "rule_id": value.rule_id, "title": value.title, "description": value.description,
+        "severity": value.severity, "state": value.state, "fingerprint": value.fingerprint,
         "first_seen_at": timestamp_json(value.first_seen_at),
         "last_seen_at": timestamp_json(value.last_seen_at)})
 }

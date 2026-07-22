@@ -16,14 +16,16 @@ use uuid::Uuid;
 
 use crate::proto::{
     AssetChange, CancelTaskRequest, CreateScheduleRequest, CreateScopeRequest, ErrorDetail,
-    GetEvidenceRequest, GetScopeRequest, GetTaskReportRequest, GetTaskRequest, HealthResponse,
-    InvocationContext, Schedule, Scope, ScopeTarget, SearchAssetChangesRequest,
-    SearchAssetChangesResponse, SearchAssetsRequest, SearchAssetsResponse, SearchAuditRequest,
-    SearchAuditResponse, SearchCertificatesRequest, SearchCertificatesResponse,
-    SearchExposureChangesRequest, SearchExposureChangesResponse, SearchObservationsRequest,
-    SearchObservationsResponse, SearchSchedulesRequest, SearchSchedulesResponse,
-    SearchServicesRequest, SearchServicesResponse, SearchWebsitesRequest, SearchWebsitesResponse,
-    StartScanRequest, TargetKind, Task, TaskEvent, TaskReport, TaskState, WatchTaskRequest,
+    Finding, FindingSeverity, FindingState, GetEvidenceRequest, GetScopeRequest,
+    GetTaskReportRequest, GetTaskRequest, HealthResponse, InvocationContext, ReportFindingRequest,
+    Schedule, Scope, ScopeTarget, SearchAssetChangesRequest, SearchAssetChangesResponse,
+    SearchAssetsRequest, SearchAssetsResponse, SearchAuditRequest, SearchAuditResponse,
+    SearchCertificatesRequest, SearchCertificatesResponse, SearchExposureChangesRequest,
+    SearchExposureChangesResponse, SearchFindingsRequest, SearchFindingsResponse,
+    SearchObservationsRequest, SearchObservationsResponse, SearchSchedulesRequest,
+    SearchSchedulesResponse, SearchServicesRequest, SearchServicesResponse, SearchWebsitesRequest,
+    SearchWebsitesResponse, StartScanRequest, TargetKind, Task, TaskEvent, TaskReport, TaskState,
+    WatchTaskRequest,
     cyber_edge_server::{CyberEdge, CyberEdgeServer},
 };
 use crate::{
@@ -389,6 +391,91 @@ impl CyberEdge for CyberEdgeService {
         Ok(Response::new(SearchWebsitesResponse { websites }))
     }
 
+    async fn report_finding(
+        &self,
+        request: Request<ReportFindingRequest>,
+    ) -> Result<Response<Finding>, Status> {
+        let request = request.into_inner();
+        let context = validate_context(request.context.as_ref())?;
+        self.authorize(context, "finding.report")?;
+        let mut semantic_request = request.clone();
+        semantic_request.context = None;
+        let mutation = Mutation {
+            operation: "finding.report",
+            context: context.clone(),
+            fingerprint: semantic_request.encode_to_vec(),
+        };
+        let task = self
+            .repository
+            .get_task(required("task_id", &request.task_id)?)
+            .await
+            .map_err(repository_status)?;
+        let state = TaskState::try_from(task.state).unwrap_or(TaskState::Unspecified);
+        if !matches!(state, TaskState::Running | TaskState::Completed) {
+            return Err(failed_precondition(
+                "FINDING_TASK_NOT_REPORTABLE",
+                "finding requires a running or completed task",
+            ));
+        }
+        let observation_id = required("observation_id", &request.observation_id)?;
+        let observation = self
+            .repository
+            .search_observations(&task.id)
+            .await
+            .map_err(repository_status)?
+            .into_iter()
+            .find(|observation| observation.id == observation_id)
+            .ok_or_else(|| {
+                invalid(
+                    "FINDING_OBSERVATION_INVALID",
+                    "observation does not belong to task",
+                )
+            })?;
+        let severity = FindingSeverity::try_from(request.severity)
+            .ok()
+            .filter(|severity| *severity != FindingSeverity::Unspecified)
+            .ok_or_else(|| invalid("FINDING_SEVERITY_INVALID", "finding severity is required"))?;
+        let timestamp = now();
+        let finding = Finding {
+            id: new_id("finding"),
+            scope_id: task.scope_id.clone(),
+            task_id: task.id,
+            asset_id: observation.asset_id,
+            observation_id: observation.id,
+            evidence_id: observation.evidence_id,
+            detector: limited_required("detector", &request.detector, 128)?.to_owned(),
+            rule_id: limited_required("rule_id", &request.rule_id, 256)?.to_owned(),
+            title: limited_required("title", &request.title, 512)?.to_owned(),
+            description: limited_required("description", &request.description, 8_192)?.to_owned(),
+            severity: severity.into(),
+            state: FindingState::Open.into(),
+            fingerprint: limited_required("fingerprint", &request.fingerprint, 256)?.to_owned(),
+            first_seen_at: Some(timestamp),
+            last_seen_at: Some(timestamp),
+        };
+        let result = self
+            .repository
+            .report_finding(&mutation, finding)
+            .await
+            .map_err(repository_status)?;
+        Ok(Response::new(result.value))
+    }
+
+    async fn search_findings(
+        &self,
+        request: Request<SearchFindingsRequest>,
+    ) -> Result<Response<SearchFindingsResponse>, Status> {
+        let request = request.into_inner();
+        let context = validate_context(request.context.as_ref())?;
+        self.authorize(context, "finding.read")?;
+        let findings = self
+            .repository
+            .search_findings(&request.scope_id)
+            .await
+            .map_err(repository_status)?;
+        Ok(Response::new(SearchFindingsResponse { findings }))
+    }
+
     async fn search_observations(
         &self,
         request: Request<SearchObservationsRequest>,
@@ -526,6 +613,14 @@ impl CyberEdge for CyberEdgeService {
                         .any(|service| service.id == website.service_id)
             })
             .collect();
+        let findings = self
+            .repository
+            .search_findings(&scope.id)
+            .await
+            .map_err(repository_status)?
+            .into_iter()
+            .filter(|finding| finding.task_id == task.id)
+            .collect();
         let mut evidence_ids = std::collections::HashSet::new();
         let mut evidence = Vec::new();
         for observation in &observations {
@@ -548,6 +643,7 @@ impl CyberEdge for CyberEdgeService {
             services,
             certificates,
             websites,
+            findings,
         }))
     }
 
@@ -685,6 +781,17 @@ fn required<'a>(field: &str, value: &'a str) -> Result<&'a str, Status> {
     let value = value.trim();
     if value.is_empty() {
         return Err(invalid("FIELD_REQUIRED", &format!("{field} is required")));
+    }
+    Ok(value)
+}
+
+fn limited_required<'a>(field: &str, value: &'a str, max: usize) -> Result<&'a str, Status> {
+    let value = required(field, value)?;
+    if value.len() > max {
+        return Err(invalid(
+            "FIELD_TOO_LONG",
+            &format!("{field} exceeds {max} bytes"),
+        ));
     }
     Ok(value)
 }

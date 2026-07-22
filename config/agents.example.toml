@@ -65,3 +65,15 @@ capabilities = [
   "evidence.read",
   "report.read",
 ]
+
+[[grants]]
+agent_id = "codex-main"
+skill_name = "cyberedge-report-findings"
+skill_version = "0.1.0"
+capabilities = [
+  "task.read",
+  "finding.report",
+  "finding.read",
+  "evidence.read",
+  "report.read",
+]

@@ -21,6 +21,8 @@ service CyberEdge {
   rpc SearchServices(SearchServicesRequest) returns (SearchServicesResponse);
   rpc SearchCertificates(SearchCertificatesRequest) returns (SearchCertificatesResponse);
   rpc SearchWebsites(SearchWebsitesRequest) returns (SearchWebsitesResponse);
+  rpc ReportFinding(ReportFindingRequest) returns (Finding);
+  rpc SearchFindings(SearchFindingsRequest) returns (SearchFindingsResponse);
   rpc SearchObservations(SearchObservationsRequest) returns (SearchObservationsResponse);
   rpc GetEvidence(GetEvidenceRequest) returns (Evidence);
   rpc GetTaskReport(GetTaskReportRequest) returns (TaskReport);
@@ -265,6 +267,58 @@ message SearchWebsitesRequest {
 
 message SearchWebsitesResponse { repeated Website websites = 1; }
 
+enum FindingSeverity {
+  FINDING_SEVERITY_UNSPECIFIED = 0;
+  FINDING_SEVERITY_INFO = 1;
+  FINDING_SEVERITY_LOW = 2;
+  FINDING_SEVERITY_MEDIUM = 3;
+  FINDING_SEVERITY_HIGH = 4;
+  FINDING_SEVERITY_CRITICAL = 5;
+}
+
+enum FindingState {
+  FINDING_STATE_UNSPECIFIED = 0;
+  FINDING_STATE_OPEN = 1;
+  FINDING_STATE_RESOLVED = 2;
+}
+
+message Finding {
+  string id = 1;
+  string scope_id = 2;
+  string task_id = 3;
+  string asset_id = 4;
+  string observation_id = 5;
+  string evidence_id = 6;
+  string detector = 7;
+  string rule_id = 8;
+  string title = 9;
+  string description = 10;
+  FindingSeverity severity = 11;
+  FindingState state = 12;
+  string fingerprint = 13;
+  google.protobuf.Timestamp first_seen_at = 14;
+  google.protobuf.Timestamp last_seen_at = 15;
+}
+
+message ReportFindingRequest {
+  InvocationContext context = 1;
+  string task_id = 2;
+  string observation_id = 3;
+  string detector = 4;
+  string rule_id = 5;
+  string title = 6;
+  string description = 7;
+  FindingSeverity severity = 8;
+  string fingerprint = 9;
+}
+
+message SearchFindingsRequest {
+  InvocationContext context = 1;
+  string scope_id = 2;
+}
+
+message SearchFindingsResponse { repeated Finding findings = 1; }
+
 message Observation {
   string id = 1;
   string task_id = 2;
@@ -317,6 +371,7 @@ message TaskReport {
   repeated Service services = 7;
   repeated Certificate certificates = 8;
   repeated Website websites = 9;
+  repeated Finding findings = 10;
 }
 
 message AuditEvent {

@@ -12,7 +12,7 @@ use super::{
 };
 use crate::proto::{
     Asset, AssetChange, AssetChangeKind, AuditEvent, Certificate, Evidence, ExposureChange,
-    Observation, Schedule, Scope, Service, Task, TaskEvent, TaskState, Website,
+    Finding, Observation, Schedule, Scope, Service, Task, TaskEvent, TaskState, Website,
 };
 
 #[derive(Default)]
@@ -30,6 +30,7 @@ struct State {
     services: HashMap<String, Service>,
     certificates: HashMap<String, Certificate>,
     websites: HashMap<String, Website>,
+    findings: HashMap<String, Finding>,
     audits: Vec<AuditEvent>,
 }
 
@@ -379,6 +380,63 @@ impl Repository for MemoryRepository {
             .collect())
     }
 
+    async fn report_finding(
+        &self,
+        mutation: &Mutation,
+        mut finding: Finding,
+    ) -> Result<MutationResult<Finding>, RepositoryError> {
+        let mut state = self.state.write().await;
+        if let Some((fingerprint, finding_id)) = state.idempotency.get(&mutation.key()) {
+            ensure_same(fingerprint, &mutation.fingerprint)?;
+            return Ok(MutationResult {
+                value: state.findings[finding_id].clone(),
+                event: None,
+            });
+        }
+        if let Some(existing) = state.findings.values_mut().find(|existing| {
+            existing.scope_id == finding.scope_id
+                && existing.detector == finding.detector
+                && existing.rule_id == finding.rule_id
+                && existing.asset_id == finding.asset_id
+                && existing.fingerprint == finding.fingerprint
+        }) {
+            existing.task_id = finding.task_id;
+            existing.observation_id = finding.observation_id;
+            existing.evidence_id = finding.evidence_id;
+            existing.title = finding.title;
+            existing.description = finding.description;
+            existing.severity = finding.severity;
+            existing.last_seen_at = finding.last_seen_at;
+            finding = existing.clone();
+        } else {
+            state.findings.insert(finding.id.clone(), finding.clone());
+        }
+        state.idempotency.insert(
+            mutation.key(),
+            (mutation.fingerprint.clone(), finding.id.clone()),
+        );
+        state
+            .audits
+            .push(audit_event(mutation, "finding", &finding.id));
+        Ok(MutationResult {
+            value: finding,
+            event: None,
+        })
+    }
+
+    async fn search_findings(&self, scope_id: &str) -> Result<Vec<Finding>, RepositoryError> {
+        let state = self.state.read().await;
+        if !state.scopes.contains_key(scope_id) {
+            return Err(RepositoryError::NotFound("scope"));
+        }
+        Ok(state
+            .findings
+            .values()
+            .filter(|finding| finding.scope_id == scope_id)
+            .cloned()
+            .collect())
+    }
+
     async fn search_observations(
         &self,
         task_id: &str,
@@ -522,6 +580,7 @@ impl Repository for MemoryRepository {
             services: state.services.values().cloned().collect(),
             certificates: state.certificates.values().cloned().collect(),
             websites: state.websites.values().cloned().collect(),
+            findings: state.findings.values().cloned().collect(),
             scope_count: state.scopes.len() as i64,
             task_count: state.tasks.len() as i64,
             asset_count: state.assets.len() as i64,
@@ -531,6 +590,7 @@ impl Repository for MemoryRepository {
             service_count: state.services.len() as i64,
             certificate_count: state.certificates.len() as i64,
             website_count: state.websites.len() as i64,
+            finding_count: state.findings.len() as i64,
             observation_count: state.observations.len() as i64,
             evidence_count: state.evidence.len() as i64,
             notification_pending_count: 0,

@@ -12,11 +12,11 @@ use cyberedge::{
     PostgresRepository, Repository, WebSnapshot, WebsiteProbe,
     proto::{
         AssetChangeKind, CreateScheduleRequest, CreateScopeRequest, ExposureChangeKind,
-        GetTaskReportRequest, GetTaskRequest, InvocationContext, ScopeTarget,
-        SearchAssetChangesRequest, SearchAuditRequest, SearchCertificatesRequest,
-        SearchExposureChangesRequest, SearchSchedulesRequest, SearchServicesRequest,
-        SearchWebsitesRequest, StartScanRequest, TargetKind, WatchTaskRequest,
-        cyber_edge_server::CyberEdge,
+        FindingSeverity, GetTaskReportRequest, GetTaskRequest, InvocationContext,
+        ReportFindingRequest, ScopeTarget, SearchAssetChangesRequest, SearchAuditRequest,
+        SearchCertificatesRequest, SearchExposureChangesRequest, SearchFindingsRequest,
+        SearchSchedulesRequest, SearchServicesRequest, SearchWebsitesRequest, StartScanRequest,
+        TargetKind, WatchTaskRequest, cyber_edge_server::CyberEdge,
     },
 };
 use sqlx::PgPool;
@@ -302,7 +302,7 @@ async fn persists_scope_task_events_audit_and_outbox() {
     let report = restarted
         .get_task_report(Request::new(GetTaskReportRequest {
             context: Some(context("report")),
-            task_id: stored.id,
+            task_id: stored.id.clone(),
         }))
         .await
         .unwrap()
@@ -320,13 +320,40 @@ async fn persists_scope_task_events_audit_and_outbox() {
     let schedules = restarted
         .search_schedules(Request::new(SearchSchedulesRequest {
             context: Some(context("schedules")),
-            scope_id: scope.id,
+            scope_id: scope.id.clone(),
         }))
         .await
         .unwrap()
         .into_inner()
         .schedules;
     assert_eq!(schedules[0].last_task_id, latest_scheduled_tasks[0].id);
+
+    let finding = restarted
+        .report_finding(Request::new(ReportFindingRequest {
+            context: Some(context("finding")),
+            task_id: stored.id.clone(),
+            observation_id: report.observations[0].id.clone(),
+            detector: "postgres-test".to_owned(),
+            rule_id: "evidence-chain".to_owned(),
+            title: "Persistent finding".to_owned(),
+            description: "Finding linked to persisted evidence".to_owned(),
+            severity: FindingSeverity::Medium.into(),
+            fingerprint: "postgres-finding-fingerprint".to_owned(),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(finding.evidence_id, report.observations[0].evidence_id);
+    let findings = restarted
+        .search_findings(Request::new(SearchFindingsRequest {
+            context: Some(context("findings")),
+            scope_id: scope.id.clone(),
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .findings;
+    assert_eq!(findings.len(), 1);
 
     let monitor_scope = restarted
         .create_scope(Request::new(CreateScopeRequest {
@@ -396,7 +423,7 @@ fn context(suffix: &str) -> InvocationContext {
 
 async fn reset(pool: &PgPool) {
     sqlx::query(
-        "TRUNCATE observations, evidence, websites, certificates, services, assets, outbox_events, audit_events,
+        "TRUNCATE findings, observations, evidence, websites, certificates, services, assets, outbox_events, audit_events,
          idempotency_keys, exposure_changes, asset_changes, task_events, tasks, schedules, scope_targets, scopes
          RESTART IDENTITY CASCADE",
     )

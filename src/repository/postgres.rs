@@ -10,7 +10,8 @@ use super::{
 };
 use crate::proto::{
     Asset, AssetChange, AssetChangeKind, AuditEvent, Certificate, Evidence, ExposureChange,
-    Observation, Schedule, Scope, ScopeTarget, Service, Task, TaskEvent, TaskState, Website,
+    Finding, Observation, Schedule, Scope, ScopeTarget, Service, Task, TaskEvent, TaskState,
+    Website,
 };
 
 pub struct PostgresRepository {
@@ -627,6 +628,100 @@ impl Repository for PostgresRepository {
         Ok(rows.iter().map(website_from_row).collect())
     }
 
+    async fn report_finding(
+        &self,
+        mutation: &Mutation,
+        finding: Finding,
+    ) -> Result<MutationResult<Finding>, RepositoryError> {
+        let mut tx = self.pool.begin().await?;
+        lock_idempotency(&mut tx, mutation).await?;
+        if let Some(finding_id) = replay(&mut tx, mutation).await? {
+            let finding = fetch_finding(&mut tx, &finding_id).await?;
+            tx.commit().await?;
+            return Ok(MutationResult {
+                value: finding,
+                event: None,
+            });
+        }
+        let first = finding.first_seen_at.expect("finding first-seen exists");
+        let last = finding.last_seen_at.expect("finding last-seen exists");
+        let finding_id: String = sqlx::query_scalar(
+            "INSERT INTO findings
+             (id, scope_id, task_id, asset_id, observation_id, evidence_id,
+              detector, rule_id, title, description, severity, state, fingerprint,
+              first_seen_at_seconds, first_seen_at_nanos,
+              last_seen_at_seconds, last_seen_at_nanos)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+                     $14, $15, $16, $17)
+             ON CONFLICT (scope_id, detector, rule_id, asset_id, fingerprint) DO UPDATE SET
+               task_id = EXCLUDED.task_id, observation_id = EXCLUDED.observation_id,
+               evidence_id = EXCLUDED.evidence_id, title = EXCLUDED.title,
+               description = EXCLUDED.description, severity = EXCLUDED.severity,
+               state = EXCLUDED.state, last_seen_at_seconds = EXCLUDED.last_seen_at_seconds,
+               last_seen_at_nanos = EXCLUDED.last_seen_at_nanos
+             RETURNING id",
+        )
+        .bind(&finding.id)
+        .bind(&finding.scope_id)
+        .bind(&finding.task_id)
+        .bind(&finding.asset_id)
+        .bind(&finding.observation_id)
+        .bind(&finding.evidence_id)
+        .bind(&finding.detector)
+        .bind(&finding.rule_id)
+        .bind(&finding.title)
+        .bind(&finding.description)
+        .bind(finding.severity)
+        .bind(finding.state)
+        .bind(&finding.fingerprint)
+        .bind(first.seconds)
+        .bind(first.nanos)
+        .bind(last.seconds)
+        .bind(last.nanos)
+        .fetch_one(&mut *tx)
+        .await?;
+        record_mutation(&mut tx, mutation, "finding", &finding_id).await?;
+        insert_outbox(
+            &mut tx,
+            "finding",
+            &finding_id,
+            None,
+            "finding.reported",
+            json!({"finding_id": finding_id, "scope_id": finding.scope_id,
+                "severity": finding.severity, "rule_id": finding.rule_id}),
+        )
+        .await?;
+        let finding = fetch_finding(&mut tx, &finding_id).await?;
+        tx.commit().await?;
+        Ok(MutationResult {
+            value: finding,
+            event: None,
+        })
+    }
+
+    async fn search_findings(&self, scope_id: &str) -> Result<Vec<Finding>, RepositoryError> {
+        let exists = sqlx::query("SELECT 1 FROM scopes WHERE id = $1")
+            .bind(scope_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .is_some();
+        if !exists {
+            return Err(RepositoryError::NotFound("scope"));
+        }
+        let rows = sqlx::query(
+            "SELECT id, scope_id, task_id, asset_id, observation_id, evidence_id,
+                    detector, rule_id, title, description, severity, state, fingerprint,
+                    first_seen_at_seconds, first_seen_at_nanos,
+                    last_seen_at_seconds, last_seen_at_nanos
+             FROM findings WHERE scope_id = $1
+             ORDER BY severity DESC, last_seen_at_seconds DESC, last_seen_at_nanos DESC",
+        )
+        .bind(scope_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.iter().map(finding_from_row).collect())
+    }
+
     async fn search_observations(
         &self,
         task_id: &str,
@@ -1118,6 +1213,18 @@ impl Repository for PostgresRepository {
         .iter()
         .map(website_from_row)
         .collect();
+        let findings = sqlx::query(
+            "SELECT id, scope_id, task_id, asset_id, observation_id, evidence_id,
+                    detector, rule_id, title, description, severity, state, fingerprint,
+                    first_seen_at_seconds, first_seen_at_nanos,
+                    last_seen_at_seconds, last_seen_at_nanos FROM findings
+             ORDER BY severity DESC, last_seen_at_seconds DESC LIMIT 100",
+        )
+        .fetch_all(&self.pool)
+        .await?
+        .iter()
+        .map(finding_from_row)
+        .collect();
         let observation_count = sqlx::query_scalar("SELECT COUNT(*) FROM observations")
             .fetch_one(&self.pool)
             .await?;
@@ -1166,6 +1273,9 @@ impl Repository for PostgresRepository {
         let website_count = sqlx::query_scalar("SELECT COUNT(*) FROM websites")
             .fetch_one(&self.pool)
             .await?;
+        let finding_count = sqlx::query_scalar("SELECT COUNT(*) FROM findings")
+            .fetch_one(&self.pool)
+            .await?;
         let audit_events = fetch_audit(&self.pool, 50).await?;
         Ok(ReadOverview {
             scopes,
@@ -1177,6 +1287,7 @@ impl Repository for PostgresRepository {
             services,
             certificates,
             websites,
+            findings,
             scope_count,
             task_count,
             asset_count,
@@ -1186,6 +1297,7 @@ impl Repository for PostgresRepository {
             service_count,
             certificate_count,
             website_count,
+            finding_count,
             observation_count,
             evidence_count,
             notification_pending_count,
@@ -1689,6 +1801,50 @@ fn website_from_row(row: &sqlx::postgres::PgRow) -> Website {
             nanos: row.get("last_seen_at_nanos"),
         }),
     }
+}
+
+fn finding_from_row(row: &sqlx::postgres::PgRow) -> Finding {
+    Finding {
+        id: row.get("id"),
+        scope_id: row.get("scope_id"),
+        task_id: row.get("task_id"),
+        asset_id: row.get("asset_id"),
+        observation_id: row.get("observation_id"),
+        evidence_id: row.get("evidence_id"),
+        detector: row.get("detector"),
+        rule_id: row.get("rule_id"),
+        title: row.get("title"),
+        description: row.get("description"),
+        severity: row.get("severity"),
+        state: row.get("state"),
+        fingerprint: row.get("fingerprint"),
+        first_seen_at: Some(prost_types::Timestamp {
+            seconds: row.get("first_seen_at_seconds"),
+            nanos: row.get("first_seen_at_nanos"),
+        }),
+        last_seen_at: Some(prost_types::Timestamp {
+            seconds: row.get("last_seen_at_seconds"),
+            nanos: row.get("last_seen_at_nanos"),
+        }),
+    }
+}
+
+async fn fetch_finding(
+    connection: &mut PgConnection,
+    finding_id: &str,
+) -> Result<Finding, RepositoryError> {
+    let row = sqlx::query(
+        "SELECT id, scope_id, task_id, asset_id, observation_id, evidence_id,
+                detector, rule_id, title, description, severity, state, fingerprint,
+                first_seen_at_seconds, first_seen_at_nanos,
+                last_seen_at_seconds, last_seen_at_nanos
+         FROM findings WHERE id = $1",
+    )
+    .bind(finding_id)
+    .fetch_optional(connection)
+    .await?
+    .ok_or(RepositoryError::NotFound("finding"))?;
+    Ok(finding_from_row(&row))
 }
 
 fn observation_from_row(row: &sqlx::postgres::PgRow) -> Observation {
