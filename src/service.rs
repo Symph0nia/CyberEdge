@@ -16,9 +16,10 @@ use tonic::{Code, Request, Response, Status};
 use uuid::Uuid;
 
 use crate::proto::{
-    CancelTaskRequest, CreateScopeRequest, ErrorDetail, GetScopeRequest, GetTaskRequest,
-    HealthResponse, InvocationContext, Scope, ScopeTarget, StartScanRequest, TargetKind, Task,
-    TaskEvent, TaskState, WatchTaskRequest,
+    CancelTaskRequest, CreateScopeRequest, ErrorDetail, GetEvidenceRequest, GetScopeRequest,
+    GetTaskRequest, HealthResponse, InvocationContext, Scope, ScopeTarget, SearchAssetsRequest,
+    SearchAssetsResponse, SearchObservationsRequest, SearchObservationsResponse, StartScanRequest,
+    TargetKind, Task, TaskEvent, TaskState, WatchTaskRequest,
     cyber_edge_server::{CyberEdge, CyberEdgeServer},
 };
 use crate::{
@@ -263,6 +264,51 @@ impl CyberEdge for CyberEdgeService {
         }
         Ok(Response::new(result.value))
     }
+
+    async fn search_assets(
+        &self,
+        request: Request<SearchAssetsRequest>,
+    ) -> Result<Response<SearchAssetsResponse>, Status> {
+        let request = request.into_inner();
+        let context = validate_context(request.context.as_ref())?;
+        self.authorize(context, "asset.read")?;
+        let assets = self
+            .repository
+            .search_assets(&request.scope_id)
+            .await
+            .map_err(repository_status)?;
+        Ok(Response::new(SearchAssetsResponse { assets }))
+    }
+
+    async fn search_observations(
+        &self,
+        request: Request<SearchObservationsRequest>,
+    ) -> Result<Response<SearchObservationsResponse>, Status> {
+        let request = request.into_inner();
+        let context = validate_context(request.context.as_ref())?;
+        self.authorize(context, "asset.read")?;
+        let observations = self
+            .repository
+            .search_observations(&request.task_id)
+            .await
+            .map_err(repository_status)?;
+        Ok(Response::new(SearchObservationsResponse { observations }))
+    }
+
+    async fn get_evidence(
+        &self,
+        request: Request<GetEvidenceRequest>,
+    ) -> Result<Response<crate::proto::Evidence>, Status> {
+        let request = request.into_inner();
+        let context = validate_context(request.context.as_ref())?;
+        self.authorize(context, "evidence.read")?;
+        let evidence = self
+            .repository
+            .get_evidence(&request.evidence_id)
+            .await
+            .map_err(repository_status)?;
+        Ok(Response::new(evidence))
+    }
 }
 
 impl CyberEdgeService {
@@ -296,7 +342,11 @@ fn validate_context(context: Option<&InvocationContext>) -> Result<&InvocationCo
 fn repository_status(error: RepositoryError) -> Status {
     match error {
         RepositoryError::NotFound("scope") => not_found("SCOPE_NOT_FOUND", "scope not found"),
-        RepositoryError::NotFound(_) => not_found("TASK_NOT_FOUND", "task not found"),
+        RepositoryError::NotFound("task") => not_found("TASK_NOT_FOUND", "task not found"),
+        RepositoryError::NotFound("evidence") => {
+            not_found("EVIDENCE_NOT_FOUND", "evidence not found")
+        }
+        RepositoryError::NotFound(_) => not_found("RESOURCE_NOT_FOUND", "resource not found"),
         RepositoryError::IdempotencyConflict => failed_precondition(
             "IDEMPOTENCY_KEY_REUSED",
             "idempotency key was already used with different input",

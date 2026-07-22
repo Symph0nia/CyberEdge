@@ -3,7 +3,7 @@ use serde_json::json;
 use sqlx::{PgConnection, PgPool, Row, postgres::PgPoolOptions};
 
 use super::{Mutation, MutationResult, Repository, RepositoryError};
-use crate::proto::{Scope, ScopeTarget, Task, TaskEvent, TaskState};
+use crate::proto::{Asset, Evidence, Observation, Scope, ScopeTarget, Task, TaskEvent, TaskState};
 
 pub struct PostgresRepository {
     pool: PgPool,
@@ -238,6 +238,61 @@ impl Repository for PostgresRepository {
             event: Some(event),
         })
     }
+
+    async fn search_assets(&self, scope_id: &str) -> Result<Vec<Asset>, RepositoryError> {
+        let exists = sqlx::query("SELECT 1 FROM scopes WHERE id = $1")
+            .bind(scope_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .is_some();
+        if !exists {
+            return Err(RepositoryError::NotFound("scope"));
+        }
+        let rows = sqlx::query(
+            "SELECT id, scope_id, kind, value, first_seen_at_seconds, first_seen_at_nanos,
+                    last_seen_at_seconds, last_seen_at_nanos
+             FROM assets WHERE scope_id = $1 ORDER BY kind, value",
+        )
+        .bind(scope_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.iter().map(asset_from_row).collect())
+    }
+
+    async fn search_observations(
+        &self,
+        task_id: &str,
+    ) -> Result<Vec<Observation>, RepositoryError> {
+        let exists = sqlx::query("SELECT 1 FROM tasks WHERE id = $1")
+            .bind(task_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .is_some();
+        if !exists {
+            return Err(RepositoryError::NotFound("task"));
+        }
+        let rows = sqlx::query(
+            "SELECT id, task_id, asset_id, observation_type, value_json::text AS value_json,
+                    evidence_id, observed_at_seconds, observed_at_nanos
+             FROM observations WHERE task_id = $1 ORDER BY observed_at_seconds, id",
+        )
+        .bind(task_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.iter().map(observation_from_row).collect())
+    }
+
+    async fn get_evidence(&self, evidence_id: &str) -> Result<Evidence, RepositoryError> {
+        let row = sqlx::query(
+            "SELECT id, media_type, sha256, content, created_at_seconds, created_at_nanos
+             FROM evidence WHERE id = $1",
+        )
+        .bind(evidence_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or(RepositoryError::NotFound("evidence"))?;
+        Ok(evidence_from_row(&row))
+    }
 }
 
 async fn lock_idempotency(
@@ -459,6 +514,51 @@ fn task_event_from_row(row: &sqlx::postgres::PgRow) -> TaskEvent {
         occurred_at: Some(prost_types::Timestamp {
             seconds: row.get("occurred_at_seconds"),
             nanos: row.get("occurred_at_nanos"),
+        }),
+    }
+}
+
+fn asset_from_row(row: &sqlx::postgres::PgRow) -> Asset {
+    Asset {
+        id: row.get("id"),
+        scope_id: row.get("scope_id"),
+        kind: row.get("kind"),
+        value: row.get("value"),
+        first_seen_at: Some(prost_types::Timestamp {
+            seconds: row.get("first_seen_at_seconds"),
+            nanos: row.get("first_seen_at_nanos"),
+        }),
+        last_seen_at: Some(prost_types::Timestamp {
+            seconds: row.get("last_seen_at_seconds"),
+            nanos: row.get("last_seen_at_nanos"),
+        }),
+    }
+}
+
+fn observation_from_row(row: &sqlx::postgres::PgRow) -> Observation {
+    Observation {
+        id: row.get("id"),
+        task_id: row.get("task_id"),
+        asset_id: row.get("asset_id"),
+        observation_type: row.get("observation_type"),
+        value_json: row.get("value_json"),
+        evidence_id: row.get("evidence_id"),
+        observed_at: Some(prost_types::Timestamp {
+            seconds: row.get("observed_at_seconds"),
+            nanos: row.get("observed_at_nanos"),
+        }),
+    }
+}
+
+fn evidence_from_row(row: &sqlx::postgres::PgRow) -> Evidence {
+    Evidence {
+        id: row.get("id"),
+        media_type: row.get("media_type"),
+        sha256: row.get("sha256"),
+        content: row.get("content"),
+        created_at: Some(prost_types::Timestamp {
+            seconds: row.get("created_at_seconds"),
+            nanos: row.get("created_at_nanos"),
         }),
     }
 }

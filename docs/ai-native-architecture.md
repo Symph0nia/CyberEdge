@@ -155,7 +155,7 @@ service CyberEdge {
 
 ### 4.2 调用上下文
 
-每个 mutation request 必须携带调用上下文：
+除 `Health` 外，每个 request 必须携带调用上下文。mutation 必须提供幂等键；query 同样携带该字段以保持统一 envelope，但不产生幂等记录：
 
 ```protobuf
 message InvocationContext {
@@ -185,8 +185,9 @@ message ErrorDetail {
 
 ```protobuf
 message WatchTaskRequest {
-  string task_id = 1;
-  uint64 after_sequence = 2;
+  InvocationContext context = 1;
+  string task_id = 2;
+  uint64 after_sequence = 3;
 }
 
 message TaskEvent {

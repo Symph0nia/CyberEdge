@@ -13,6 +13,9 @@ service CyberEdge {
   rpc GetTask(GetTaskRequest) returns (Task);
   rpc WatchTask(WatchTaskRequest) returns (stream TaskEvent);
   rpc CancelTask(CancelTaskRequest) returns (Task);
+  rpc SearchAssets(SearchAssetsRequest) returns (SearchAssetsResponse);
+  rpc SearchObservations(SearchObservationsRequest) returns (SearchObservationsResponse);
+  rpc GetEvidence(GetEvidenceRequest) returns (Evidence);
 }
 
 message InvocationContext {
@@ -111,4 +114,50 @@ message TaskEvent {
   uint64 sequence = 2;
   string event_type = 3;
   google.protobuf.Timestamp occurred_at = 4;
+}
+
+message Asset {
+  string id = 1;
+  string scope_id = 2;
+  TargetKind kind = 3;
+  string value = 4;
+  google.protobuf.Timestamp first_seen_at = 5;
+  google.protobuf.Timestamp last_seen_at = 6;
+}
+
+message Observation {
+  string id = 1;
+  string task_id = 2;
+  string asset_id = 3;
+  string observation_type = 4;
+  string value_json = 5;
+  string evidence_id = 6;
+  google.protobuf.Timestamp observed_at = 7;
+}
+
+message Evidence {
+  string id = 1;
+  string media_type = 2;
+  string sha256 = 3;
+  bytes content = 4;
+  google.protobuf.Timestamp created_at = 5;
+}
+
+message SearchAssetsRequest {
+  InvocationContext context = 1;
+  string scope_id = 2;
+}
+
+message SearchAssetsResponse { repeated Asset assets = 1; }
+
+message SearchObservationsRequest {
+  InvocationContext context = 1;
+  string task_id = 2;
+}
+
+message SearchObservationsResponse { repeated Observation observations = 1; }
+
+message GetEvidenceRequest {
+  InvocationContext context = 1;
+  string evidence_id = 2;
 }

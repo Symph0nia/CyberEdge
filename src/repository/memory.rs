@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use tokio::sync::RwLock;
 
 use super::{Mutation, MutationResult, Repository, RepositoryError};
-use crate::proto::{Scope, Task, TaskEvent, TaskState};
+use crate::proto::{Asset, Evidence, Observation, Scope, Task, TaskEvent, TaskState};
 
 #[derive(Default)]
 struct State {
@@ -12,6 +12,9 @@ struct State {
     tasks: HashMap<String, Task>,
     events: HashMap<String, Vec<TaskEvent>>,
     idempotency: HashMap<String, (Vec<u8>, String)>,
+    assets: HashMap<String, Asset>,
+    observations: HashMap<String, Observation>,
+    evidence: HashMap<String, Evidence>,
 }
 
 #[derive(Default)]
@@ -160,6 +163,45 @@ impl Repository for MemoryRepository {
             value: task,
             event: Some(event),
         })
+    }
+
+    async fn search_assets(&self, scope_id: &str) -> Result<Vec<Asset>, RepositoryError> {
+        let state = self.state.read().await;
+        if !state.scopes.contains_key(scope_id) {
+            return Err(RepositoryError::NotFound("scope"));
+        }
+        Ok(state
+            .assets
+            .values()
+            .filter(|asset| asset.scope_id == scope_id)
+            .cloned()
+            .collect())
+    }
+
+    async fn search_observations(
+        &self,
+        task_id: &str,
+    ) -> Result<Vec<Observation>, RepositoryError> {
+        let state = self.state.read().await;
+        if !state.tasks.contains_key(task_id) {
+            return Err(RepositoryError::NotFound("task"));
+        }
+        Ok(state
+            .observations
+            .values()
+            .filter(|observation| observation.task_id == task_id)
+            .cloned()
+            .collect())
+    }
+
+    async fn get_evidence(&self, evidence_id: &str) -> Result<Evidence, RepositoryError> {
+        self.state
+            .read()
+            .await
+            .evidence
+            .get(evidence_id)
+            .cloned()
+            .ok_or(RepositoryError::NotFound("evidence"))
     }
 }
 

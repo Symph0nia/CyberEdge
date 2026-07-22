@@ -108,8 +108,9 @@ fn context(suffix: &str) -> InvocationContext {
 
 async fn reset(pool: &PgPool) {
     sqlx::query(
-        "TRUNCATE outbox_events, audit_events, idempotency_keys, task_events, tasks,
-         scope_targets, scopes RESTART IDENTITY CASCADE",
+        "TRUNCATE observations, evidence, assets, outbox_events, audit_events,
+         idempotency_keys, task_events, tasks, scope_targets, scopes
+         RESTART IDENTITY CASCADE",
     )
     .execute(pool)
     .await

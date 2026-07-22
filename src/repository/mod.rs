@@ -3,7 +3,7 @@ mod postgres;
 
 use async_trait::async_trait;
 
-use crate::proto::{InvocationContext, Scope, Task, TaskEvent};
+use crate::proto::{Asset, Evidence, InvocationContext, Observation, Scope, Task, TaskEvent};
 
 pub use memory::MemoryRepository;
 pub use postgres::PostgresRepository;
@@ -74,4 +74,11 @@ pub trait Repository: Send + Sync {
         task_id: &str,
         event: TaskEvent,
     ) -> Result<MutationResult<Task>, RepositoryError>;
+
+    async fn search_assets(&self, scope_id: &str) -> Result<Vec<Asset>, RepositoryError>;
+
+    async fn search_observations(&self, task_id: &str)
+    -> Result<Vec<Observation>, RepositoryError>;
+
+    async fn get_evidence(&self, evidence_id: &str) -> Result<Evidence, RepositoryError>;
 }
