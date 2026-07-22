@@ -9,12 +9,13 @@ use std::{
 use async_trait::async_trait;
 use cyberedge::{
     Authorizer, CertificateSource, CyberEdgeService, DiscoveryWorker, DnsResolver,
-    MemoryRepository, Repository,
+    MemoryRepository, Repository, SystemPortConnector,
     proto::{
         AssetChangeKind, CreateScheduleRequest, CreateScopeRequest, GetEvidenceRequest,
         GetTaskReportRequest, InvocationContext, ScopeTarget, SearchAssetChangesRequest,
         SearchAssetsRequest, SearchAuditRequest, SearchObservationsRequest, SearchSchedulesRequest,
-        StartScanRequest, TargetKind, TaskState, cyber_edge_server::CyberEdge,
+        SearchServicesRequest, StartScanRequest, TargetKind, TaskState,
+        cyber_edge_server::CyberEdge,
     },
 };
 use sha2::{Digest, Sha256};
@@ -430,6 +431,64 @@ async fn monitoring_does_not_report_disappearance_when_coverage_fails() {
             .unwrap()
             .is_empty()
     );
+}
+
+#[tokio::test]
+async fn discovers_service_on_authorized_local_listener() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let repository: Arc<dyn Repository> = Arc::new(MemoryRepository::default());
+    let service = CyberEdgeService::new(repository.clone(), Arc::new(Allow));
+    let scope = service
+        .create_scope(Request::new(CreateScopeRequest {
+            context: Some(context("service-scope")),
+            name: "Local service".to_owned(),
+            authorization_ref: "authorization:local-test".to_owned(),
+            targets: vec![ScopeTarget {
+                kind: TargetKind::Ip.into(),
+                value: "127.0.0.1".to_owned(),
+            }],
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let task = service
+        .start_scan(Request::new(StartScanRequest {
+            context: Some(context("service-start")),
+            scope_id: scope.id.clone(),
+            policy_id: "policy_service_baseline".to_owned(),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    let worker = DiscoveryWorker::new(repository, Arc::new(Resolver))
+        .with_port_connector(Arc::new(SystemPortConnector), vec![port]);
+    assert!(worker.run_once().await.unwrap());
+    let services = service
+        .search_services(Request::new(SearchServicesRequest {
+            context: Some(context("services")),
+            scope_id: scope.id,
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .services;
+    assert_eq!(services.len(), 1);
+    assert_eq!(services[0].port, u32::from(port));
+    assert_eq!(services[0].transport, "tcp");
+    assert_eq!(services[0].service_hint, "unknown");
+    let report = service
+        .get_task_report(Request::new(GetTaskReportRequest {
+            context: Some(context("service-report")),
+            task_id: task.id,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(report.services.len(), 1);
+    assert_eq!(report.services[0].port, u32::from(port));
+    drop(listener);
 }
 
 fn context(suffix: &str) -> InvocationContext {

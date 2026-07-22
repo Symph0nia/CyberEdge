@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "name": "cyberedge-discover-services",
+  "version": "0.1.0",
+  "protocol": "cyberedge.v1.CyberEdge",
+  "capabilities": [
+    "scope.read",
+    "scan.active",
+    "task.read",
+    "task.cancel",
+    "asset.read",
+    "service.read",
+    "evidence.read",
+    "report.read",
+    "audit.read"
+  ],
+  "rpc_allowlist": [
+    "GetScope",
+    "StartScan",
+    "GetTask",
+    "WatchTask",
+    "CancelTask",
+    "SearchAssets",
+    "SearchServices",
+    "SearchObservations",
+    "GetEvidence",
+    "GetTaskReport",
+    "SearchAudit"
+  ]
+}

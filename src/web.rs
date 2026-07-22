@@ -14,7 +14,7 @@ use tower_http::{
 };
 
 use crate::{
-    proto::{Asset, AssetChange, Schedule, Scope, Task},
+    proto::{Asset, AssetChange, Schedule, Scope, Service, Task},
     repository::Repository,
 };
 
@@ -38,6 +38,7 @@ pub fn read_only_router(repository: Arc<dyn Repository>, dist: PathBuf) -> Route
     Router::new()
         .route("/api/v1/overview", get(overview))
         .route("/api/v1/scopes/{scope_id}/assets", get(assets))
+        .route("/api/v1/scopes/{scope_id}/services", get(services))
         .route("/api/v1/tasks/{task_id}/observations", get(observations))
         .route("/api/v1/evidence/{evidence_id}", get(evidence))
         .route("/api/{*path}", any(api_not_found))
@@ -70,6 +71,7 @@ async fn overview(State(state): State<WebState>) -> Result<Json<Value>, WebError
         "counts": {"scopes": model.scope_count, "tasks": model.task_count,
             "assets": model.asset_count, "schedules": model.schedule_count,
             "asset_changes": model.asset_change_count,
+            "services": model.service_count,
             "observations": model.observation_count,
             "evidence": model.evidence_count},
         "scopes": model.scopes.into_iter().map(scope_json).collect::<Vec<_>>(),
@@ -77,6 +79,7 @@ async fn overview(State(state): State<WebState>) -> Result<Json<Value>, WebError
         "assets": model.assets.into_iter().map(asset_json).collect::<Vec<_>>(),
         "schedules": model.schedules.into_iter().map(schedule_json).collect::<Vec<_>>(),
         "asset_changes": model.asset_changes.into_iter().map(asset_change_json).collect::<Vec<_>>(),
+        "services": model.services.into_iter().map(service_json).collect::<Vec<_>>(),
         "audit_events": model.audit_events.into_iter().map(|event| json!({
             "id": event.id, "request_id": event.request_id, "operation": event.operation,
             "agent_id": event.agent_id, "skill_name": event.skill_name,
@@ -119,6 +122,20 @@ async fn observations(
     ))
 }
 
+async fn services(
+    State(state): State<WebState>,
+    Path(scope_id): Path<String>,
+) -> Result<Json<Value>, WebError> {
+    let values = state
+        .repository
+        .search_services(&scope_id)
+        .await
+        .map_err(WebError)?;
+    Ok(Json(
+        json!({"services": values.into_iter().map(service_json).collect::<Vec<_>>() }),
+    ))
+}
+
 async fn evidence(
     State(state): State<WebState>,
     Path(evidence_id): Path<String>,
@@ -149,6 +166,13 @@ fn task_json(task: Task) -> Value {
 fn asset_json(asset: Asset) -> Value {
     json!({"id": asset.id, "scope_id": asset.scope_id, "kind": asset.kind, "value": asset.value,
         "first_seen_at": timestamp(asset.first_seen_at), "last_seen_at": timestamp(asset.last_seen_at)})
+}
+
+fn service_json(service: Service) -> Value {
+    json!({"id": service.id, "asset_id": service.asset_id, "transport": service.transport,
+        "port": service.port, "service_hint": service.service_hint,
+        "first_seen_at": timestamp(service.first_seen_at),
+        "last_seen_at": timestamp(service.last_seen_at)})
 }
 
 fn schedule_json(schedule: Schedule) -> Value {

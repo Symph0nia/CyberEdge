@@ -180,3 +180,32 @@ async fn denies_missing_capability() {
         "CAPABILITY_DENIED"
     );
 }
+
+#[tokio::test]
+async fn active_policy_requires_active_capability() {
+    struct PassiveOnly;
+
+    impl Authorizer for PassiveOnly {
+        fn authorize(&self, _context: &InvocationContext, capability: &str) -> bool {
+            capability != "scan.active"
+        }
+    }
+
+    let service =
+        CyberEdgeService::new(Arc::new(MemoryRepository::default()), Arc::new(PassiveOnly));
+    let scope = create_scope(&service).await;
+    let error = service
+        .start_scan(Request::new(StartScanRequest {
+            context: Some(context()),
+            scope_id: scope.id,
+            policy_id: "policy_service_baseline".to_owned(),
+        }))
+        .await
+        .unwrap_err();
+
+    assert_eq!(error.code(), Code::PermissionDenied);
+    assert_eq!(
+        ErrorDetail::decode(error.details()).unwrap().code,
+        "CAPABILITY_DENIED"
+    );
+}

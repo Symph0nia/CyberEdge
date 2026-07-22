@@ -12,11 +12,12 @@ CyberEdge copies neither repository's code, database shape, Web workflow, nor op
 | Upstream capability | CyberEdge domain | Delivery order | Current state |
 |---|---|---:|---|
 | Domain and IP inventory | Scope, Asset, Observation, Evidence | 1 | DNS vertical slice complete |
-| Passive domain data sources | Scanner Adapter, Observation | 2 | Certificate Transparency next |
+| Passive domain data sources | Scanner Adapter, Observation | 2 | DNS and Certificate Transparency implemented |
 | Asset grouping and search | Scope and read model | 2 | Scope and bounded search complete |
 | Task policy and lifecycle | Policy, Task, Event | 1 | Passive policy and durable lifecycle complete |
 | Scheduled and periodic tasks | Schedule producing normal Task | 2 | Implemented baseline |
-| Port and service discovery | Service Asset, Observation | 3 | Not implemented |
+| Controlled baseline TCP connect scan | Service inventory and Observation | 3 | Implemented |
+| Banner and product identification | Service Observation | 3 | Not implemented |
 | TLS certificate collection | Certificate Asset, Evidence | 3 | Not implemented |
 | Website and fingerprint discovery | Website Asset, Observation | 3 | Not implemented |
 | Crawler and screenshots | Evidence adapters | 3 | Not implemented |

@@ -1,0 +1,4 @@
+interface:
+  display_name: "CyberEdge Service Discovery"
+  short_description: "Run authorized active service discovery through CyberEdge."
+  default_prompt: "Discover exposed TCP services in an explicitly authorized CyberEdge scope and return evidence-backed results."

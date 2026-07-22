@@ -10,7 +10,7 @@ use super::{
 };
 use crate::proto::{
     Asset, AssetChange, AssetChangeKind, AuditEvent, Evidence, Observation, Schedule, Scope,
-    ScopeTarget, Task, TaskEvent, TaskState,
+    ScopeTarget, Service, Task, TaskEvent, TaskState,
 };
 
 pub struct PostgresRepository {
@@ -450,6 +450,29 @@ impl Repository for PostgresRepository {
         Ok(rows.iter().map(asset_from_row).collect())
     }
 
+    async fn search_services(&self, scope_id: &str) -> Result<Vec<Service>, RepositoryError> {
+        let exists = sqlx::query("SELECT 1 FROM scopes WHERE id = $1")
+            .bind(scope_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .is_some();
+        if !exists {
+            return Err(RepositoryError::NotFound("scope"));
+        }
+        let rows = sqlx::query(
+            "SELECT services.id, services.asset_id, services.transport, services.port,
+                    services.service_hint, services.first_seen_at_seconds,
+                    services.first_seen_at_nanos, services.last_seen_at_seconds,
+                    services.last_seen_at_nanos
+             FROM services JOIN assets ON assets.id = services.asset_id
+             WHERE assets.scope_id = $1 ORDER BY assets.value, services.port",
+        )
+        .bind(scope_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.iter().map(service_from_row).collect())
+    }
+
     async fn search_observations(
         &self,
         task_id: &str,
@@ -615,6 +638,32 @@ impl Repository for PostgresRepository {
             .bind(last_seen.nanos)
             .execute(&mut *tx)
             .await?;
+            if let Some(service) = record.service {
+                let first_seen = service.first_seen_at.expect("service timestamp exists");
+                let last_seen = service.last_seen_at.expect("service timestamp exists");
+                sqlx::query(
+                    "INSERT INTO services
+                     (id, asset_id, transport, port, service_hint,
+                      first_seen_at_seconds, first_seen_at_nanos,
+                      last_seen_at_seconds, last_seen_at_nanos)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                     ON CONFLICT (asset_id, transport, port) DO UPDATE SET
+                       service_hint = EXCLUDED.service_hint,
+                       last_seen_at_seconds = EXCLUDED.last_seen_at_seconds,
+                       last_seen_at_nanos = EXCLUDED.last_seen_at_nanos",
+                )
+                .bind(&service.id)
+                .bind(&service.asset_id)
+                .bind(&service.transport)
+                .bind(service.port as i32)
+                .bind(&service.service_hint)
+                .bind(first_seen.seconds)
+                .bind(first_seen.nanos)
+                .bind(last_seen.seconds)
+                .bind(last_seen.nanos)
+                .execute(&mut *tx)
+                .await?;
+            }
             let observed_at = record
                 .observation
                 .observed_at
@@ -743,6 +792,17 @@ impl Repository for PostgresRepository {
         .iter()
         .map(asset_change_from_row)
         .collect();
+        let services = sqlx::query(
+            "SELECT id, asset_id, transport, port, service_hint,
+                    first_seen_at_seconds, first_seen_at_nanos,
+                    last_seen_at_seconds, last_seen_at_nanos FROM services
+             ORDER BY last_seen_at_seconds DESC, last_seen_at_nanos DESC LIMIT 100",
+        )
+        .fetch_all(&self.pool)
+        .await?
+        .iter()
+        .map(service_from_row)
+        .collect();
         let observation_count = sqlx::query_scalar("SELECT COUNT(*) FROM observations")
             .fetch_one(&self.pool)
             .await?;
@@ -764,6 +824,9 @@ impl Repository for PostgresRepository {
         let asset_change_count = sqlx::query_scalar("SELECT COUNT(*) FROM asset_changes")
             .fetch_one(&self.pool)
             .await?;
+        let service_count = sqlx::query_scalar("SELECT COUNT(*) FROM services")
+            .fetch_one(&self.pool)
+            .await?;
         let audit_events = fetch_audit(&self.pool, 50).await?;
         Ok(ReadOverview {
             scopes,
@@ -771,11 +834,13 @@ impl Repository for PostgresRepository {
             assets,
             schedules,
             asset_changes,
+            services,
             scope_count,
             task_count,
             asset_count,
             schedule_count,
             asset_change_count,
+            service_count,
             observation_count,
             evidence_count,
             audit_events,
@@ -1178,6 +1243,24 @@ fn asset_from_row(row: &sqlx::postgres::PgRow) -> Asset {
         scope_id: row.get("scope_id"),
         kind: row.get("kind"),
         value: row.get("value"),
+        first_seen_at: Some(prost_types::Timestamp {
+            seconds: row.get("first_seen_at_seconds"),
+            nanos: row.get("first_seen_at_nanos"),
+        }),
+        last_seen_at: Some(prost_types::Timestamp {
+            seconds: row.get("last_seen_at_seconds"),
+            nanos: row.get("last_seen_at_nanos"),
+        }),
+    }
+}
+
+fn service_from_row(row: &sqlx::postgres::PgRow) -> Service {
+    Service {
+        id: row.get("id"),
+        asset_id: row.get("asset_id"),
+        transport: row.get("transport"),
+        port: row.get::<i32, _>("port") as u32,
+        service_hint: row.get("service_hint"),
         first_seen_at: Some(prost_types::Timestamp {
             seconds: row.get("first_seen_at_seconds"),
             nanos: row.get("first_seen_at_nanos"),

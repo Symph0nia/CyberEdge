@@ -11,8 +11,8 @@ use super::{
     RepositoryError,
 };
 use crate::proto::{
-    Asset, AssetChange, AssetChangeKind, AuditEvent, Evidence, Observation, Schedule, Scope, Task,
-    TaskEvent, TaskState,
+    Asset, AssetChange, AssetChangeKind, AuditEvent, Evidence, Observation, Schedule, Scope,
+    Service, Task, TaskEvent, TaskState,
 };
 
 #[derive(Default)]
@@ -26,6 +26,7 @@ struct State {
     observations: HashMap<String, Observation>,
     evidence: HashMap<String, Evidence>,
     asset_changes: Vec<AssetChange>,
+    services: HashMap<String, Service>,
     audits: Vec<AuditEvent>,
 }
 
@@ -294,6 +295,25 @@ impl Repository for MemoryRepository {
             .collect())
     }
 
+    async fn search_services(&self, scope_id: &str) -> Result<Vec<Service>, RepositoryError> {
+        let state = self.state.read().await;
+        if !state.scopes.contains_key(scope_id) {
+            return Err(RepositoryError::NotFound("scope"));
+        }
+        let asset_ids = state
+            .assets
+            .values()
+            .filter(|asset| asset.scope_id == scope_id)
+            .map(|asset| asset.id.as_str())
+            .collect::<BTreeSet<_>>();
+        Ok(state
+            .services
+            .values()
+            .filter(|service| asset_ids.contains(service.asset_id.as_str()))
+            .cloned()
+            .collect())
+    }
+
     async fn search_observations(
         &self,
         task_id: &str,
@@ -375,6 +395,9 @@ impl Repository for MemoryRepository {
         finish_memory_task(&mut state, task_id, TaskState::Completed, timestamp)?;
         for record in records {
             state.assets.insert(record.asset.id.clone(), record.asset);
+            if let Some(service) = record.service {
+                state.services.insert(service.id.clone(), service);
+            }
             state
                 .observations
                 .insert(record.observation.id.clone(), record.observation);
@@ -411,11 +434,13 @@ impl Repository for MemoryRepository {
             assets: state.assets.values().cloned().collect(),
             schedules: state.schedules.values().cloned().collect(),
             asset_changes: state.asset_changes.clone(),
+            services: state.services.values().cloned().collect(),
             scope_count: state.scopes.len() as i64,
             task_count: state.tasks.len() as i64,
             asset_count: state.assets.len() as i64,
             schedule_count: state.schedules.len() as i64,
             asset_change_count: state.asset_changes.len() as i64,
+            service_count: state.services.len() as i64,
             observation_count: state.observations.len() as i64,
             evidence_count: state.evidence.len() as i64,
             audit_events: state.audits.iter().rev().take(50).cloned().collect(),

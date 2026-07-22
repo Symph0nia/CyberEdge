@@ -17,6 +17,7 @@ service CyberEdge {
   rpc SearchSchedules(SearchSchedulesRequest) returns (SearchSchedulesResponse);
   rpc SearchAssetChanges(SearchAssetChangesRequest) returns (SearchAssetChangesResponse);
   rpc SearchAssets(SearchAssetsRequest) returns (SearchAssetsResponse);
+  rpc SearchServices(SearchServicesRequest) returns (SearchServicesResponse);
   rpc SearchObservations(SearchObservationsRequest) returns (SearchObservationsResponse);
   rpc GetEvidence(GetEvidenceRequest) returns (Evidence);
   rpc GetTaskReport(GetTaskReportRequest) returns (TaskReport);
@@ -178,6 +179,23 @@ message Asset {
   google.protobuf.Timestamp last_seen_at = 6;
 }
 
+message Service {
+  string id = 1;
+  string asset_id = 2;
+  string transport = 3;
+  uint32 port = 4;
+  string service_hint = 5;
+  google.protobuf.Timestamp first_seen_at = 6;
+  google.protobuf.Timestamp last_seen_at = 7;
+}
+
+message SearchServicesRequest {
+  InvocationContext context = 1;
+  string scope_id = 2;
+}
+
+message SearchServicesResponse { repeated Service services = 1; }
+
 message Observation {
   string id = 1;
   string task_id = 2;
@@ -227,6 +245,7 @@ message TaskReport {
   repeated Observation observations = 4;
   repeated Evidence evidence = 5;
   google.protobuf.Timestamp generated_at = 6;
+  repeated Service services = 7;
 }
 
 message AuditEvent {

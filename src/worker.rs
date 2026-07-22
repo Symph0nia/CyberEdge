@@ -10,10 +10,11 @@ use serde::Deserialize;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use tokio::net::lookup_host;
+use tokio::{net::TcpStream, time::timeout};
 use uuid::Uuid;
 
 use crate::{
-    proto::{Asset, Evidence, Observation, ScopeTarget, TargetKind},
+    proto::{Asset, Evidence, Observation, ScopeTarget, Service, TargetKind},
     repository::{DiscoveryRecord, Repository, RepositoryError},
 };
 
@@ -35,6 +36,40 @@ impl DnsResolver for SystemDnsResolver {
             .into_iter()
             .collect();
         Ok(addresses)
+    }
+}
+
+#[async_trait]
+pub trait PortConnector: Send + Sync {
+    async fn connect(&self, address: IpAddr, port: u16) -> Result<bool, String>;
+}
+
+pub struct SystemPortConnector;
+
+#[async_trait]
+impl PortConnector for SystemPortConnector {
+    async fn connect(&self, address: IpAddr, port: u16) -> Result<bool, String> {
+        match timeout(
+            std::time::Duration::from_millis(750),
+            TcpStream::connect((address, port)),
+        )
+        .await
+        {
+            Ok(Ok(_)) => Ok(true),
+            Ok(Err(error))
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::ConnectionRefused
+                        | std::io::ErrorKind::TimedOut
+                        | std::io::ErrorKind::HostUnreachable
+                        | std::io::ErrorKind::NetworkUnreachable
+                ) =>
+            {
+                Ok(false)
+            }
+            Ok(Err(error)) => Err(error.to_string()),
+            Err(_) => Ok(false),
+        }
     }
 }
 
@@ -96,6 +131,8 @@ pub struct DiscoveryWorker {
     repository: Arc<dyn Repository>,
     resolver: Arc<dyn DnsResolver>,
     certificate_source: Option<Arc<dyn CertificateSource>>,
+    port_connector: Option<Arc<dyn PortConnector>>,
+    service_ports: Vec<u16>,
 }
 
 impl DiscoveryWorker {
@@ -104,7 +141,19 @@ impl DiscoveryWorker {
             repository,
             resolver,
             certificate_source: None,
+            port_connector: None,
+            service_ports: Vec::new(),
         }
+    }
+
+    pub fn with_port_connector(
+        mut self,
+        connector: Arc<dyn PortConnector>,
+        ports: Vec<u16>,
+    ) -> Self {
+        self.port_connector = Some(connector);
+        self.service_ports = ports;
+        self
     }
 
     pub fn with_certificate_source(mut self, source: Arc<dyn CertificateSource>) -> Self {
@@ -118,7 +167,7 @@ impl DiscoveryWorker {
         };
         if !matches!(
             claimed.task.policy_id.as_str(),
-            "policy_passive_dns" | "policy_passive_inventory"
+            "policy_passive_dns" | "policy_passive_inventory" | "policy_service_baseline"
         ) {
             self.repository.fail_task(&claimed.task.id, now()).await?;
             return Ok(true);
@@ -126,6 +175,13 @@ impl DiscoveryWorker {
 
         let mut records = Vec::new();
         for target in &claimed.scope.targets {
+            if claimed.task.policy_id == "policy_service_baseline" {
+                records.extend(
+                    self.discover_active_target(&claimed.task.id, &claimed.scope.id, target)
+                        .await,
+                );
+                continue;
+            }
             records.extend(
                 self.discover_target(&claimed.task.id, &claimed.scope.id, target)
                     .await,
@@ -141,6 +197,130 @@ impl DiscoveryWorker {
             .complete_task(&claimed.task.id, records, now())
             .await?;
         Ok(true)
+    }
+
+    async fn discover_active_target(
+        &self,
+        task_id: &str,
+        scope_id: &str,
+        target: &ScopeTarget,
+    ) -> Vec<DiscoveryRecord> {
+        match TargetKind::try_from(target.kind).unwrap_or(TargetKind::Unspecified) {
+            TargetKind::Ip => match target.value.parse::<IpAddr>() {
+                Ok(address) => {
+                    let mut records = vec![record(
+                        task_id,
+                        scope_id,
+                        TargetKind::Ip,
+                        &target.value,
+                        "scope.seed",
+                        json!({"source": "authorized_scope", "value": target.value}),
+                    )];
+                    records.extend(self.discover_services(task_id, scope_id, address).await);
+                    records
+                }
+                Err(error) => vec![record(
+                    task_id,
+                    scope_id,
+                    TargetKind::Ip,
+                    &target.value,
+                    "tcp.error",
+                    json!({"address": target.value, "error": error.to_string()}),
+                )],
+            },
+            TargetKind::Domain => match self.resolver.resolve(&target.value).await {
+                Ok(addresses) => {
+                    let values = addresses
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>();
+                    let mut records = vec![record(
+                        task_id,
+                        scope_id,
+                        TargetKind::Domain,
+                        &target.value,
+                        "dns.addresses",
+                        json!({"domain": target.value, "addresses": values}),
+                    )];
+                    for address in addresses {
+                        records.extend(self.discover_services(task_id, scope_id, address).await);
+                    }
+                    records
+                }
+                Err(error) => vec![record(
+                    task_id,
+                    scope_id,
+                    TargetKind::Domain,
+                    &target.value,
+                    "dns.error",
+                    json!({"domain": target.value, "error": error}),
+                )],
+            },
+            kind => vec![unsupported_target_record(
+                task_id,
+                scope_id,
+                kind,
+                &target.value,
+            )],
+        }
+    }
+
+    async fn discover_services(
+        &self,
+        task_id: &str,
+        scope_id: &str,
+        address: IpAddr,
+    ) -> Vec<DiscoveryRecord> {
+        let Some(connector) = &self.port_connector else {
+            return vec![record(
+                task_id,
+                scope_id,
+                TargetKind::Ip,
+                &address.to_string(),
+                "tcp.error",
+                json!({"address": address, "error": "port connector unavailable"}),
+            )];
+        };
+        let mut probes = tokio::task::JoinSet::new();
+        for port in self.service_ports.iter().copied() {
+            let connector = connector.clone();
+            probes.spawn(async move { (port, connector.connect(address, port).await) });
+        }
+        let mut results = Vec::with_capacity(self.service_ports.len());
+        while let Some(result) = probes.join_next().await {
+            match result {
+                Ok(result) => results.push(result),
+                Err(error) => results.push((0, Err(error.to_string()))),
+            }
+        }
+        results.sort_by_key(|(port, _)| *port);
+
+        let mut records = Vec::new();
+        for (port, result) in results {
+            match result {
+                Ok(true) => records.push(service_record(task_id, scope_id, address, port)),
+                Ok(false) => {}
+                Err(error) => records.push(record(
+                    task_id,
+                    scope_id,
+                    TargetKind::Ip,
+                    &address.to_string(),
+                    "tcp.error",
+                    json!({"address": address, "port": port, "error": error}),
+                )),
+            }
+        }
+        if records.is_empty() {
+            records.push(record(
+                task_id,
+                scope_id,
+                TargetKind::Ip,
+                &address.to_string(),
+                "tcp.no_open_ports",
+                json!({"address": address, "ports": self.service_ports}),
+            ));
+        }
+        records
     }
 
     async fn discover_certificates(
@@ -203,7 +383,12 @@ impl DiscoveryWorker {
                 "scope.seed",
                 json!({"source": "authorized_scope", "value": target.value}),
             )],
-            _ => Vec::new(),
+            kind => vec![unsupported_target_record(
+                task_id,
+                scope_id,
+                kind,
+                &target.value,
+            )],
         }
     }
 
@@ -313,6 +498,7 @@ fn record(
             first_seen_at: Some(timestamp),
             last_seen_at: Some(timestamp),
         },
+        service: None,
         observation: Observation {
             id: format!("observation_{}", Uuid::now_v7()),
             task_id: task_id.to_owned(),
@@ -331,6 +517,72 @@ fn record(
         },
     }
 }
+
+fn service_record(task_id: &str, scope_id: &str, address: IpAddr, port: u16) -> DiscoveryRecord {
+    let value = address.to_string();
+    let mut record = record(
+        task_id,
+        scope_id,
+        TargetKind::Ip,
+        &value,
+        "tcp.open",
+        json!({"address": address, "transport": "tcp", "port": port}),
+    );
+    let timestamp = record
+        .observation
+        .observed_at
+        .expect("observation timestamp exists");
+    record.service = Some(Service {
+        id: stable_id(
+            "service",
+            format!("{}:tcp:{port}", record.asset.id).as_bytes(),
+        ),
+        asset_id: record.asset.id.clone(),
+        transport: "tcp".to_owned(),
+        port: u32::from(port),
+        service_hint: service_hint(port).to_owned(),
+        first_seen_at: Some(timestamp),
+        last_seen_at: Some(timestamp),
+    });
+    record
+}
+
+fn unsupported_target_record(
+    task_id: &str,
+    scope_id: &str,
+    kind: TargetKind,
+    value: &str,
+) -> DiscoveryRecord {
+    record(
+        task_id,
+        scope_id,
+        kind,
+        value,
+        "policy.error",
+        json!({"target": value, "kind": i32::from(kind), "error": "target kind unsupported by policy"}),
+    )
+}
+
+fn service_hint(port: u16) -> &'static str {
+    match port {
+        22 => "ssh",
+        25 => "smtp",
+        53 => "dns",
+        80 | 8080 => "http",
+        110 => "pop3",
+        143 => "imap",
+        443 | 8443 => "https",
+        445 => "smb",
+        3306 => "mysql",
+        5432 => "postgresql",
+        6379 => "redis",
+        _ => "unknown",
+    }
+}
+
+pub const BASELINE_SERVICE_PORTS: &[u16] = &[
+    22, 25, 53, 80, 110, 143, 443, 445, 3306, 5432, 6379, 8080, 8443,
+];
 
 fn stable_id(prefix: &str, value: &[u8]) -> String {
     format!("{prefix}_{}", &hex_hash(value)[..32])

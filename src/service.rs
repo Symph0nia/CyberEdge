@@ -20,8 +20,8 @@ use crate::proto::{
     InvocationContext, Schedule, Scope, ScopeTarget, SearchAssetChangesRequest,
     SearchAssetChangesResponse, SearchAssetsRequest, SearchAssetsResponse, SearchAuditRequest,
     SearchAuditResponse, SearchObservationsRequest, SearchObservationsResponse,
-    SearchSchedulesRequest, SearchSchedulesResponse, StartScanRequest, TargetKind, Task, TaskEvent,
-    TaskReport, TaskState, WatchTaskRequest,
+    SearchSchedulesRequest, SearchSchedulesResponse, SearchServicesRequest, SearchServicesResponse,
+    StartScanRequest, TargetKind, Task, TaskEvent, TaskReport, TaskState, WatchTaskRequest,
     cyber_edge_server::{CyberEdge, CyberEdgeServer},
 };
 use crate::{
@@ -122,7 +122,7 @@ impl CyberEdge for CyberEdgeService {
     ) -> Result<Response<Task>, Status> {
         let request = request.into_inner();
         let context = validate_context(request.context.as_ref())?;
-        self.authorize(context, "scan.passive")?;
+        self.authorize(context, policy_capability(&request.policy_id)?)?;
         let mut semantic_request = request.clone();
         semantic_request.context = None;
         let mutation = Mutation {
@@ -176,6 +176,7 @@ impl CyberEdge for CyberEdgeService {
         let request = request.into_inner();
         let context = validate_context(request.context.as_ref())?;
         self.authorize(context, "schedule.manage")?;
+        self.authorize(context, policy_capability(&request.policy_id)?)?;
         let mut semantic_request = request.clone();
         semantic_request.context = None;
         let mutation = Mutation {
@@ -326,6 +327,21 @@ impl CyberEdge for CyberEdgeService {
         Ok(Response::new(SearchAssetsResponse { assets }))
     }
 
+    async fn search_services(
+        &self,
+        request: Request<SearchServicesRequest>,
+    ) -> Result<Response<SearchServicesResponse>, Status> {
+        let request = request.into_inner();
+        let context = validate_context(request.context.as_ref())?;
+        self.authorize(context, "service.read")?;
+        let services = self
+            .repository
+            .search_services(&request.scope_id)
+            .await
+            .map_err(repository_status)?;
+        Ok(Response::new(SearchServicesResponse { services }))
+    }
+
     async fn search_observations(
         &self,
         request: Request<SearchObservationsRequest>,
@@ -396,6 +412,25 @@ impl CyberEdge for CyberEdgeService {
             .into_iter()
             .filter(|asset| asset_ids.contains(asset.id.as_str()))
             .collect();
+        let service_keys = observations
+            .iter()
+            .filter(|observation| observation.observation_type == "tcp.open")
+            .filter_map(|observation| {
+                serde_json::from_str::<serde_json::Value>(&observation.value_json)
+                    .ok()?
+                    .get("port")?
+                    .as_u64()
+                    .map(|port| (observation.asset_id.as_str(), port as u32))
+            })
+            .collect::<std::collections::HashSet<_>>();
+        let services = self
+            .repository
+            .search_services(&scope.id)
+            .await
+            .map_err(repository_status)?
+            .into_iter()
+            .filter(|service| service_keys.contains(&(service.asset_id.as_str(), service.port)))
+            .collect();
         let mut evidence_ids = std::collections::HashSet::new();
         let mut evidence = Vec::new();
         for observation in &observations {
@@ -415,6 +450,7 @@ impl CyberEdge for CyberEdgeService {
             observations,
             evidence,
             generated_at: Some(now()),
+            services,
         }))
     }
 
@@ -558,13 +594,24 @@ fn required<'a>(field: &str, value: &'a str) -> Result<&'a str, Status> {
 
 fn validate_policy(policy_id: &str) -> Result<(), Status> {
     required("policy_id", policy_id)?;
-    if matches!(policy_id, "policy_passive_dns" | "policy_passive_inventory") {
+    if matches!(
+        policy_id,
+        "policy_passive_dns" | "policy_passive_inventory" | "policy_service_baseline"
+    ) {
         return Ok(());
     }
     Err(invalid(
         "POLICY_UNSUPPORTED",
-        "supported policies: policy_passive_dns, policy_passive_inventory",
+        "supported policies: policy_passive_dns, policy_passive_inventory, policy_service_baseline",
     ))
+}
+
+fn policy_capability(policy_id: &str) -> Result<&'static str, Status> {
+    validate_policy(policy_id)?;
+    Ok(match policy_id {
+        "policy_service_baseline" => "scan.active",
+        _ => "scan.passive",
+    })
 }
 
 fn new_id(prefix: &str) -> String {

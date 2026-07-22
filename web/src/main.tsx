@@ -13,14 +13,16 @@ type Stamp = { seconds: number; nanos: number } | null
 type Scope = { id: string; name: string; authorization_ref: string; targets: { kind: number; value: string }[]; created_at: Stamp }
 type Task = { id: string; scope_id: string; policy_id: string; state: number; created_at: Stamp; updated_at: Stamp; schedule_id: string }
 type Asset = { id: string; scope_id: string; kind: number; value: string; first_seen_at: Stamp; last_seen_at: Stamp }
+type Service = { id: string; asset_id: string; transport: string; port: number; service_hint: string; first_seen_at: Stamp; last_seen_at: Stamp }
 type Schedule = { id: string; scope_id: string; policy_id: string; interval_seconds: number; enabled: boolean; next_run_at: Stamp; last_task_id: string; created_at: Stamp }
 type AssetChange = { id: string; schedule_id: string; task_id: string; asset_id: string; kind: number; detected_at: Stamp }
 type AuditEvent = { id: string; request_id: string; operation: string; agent_id: string; skill_name: string; skill_version: string; resource_id: string; occurred_at: Stamp }
 type Overview = {
-  counts: { scopes: number; tasks: number; assets: number; schedules: number; asset_changes: number; observations: number; evidence: number }
+  counts: { scopes: number; tasks: number; assets: number; services: number; schedules: number; asset_changes: number; observations: number; evidence: number }
   scopes: Scope[]
   tasks: Task[]
   assets: Asset[]
+  services: Service[]
   schedules: Schedule[]
   asset_changes: AssetChange[]
   audit_events: AuditEvent[]
@@ -68,6 +70,7 @@ function App() {
         <SideNavItems>
           <SideNavLink href="#overview" renderIcon={Dashboard}>Overview</SideNavLink>
           <SideNavLink href="#assets" renderIcon={Network_3}>Assets</SideNavLink>
+          <SideNavLink href="#services" renderIcon={Network_3}>Services</SideNavLink>
           <SideNavLink href="#tasks" renderIcon={TaskIcon}>Tasks</SideNavLink>
           <SideNavLink href="#monitoring" renderIcon={DataVis_1}>Monitoring</SideNavLink>
           <SideNavLink href="#evidence" renderIcon={DocumentSecurity}>Evidence</SideNavLink>
@@ -89,7 +92,7 @@ function App() {
             <Grid condensed className="metric-grid">
               <Metric label="Authorized scopes" value={data.counts.scopes} />
               <Metric label="Observed assets" value={data.counts.assets} />
-              <Metric label="Observations" value={data.counts.observations} />
+              <Metric label="Open services" value={data.counts.services} />
               <Metric label="Evidence objects" value={data.counts.evidence} />
             </Grid>
 
@@ -99,6 +102,11 @@ function App() {
                 <Search size="sm" labelText="Filter assets" placeholder="Filter domain or IP" value={query} onChange={(event) => setQuery(event.target.value)} />
               </div>
               <AssetTable assets={assets} />
+            </section>
+
+            <section id="services" className="data-section" aria-labelledby="services-title">
+              <div className="section-heading"><div><p className="section-label">Exposure</p><h2 id="services-title">Observed services</h2></div></div>
+              <ServiceTable services={data.services} assets={data.assets} />
             </section>
 
             <section id="tasks" className="data-section" aria-labelledby="tasks-title">
@@ -177,6 +185,20 @@ function TaskTable({ tasks }: { tasks: Task[] }) {
         <TableCell><Tag type={state.type}>{state.label}</Tag></TableCell><TableCell>{formatTime(task.updated_at)}</TableCell>
       </TableRow>
     })}</TableBody>
+  </Table></TableContainer>
+}
+
+function ServiceTable({ services, assets }: { services: Service[]; assets: Asset[] }) {
+  const assetNames = new Map(assets.map((asset) => [asset.id, asset.value]))
+  if (services.length === 0) return <Empty text="No open baseline TCP services have been observed." />
+  return <TableContainer><Table size="lg">
+    <TableHead><TableRow><TableHeader>Asset</TableHeader><TableHeader>Endpoint</TableHeader><TableHeader>Service hint</TableHeader><TableHeader>Last observed</TableHeader></TableRow></TableHead>
+    <TableBody>{services.map((service) => <TableRow key={service.id}>
+      <TableCell><strong>{assetNames.get(service.asset_id) ?? 'Retained asset'}</strong><code>{service.asset_id}</code></TableCell>
+      <TableCell><code>{service.transport}/{service.port}</code></TableCell>
+      <TableCell>{service.service_hint}</TableCell>
+      <TableCell>{formatTime(service.last_seen_at)}</TableCell>
+    </TableRow>)}</TableBody>
   </Table></TableContainer>
 }
 

@@ -20,6 +20,12 @@ printf '%s' '{"request_id":"req_health_scope","idempotency_key":"idem_health_sco
 
 The bridge accepts one JSON envelope on stdin and emits JSON Lines on stdout. It has no interactive mode.
 
+## Active service baseline
+
+`policy_service_baseline` requires the separate `scan.active` capability and an existing Scope with a non-empty authorization reference. It performs TCP connect checks only against the server-owned baseline set `22,25,53,80,110,143,443,445,3306,5432,6379,8080,8443`; RPC callers cannot supply ports or expand the range. Probes run concurrently with a 750 ms per-port timeout. Service names are port-based hints, not banner-verified product identities.
+
+Do not grant `scan.active` to passive discovery Skills. Keep active grants in a separate Skill binding and verify the Scope before invocation.
+
 ## Native runtime
 
 Required:

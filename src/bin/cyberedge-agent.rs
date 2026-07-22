@@ -9,7 +9,7 @@ use cyberedge::proto::{
     CancelTaskRequest, CreateScheduleRequest, CreateScopeRequest, ErrorDetail, GetEvidenceRequest,
     GetScopeRequest, GetTaskReportRequest, GetTaskRequest, InvocationContext, ScopeTarget,
     SearchAssetChangesRequest, SearchAssetsRequest, SearchAuditRequest, SearchObservationsRequest,
-    SearchSchedulesRequest, StartScanRequest, TargetKind, WatchTaskRequest,
+    SearchSchedulesRequest, SearchServicesRequest, StartScanRequest, TargetKind, WatchTaskRequest,
     cyber_edge_client::CyberEdgeClient,
 };
 use hyper_util::rt::TokioIo;
@@ -73,6 +73,9 @@ enum Command {
         schedule_id: String,
     },
     SearchAssets {
+        scope_id: String,
+    },
+    SearchServices {
         scope_id: String,
     },
     SearchObservations {
@@ -262,6 +265,26 @@ async fn run() -> Result<(), Value> {
                 .collect::<Vec<_>>();
             emit(json!({"assets": values}));
         }
+        Command::SearchServices { scope_id } => {
+            let values = client
+                .search_services(SearchServicesRequest { context, scope_id })
+                .await
+                .map_err(rpc_error)?
+                .into_inner()
+                .services
+                .into_iter()
+                .map(|service| {
+                    json!({
+                        "id": service.id, "asset_id": service.asset_id,
+                        "transport": service.transport, "port": service.port,
+                        "service_hint": service.service_hint,
+                        "first_seen_at": timestamp_json(service.first_seen_at),
+                        "last_seen_at": timestamp_json(service.last_seen_at)
+                    })
+                })
+                .collect::<Vec<_>>();
+            emit(json!({"services": values}));
+        }
         Command::SearchObservations { task_id } => {
             let values = client.search_observations(SearchObservationsRequest { context, task_id })
                 .await.map_err(rpc_error)?.into_inner().observations.into_iter().map(|item| json!({
@@ -298,6 +321,7 @@ async fn run() -> Result<(), Value> {
                 "assets": report.assets.into_iter().map(asset_json).collect::<Vec<_>>(),
                 "observations": report.observations.into_iter().map(observation_json).collect::<Vec<_>>(),
                 "evidence": report.evidence.into_iter().map(evidence_json).collect::<Vec<_>>(),
+                "services": report.services.into_iter().map(service_json).collect::<Vec<_>>(),
                 "generated_at": timestamp_json(report.generated_at)
             }));
         }
@@ -409,6 +433,13 @@ fn observation_json(value: cyberedge::proto::Observation) -> Value {
 fn evidence_json(value: cyberedge::proto::Evidence) -> Value {
     json!({"id": value.id, "media_type": value.media_type, "sha256": value.sha256,
         "content_base64": STANDARD.encode(value.content), "created_at": timestamp_json(value.created_at)})
+}
+
+fn service_json(value: cyberedge::proto::Service) -> Value {
+    json!({"id": value.id, "asset_id": value.asset_id, "transport": value.transport,
+        "port": value.port, "service_hint": value.service_hint,
+        "first_seen_at": timestamp_json(value.first_seen_at),
+        "last_seen_at": timestamp_json(value.last_seen_at)})
 }
 
 fn timestamp_json(value: Option<prost_types::Timestamp>) -> Value {
