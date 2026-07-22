@@ -8,8 +8,9 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use cyberedge::proto::{
     CancelTaskRequest, CreateScheduleRequest, CreateScopeRequest, ErrorDetail, GetEvidenceRequest,
     GetScopeRequest, GetTaskReportRequest, GetTaskRequest, InvocationContext, ScopeTarget,
-    SearchAssetsRequest, SearchAuditRequest, SearchObservationsRequest, SearchSchedulesRequest,
-    StartScanRequest, TargetKind, WatchTaskRequest, cyber_edge_client::CyberEdgeClient,
+    SearchAssetChangesRequest, SearchAssetsRequest, SearchAuditRequest, SearchObservationsRequest,
+    SearchSchedulesRequest, StartScanRequest, TargetKind, WatchTaskRequest,
+    cyber_edge_client::CyberEdgeClient,
 };
 use hyper_util::rt::TokioIo;
 use prost::Message;
@@ -67,6 +68,9 @@ enum Command {
     },
     SearchSchedules {
         scope_id: String,
+    },
+    SearchAssetChanges {
+        schedule_id: String,
     },
     SearchAssets {
         scope_id: String,
@@ -219,6 +223,27 @@ async fn run() -> Result<(), Value> {
                 .collect::<Vec<_>>();
             emit(json!({"schedules": values}));
         }
+        Command::SearchAssetChanges { schedule_id } => {
+            let values = client
+                .search_asset_changes(SearchAssetChangesRequest {
+                    context,
+                    schedule_id,
+                })
+                .await
+                .map_err(rpc_error)?
+                .into_inner()
+                .changes
+                .into_iter()
+                .map(|change| {
+                    json!({
+                        "id": change.id, "schedule_id": change.schedule_id,
+                        "task_id": change.task_id, "asset_id": change.asset_id,
+                        "kind": change.kind, "detected_at": timestamp_json(change.detected_at)
+                    })
+                })
+                .collect::<Vec<_>>();
+            emit(json!({"changes": values}));
+        }
         Command::SearchAssets { scope_id } => {
             let values = client
                 .search_assets(SearchAssetsRequest { context, scope_id })
@@ -359,7 +384,7 @@ fn scope_json(value: cyberedge::proto::Scope) -> Value {
 fn task_json(value: cyberedge::proto::Task) -> Value {
     json!({"id": value.id, "scope_id": value.scope_id, "policy_id": value.policy_id,
         "state": value.state, "created_at": timestamp_json(value.created_at),
-        "updated_at": timestamp_json(value.updated_at)})
+        "updated_at": timestamp_json(value.updated_at), "schedule_id": value.schedule_id})
 }
 
 fn schedule_json(value: cyberedge::proto::Schedule) -> Value {

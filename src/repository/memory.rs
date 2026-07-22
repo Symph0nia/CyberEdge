@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{BTreeSet, HashMap},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -11,7 +11,8 @@ use super::{
     RepositoryError,
 };
 use crate::proto::{
-    Asset, AuditEvent, Evidence, Observation, Schedule, Scope, Task, TaskEvent, TaskState,
+    Asset, AssetChange, AssetChangeKind, AuditEvent, Evidence, Observation, Schedule, Scope, Task,
+    TaskEvent, TaskState,
 };
 
 #[derive(Default)]
@@ -24,6 +25,7 @@ struct State {
     assets: HashMap<String, Asset>,
     observations: HashMap<String, Observation>,
     evidence: HashMap<String, Evidence>,
+    asset_changes: Vec<AssetChange>,
     audits: Vec<AuditEvent>,
 }
 
@@ -152,6 +154,22 @@ impl Repository for MemoryRepository {
             .schedules
             .values()
             .filter(|schedule| schedule.scope_id == scope_id)
+            .cloned()
+            .collect())
+    }
+
+    async fn search_asset_changes(
+        &self,
+        schedule_id: &str,
+    ) -> Result<Vec<AssetChange>, RepositoryError> {
+        let state = self.state.read().await;
+        if !state.schedules.contains_key(schedule_id) {
+            return Err(RepositoryError::NotFound("schedule"));
+        }
+        Ok(state
+            .asset_changes
+            .iter()
+            .filter(|change| change.schedule_id == schedule_id)
             .cloned()
             .collect())
     }
@@ -341,6 +359,19 @@ impl Repository for MemoryRepository {
         timestamp: prost_types::Timestamp,
     ) -> Result<(), RepositoryError> {
         let mut state = self.state.write().await;
+        let task = state
+            .tasks
+            .get(task_id)
+            .cloned()
+            .ok_or(RepositoryError::NotFound("task"))?;
+        let current_assets = records
+            .iter()
+            .map(|record| record.asset.id.clone())
+            .collect::<BTreeSet<_>>();
+        let complete_coverage = records
+            .iter()
+            .all(|record| !record.observation.observation_type.ends_with(".error"));
+        let previous_assets = previous_memory_assets(&state, &task);
         finish_memory_task(&mut state, task_id, TaskState::Completed, timestamp)?;
         for record in records {
             state.assets.insert(record.asset.id.clone(), record.asset);
@@ -350,6 +381,15 @@ impl Repository for MemoryRepository {
             state
                 .evidence
                 .insert(record.evidence.id.clone(), record.evidence);
+        }
+        if let Some(previous_assets) = previous_assets {
+            state.asset_changes.extend(asset_changes(
+                &task,
+                &previous_assets,
+                &current_assets,
+                timestamp,
+                complete_coverage,
+            ));
         }
         Ok(())
     }
@@ -370,10 +410,12 @@ impl Repository for MemoryRepository {
             tasks: state.tasks.values().cloned().collect(),
             assets: state.assets.values().cloned().collect(),
             schedules: state.schedules.values().cloned().collect(),
+            asset_changes: state.asset_changes.clone(),
             scope_count: state.scopes.len() as i64,
             task_count: state.tasks.len() as i64,
             asset_count: state.assets.len() as i64,
             schedule_count: state.schedules.len() as i64,
+            asset_change_count: state.asset_changes.len() as i64,
             observation_count: state.observations.len() as i64,
             evidence_count: state.evidence.len() as i64,
             audit_events: state.audits.iter().rev().take(50).cloned().collect(),
@@ -420,7 +462,69 @@ fn scheduled_task(schedule: &Schedule, timestamp: prost_types::Timestamp) -> Tas
         state: TaskState::Queued.into(),
         created_at: Some(timestamp),
         updated_at: Some(timestamp),
+        schedule_id: schedule.id.clone(),
     }
+}
+
+fn previous_memory_assets(state: &State, task: &Task) -> Option<BTreeSet<String>> {
+    if task.schedule_id.is_empty() {
+        return None;
+    }
+    let previous_id = state
+        .tasks
+        .values()
+        .filter(|candidate| {
+            candidate.id != task.id
+                && candidate.schedule_id == task.schedule_id
+                && candidate.state == i32::from(TaskState::Completed)
+        })
+        .max_by_key(|candidate| {
+            candidate
+                .updated_at
+                .map(|value| (value.seconds, value.nanos))
+                .unwrap_or_default()
+        })?
+        .id
+        .clone();
+    Some(
+        state
+            .observations
+            .values()
+            .filter(|observation| observation.task_id == previous_id)
+            .map(|observation| observation.asset_id.clone())
+            .collect(),
+    )
+}
+
+fn asset_changes(
+    task: &Task,
+    previous: &BTreeSet<String>,
+    current: &BTreeSet<String>,
+    timestamp: prost_types::Timestamp,
+    include_disappeared: bool,
+) -> Vec<AssetChange> {
+    current
+        .difference(previous)
+        .map(|asset_id| (asset_id, AssetChangeKind::Appeared))
+        .chain(
+            include_disappeared
+                .then(|| {
+                    previous
+                        .difference(current)
+                        .map(|asset_id| (asset_id, AssetChangeKind::Disappeared))
+                })
+                .into_iter()
+                .flatten(),
+        )
+        .map(|(asset_id, kind)| AssetChange {
+            id: format!("change_{}", uuid::Uuid::now_v7()),
+            schedule_id: task.schedule_id.clone(),
+            task_id: task.id.clone(),
+            asset_id: asset_id.clone(),
+            kind: kind.into(),
+            detected_at: Some(timestamp),
+        })
+        .collect()
 }
 
 fn finish_memory_task(

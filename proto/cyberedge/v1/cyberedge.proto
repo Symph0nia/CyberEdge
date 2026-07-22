@@ -15,6 +15,7 @@ service CyberEdge {
   rpc CancelTask(CancelTaskRequest) returns (Task);
   rpc CreateSchedule(CreateScheduleRequest) returns (Schedule);
   rpc SearchSchedules(SearchSchedulesRequest) returns (SearchSchedulesResponse);
+  rpc SearchAssetChanges(SearchAssetChangesRequest) returns (SearchAssetChangesResponse);
   rpc SearchAssets(SearchAssetsRequest) returns (SearchAssetsResponse);
   rpc SearchObservations(SearchObservationsRequest) returns (SearchObservationsResponse);
   rpc GetEvidence(GetEvidenceRequest) returns (Evidence);
@@ -89,6 +90,7 @@ message Task {
   TaskState state = 4;
   google.protobuf.Timestamp created_at = 5;
   google.protobuf.Timestamp updated_at = 6;
+  string schedule_id = 7;
 }
 
 message StartScanRequest {
@@ -137,6 +139,28 @@ message SearchSchedulesRequest {
 }
 
 message SearchSchedulesResponse { repeated Schedule schedules = 1; }
+
+enum AssetChangeKind {
+  ASSET_CHANGE_KIND_UNSPECIFIED = 0;
+  ASSET_CHANGE_KIND_APPEARED = 1;
+  ASSET_CHANGE_KIND_DISAPPEARED = 2;
+}
+
+message AssetChange {
+  string id = 1;
+  string schedule_id = 2;
+  string task_id = 3;
+  string asset_id = 4;
+  AssetChangeKind kind = 5;
+  google.protobuf.Timestamp detected_at = 6;
+}
+
+message SearchAssetChangesRequest {
+  InvocationContext context = 1;
+  string schedule_id = 2;
+}
+
+message SearchAssetChangesResponse { repeated AssetChange changes = 1; }
 
 message TaskEvent {
   string task_id = 1;

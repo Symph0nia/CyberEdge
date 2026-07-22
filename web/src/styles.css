@@ -32,6 +32,9 @@ main { width: min(100%, 100rem); margin: 0 auto; }
 .data-section h2 { margin: .35rem 0 1.5rem; font-size: 1.75rem; font-weight: 400; }
 .section-heading { display: flex; align-items: end; justify-content: space-between; gap: 2rem; }
 .section-heading .cds--search { width: min(24rem, 45vw); margin-bottom: 1rem; }
+.subsection-heading { display: flex; align-items: baseline; gap: 1rem; margin-top: 3rem; }
+.subsection-heading h3 { margin-right: auto; font-size: 1.25rem; font-weight: 400; }
+.subsection-heading span { color: var(--ce-muted); font-size: .875rem; }
 .cds--data-table-container { padding: 0; background: transparent; }
 .cds--data-table td strong, .cds--data-table td code { display: block; }
 .cds--data-table td code { margin-top: .3rem; color: var(--ce-muted); font-size: .72rem; }

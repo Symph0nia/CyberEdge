@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use async_trait::async_trait;
 use serde_json::json;
 use sqlx::{PgConnection, PgPool, Row, postgres::PgPoolOptions};
@@ -7,8 +9,8 @@ use super::{
     RepositoryError,
 };
 use crate::proto::{
-    Asset, AuditEvent, Evidence, Observation, Schedule, Scope, ScopeTarget, Task, TaskEvent,
-    TaskState,
+    Asset, AssetChange, AssetChangeKind, AuditEvent, Evidence, Observation, Schedule, Scope,
+    ScopeTarget, Task, TaskEvent, TaskState,
 };
 
 pub struct PostgresRepository {
@@ -239,6 +241,30 @@ impl Repository for PostgresRepository {
         Ok(rows.iter().map(schedule_from_row).collect())
     }
 
+    async fn search_asset_changes(
+        &self,
+        schedule_id: &str,
+    ) -> Result<Vec<AssetChange>, RepositoryError> {
+        let exists = sqlx::query("SELECT 1 FROM schedules WHERE id = $1")
+            .bind(schedule_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .is_some();
+        if !exists {
+            return Err(RepositoryError::NotFound("schedule"));
+        }
+        let rows = sqlx::query(
+            "SELECT id, schedule_id, task_id, asset_id, kind,
+                    detected_at_seconds, detected_at_nanos
+             FROM asset_changes WHERE schedule_id = $1
+             ORDER BY detected_at_seconds DESC, detected_at_nanos DESC, id",
+        )
+        .bind(schedule_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.iter().map(asset_change_from_row).collect())
+    }
+
     async fn enqueue_due_schedules(
         &self,
         timestamp: prost_types::Timestamp,
@@ -267,6 +293,7 @@ impl Repository for PostgresRepository {
                 state: TaskState::Queued.into(),
                 created_at: Some(timestamp),
                 updated_at: Some(timestamp),
+                schedule_id: schedule.id.clone(),
             };
             sqlx::query(
                 "INSERT INTO tasks
@@ -514,6 +541,41 @@ impl Repository for PostgresRepository {
     ) -> Result<(), RepositoryError> {
         let mut tx = self.pool.begin().await?;
         ensure_running(&mut tx, task_id).await?;
+        let task = fetch_task(&mut tx, task_id).await?;
+        let current_assets = records
+            .iter()
+            .map(|record| record.asset.id.clone())
+            .collect::<BTreeSet<_>>();
+        let complete_coverage = records
+            .iter()
+            .all(|record| !record.observation.observation_type.ends_with(".error"));
+        let previous_assets = if task.schedule_id.is_empty() {
+            None
+        } else {
+            let previous_task_id = sqlx::query_scalar::<_, String>(
+                "SELECT id FROM tasks
+                 WHERE schedule_id = $1 AND id <> $2 AND state = $3
+                 ORDER BY updated_at_seconds DESC, updated_at_nanos DESC LIMIT 1",
+            )
+            .bind(&task.schedule_id)
+            .bind(task_id)
+            .bind(i32::from(TaskState::Completed))
+            .fetch_optional(&mut *tx)
+            .await?;
+            match previous_task_id {
+                Some(previous_task_id) => Some(
+                    sqlx::query_scalar::<_, String>(
+                        "SELECT DISTINCT asset_id FROM observations WHERE task_id = $1",
+                    )
+                    .bind(previous_task_id)
+                    .fetch_all(&mut *tx)
+                    .await?
+                    .into_iter()
+                    .collect::<BTreeSet<_>>(),
+                ),
+                None => None,
+            }
+        };
         for record in records {
             let evidence_at = record
                 .evidence
@@ -577,6 +639,41 @@ impl Repository for PostgresRepository {
             .execute(&mut *tx)
             .await?;
         }
+        if let Some(previous_assets) = previous_assets {
+            for change in asset_changes(
+                &task,
+                &previous_assets,
+                &current_assets,
+                timestamp,
+                complete_coverage,
+            ) {
+                sqlx::query(
+                    "INSERT INTO asset_changes
+                     (id, schedule_id, task_id, asset_id, kind,
+                      detected_at_seconds, detected_at_nanos)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                )
+                .bind(&change.id)
+                .bind(&change.schedule_id)
+                .bind(&change.task_id)
+                .bind(&change.asset_id)
+                .bind(change.kind)
+                .bind(timestamp.seconds)
+                .bind(timestamp.nanos)
+                .execute(&mut *tx)
+                .await?;
+                insert_outbox(
+                    &mut tx,
+                    "schedule",
+                    &task.schedule_id,
+                    None,
+                    "monitor.asset_changed",
+                    json!({"change_id": change.id, "task_id": task.id,
+                        "asset_id": change.asset_id, "kind": change.kind}),
+                )
+                .await?;
+            }
+        }
         finish_task(&mut tx, task_id, TaskState::Completed, timestamp).await?;
         tx.commit().await?;
         Ok(())
@@ -607,7 +704,7 @@ impl Repository for PostgresRepository {
         }
         let tasks = sqlx::query(
             "SELECT id, scope_id, policy_id, state, created_at_seconds, created_at_nanos,
-                    updated_at_seconds, updated_at_nanos FROM tasks
+                    updated_at_seconds, updated_at_nanos, schedule_id FROM tasks
              ORDER BY created_at_seconds DESC, created_at_nanos DESC LIMIT 50",
         )
         .fetch_all(&self.pool)
@@ -636,6 +733,16 @@ impl Repository for PostgresRepository {
         .iter()
         .map(schedule_from_row)
         .collect();
+        let asset_changes = sqlx::query(
+            "SELECT id, schedule_id, task_id, asset_id, kind,
+                    detected_at_seconds, detected_at_nanos FROM asset_changes
+             ORDER BY detected_at_seconds DESC, detected_at_nanos DESC LIMIT 100",
+        )
+        .fetch_all(&self.pool)
+        .await?
+        .iter()
+        .map(asset_change_from_row)
+        .collect();
         let observation_count = sqlx::query_scalar("SELECT COUNT(*) FROM observations")
             .fetch_one(&self.pool)
             .await?;
@@ -654,16 +761,21 @@ impl Repository for PostgresRepository {
         let schedule_count = sqlx::query_scalar("SELECT COUNT(*) FROM schedules")
             .fetch_one(&self.pool)
             .await?;
+        let asset_change_count = sqlx::query_scalar("SELECT COUNT(*) FROM asset_changes")
+            .fetch_one(&self.pool)
+            .await?;
         let audit_events = fetch_audit(&self.pool, 50).await?;
         Ok(ReadOverview {
             scopes,
             tasks,
             assets,
             schedules,
+            asset_changes,
             scope_count,
             task_count,
             asset_count,
             schedule_count,
+            asset_change_count,
             observation_count,
             evidence_count,
             audit_events,
@@ -905,7 +1017,7 @@ async fn fetch_scope(
 async fn fetch_task(connection: &mut PgConnection, task_id: &str) -> Result<Task, RepositoryError> {
     let row = sqlx::query(
         "SELECT id, scope_id, policy_id, state, created_at_seconds, created_at_nanos,
-                updated_at_seconds, updated_at_nanos FROM tasks WHERE id = $1",
+                updated_at_seconds, updated_at_nanos, schedule_id FROM tasks WHERE id = $1",
     )
     .bind(task_id)
     .fetch_optional(connection)
@@ -936,7 +1048,7 @@ async fn fetch_task_for_update(
 ) -> Result<Task, RepositoryError> {
     let row = sqlx::query(
         "SELECT id, scope_id, policy_id, state, created_at_seconds, created_at_nanos,
-                updated_at_seconds, updated_at_nanos FROM tasks WHERE id = $1 FOR UPDATE",
+                updated_at_seconds, updated_at_nanos, schedule_id FROM tasks WHERE id = $1 FOR UPDATE",
     )
     .bind(task_id)
     .fetch_optional(connection)
@@ -976,6 +1088,9 @@ fn task_from_row(row: &sqlx::postgres::PgRow) -> Task {
             seconds: row.get("updated_at_seconds"),
             nanos: row.get("updated_at_nanos"),
         }),
+        schedule_id: row
+            .get::<Option<String>, _>("schedule_id")
+            .unwrap_or_default(),
     }
 }
 
@@ -998,6 +1113,51 @@ fn schedule_from_row(row: &sqlx::postgres::PgRow) -> Schedule {
             nanos: row.get("created_at_nanos"),
         }),
     }
+}
+
+fn asset_change_from_row(row: &sqlx::postgres::PgRow) -> AssetChange {
+    AssetChange {
+        id: row.get("id"),
+        schedule_id: row.get("schedule_id"),
+        task_id: row.get("task_id"),
+        asset_id: row.get("asset_id"),
+        kind: row.get("kind"),
+        detected_at: Some(prost_types::Timestamp {
+            seconds: row.get("detected_at_seconds"),
+            nanos: row.get("detected_at_nanos"),
+        }),
+    }
+}
+
+fn asset_changes(
+    task: &Task,
+    previous: &BTreeSet<String>,
+    current: &BTreeSet<String>,
+    timestamp: prost_types::Timestamp,
+    include_disappeared: bool,
+) -> Vec<AssetChange> {
+    current
+        .difference(previous)
+        .map(|asset_id| (asset_id, AssetChangeKind::Appeared))
+        .chain(
+            include_disappeared
+                .then(|| {
+                    previous
+                        .difference(current)
+                        .map(|asset_id| (asset_id, AssetChangeKind::Disappeared))
+                })
+                .into_iter()
+                .flatten(),
+        )
+        .map(|(asset_id, kind)| AssetChange {
+            id: format!("change_{}", uuid::Uuid::now_v7()),
+            schedule_id: task.schedule_id.clone(),
+            task_id: task.id.clone(),
+            asset_id: asset_id.clone(),
+            kind: kind.into(),
+            detected_at: Some(timestamp),
+        })
+        .collect()
 }
 
 fn task_event_from_row(row: &sqlx::postgres::PgRow) -> TaskEvent {

@@ -24,7 +24,7 @@ Use `cyberedge-agent` as the machine bridge to the CyberEdge gRPC contract. Send
 6. Use `SearchAudit` when the requester needs invocation provenance.
 7. Report only facts linked to evidence. Separate errors and coverage gaps from confirmed absence.
 
-For recurring monitoring, call `CreateSchedule` with the existing scope and passive policy. The minimum interval is 60 seconds. A Schedule never performs discovery itself: each due occurrence creates a normal Task, so follow and report its `last_task_id` through the same task workflow. Use `SearchSchedules` to inspect recurrence state.
+For recurring monitoring, call `CreateSchedule` with the existing scope and passive policy. The minimum interval is 60 seconds. A Schedule never performs discovery itself: each due occurrence creates a normal Task, so follow and report its `last_task_id` through the same task workflow. Use `SearchSchedules` to inspect recurrence state and `SearchAssetChanges` to read evidence-derived `appeared` or `disappeared` changes. The first successful run establishes the baseline and produces no changes.
 
 Use snake-case action names. Every envelope includes `request_id`, `idempotency_key`, `agent_id`, `skill_name`, and `skill_version`. Example:
 

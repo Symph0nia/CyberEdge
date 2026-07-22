@@ -11,16 +11,18 @@ import './styles.css'
 
 type Stamp = { seconds: number; nanos: number } | null
 type Scope = { id: string; name: string; authorization_ref: string; targets: { kind: number; value: string }[]; created_at: Stamp }
-type Task = { id: string; scope_id: string; policy_id: string; state: number; created_at: Stamp; updated_at: Stamp }
+type Task = { id: string; scope_id: string; policy_id: string; state: number; created_at: Stamp; updated_at: Stamp; schedule_id: string }
 type Asset = { id: string; scope_id: string; kind: number; value: string; first_seen_at: Stamp; last_seen_at: Stamp }
 type Schedule = { id: string; scope_id: string; policy_id: string; interval_seconds: number; enabled: boolean; next_run_at: Stamp; last_task_id: string; created_at: Stamp }
+type AssetChange = { id: string; schedule_id: string; task_id: string; asset_id: string; kind: number; detected_at: Stamp }
 type AuditEvent = { id: string; request_id: string; operation: string; agent_id: string; skill_name: string; skill_version: string; resource_id: string; occurred_at: Stamp }
 type Overview = {
-  counts: { scopes: number; tasks: number; assets: number; schedules: number; observations: number; evidence: number }
+  counts: { scopes: number; tasks: number; assets: number; schedules: number; asset_changes: number; observations: number; evidence: number }
   scopes: Scope[]
   tasks: Task[]
   assets: Asset[]
   schedules: Schedule[]
+  asset_changes: AssetChange[]
   audit_events: AuditEvent[]
 }
 
@@ -107,6 +109,8 @@ function App() {
             <section id="monitoring" className="data-section" aria-labelledby="monitoring-title">
               <div className="section-heading"><div><p className="section-label">Recurring observation</p><h2 id="monitoring-title">Monitoring schedules</h2></div></div>
               <ScheduleTable schedules={data.schedules} />
+              <div className="subsection-heading"><p className="section-label">Detected drift</p><h3>Asset changes</h3><span>{formatNumber(data.counts.asset_changes)} recorded</span></div>
+              <ChangeTable changes={data.asset_changes} assets={data.assets} />
             </section>
 
             <section id="audit" className="data-section" aria-labelledby="audit-title">
@@ -186,6 +190,20 @@ function ScheduleTable({ schedules }: { schedules: Schedule[] }) {
       <TableCell><Tag type={schedule.enabled ? 'green' : 'gray'}>{schedule.enabled ? `Every ${formatInterval(schedule.interval_seconds)}` : 'Disabled'}</Tag></TableCell>
       <TableCell>{formatTime(schedule.next_run_at)}</TableCell>
       <TableCell><code>{schedule.last_task_id ? shortId(schedule.last_task_id) : 'Not run'}</code></TableCell>
+    </TableRow>)}</TableBody>
+  </Table></TableContainer>
+}
+
+function ChangeTable({ changes, assets }: { changes: AssetChange[]; assets: Asset[] }) {
+  const assetNames = new Map(assets.map((asset) => [asset.id, asset.value]))
+  if (changes.length === 0) return <Empty text="No drift has been detected after a completed monitoring baseline." />
+  return <TableContainer><Table size="lg">
+    <TableHead><TableRow><TableHeader>Change</TableHeader><TableHeader>Asset</TableHeader><TableHeader>Schedule</TableHeader><TableHeader>Detected</TableHeader></TableRow></TableHead>
+    <TableBody>{changes.map((change) => <TableRow key={change.id}>
+      <TableCell><Tag type={change.kind === 1 ? 'green' : 'red'}>{change.kind === 1 ? 'Appeared' : 'Disappeared'}</Tag></TableCell>
+      <TableCell><strong>{assetNames.get(change.asset_id) ?? 'Retained asset'}</strong><code>{change.asset_id}</code></TableCell>
+      <TableCell><code>{shortId(change.schedule_id)}</code></TableCell>
+      <TableCell>{formatTime(change.detected_at)}</TableCell>
     </TableRow>)}</TableBody>
   </Table></TableContainer>
 }

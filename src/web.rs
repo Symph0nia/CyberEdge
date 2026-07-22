@@ -14,7 +14,7 @@ use tower_http::{
 };
 
 use crate::{
-    proto::{Asset, Schedule, Scope, Task},
+    proto::{Asset, AssetChange, Schedule, Scope, Task},
     repository::Repository,
 };
 
@@ -69,12 +69,14 @@ async fn overview(State(state): State<WebState>) -> Result<Json<Value>, WebError
     Ok(Json(json!({
         "counts": {"scopes": model.scope_count, "tasks": model.task_count,
             "assets": model.asset_count, "schedules": model.schedule_count,
+            "asset_changes": model.asset_change_count,
             "observations": model.observation_count,
             "evidence": model.evidence_count},
         "scopes": model.scopes.into_iter().map(scope_json).collect::<Vec<_>>(),
         "tasks": model.tasks.into_iter().map(task_json).collect::<Vec<_>>(),
         "assets": model.assets.into_iter().map(asset_json).collect::<Vec<_>>(),
         "schedules": model.schedules.into_iter().map(schedule_json).collect::<Vec<_>>(),
+        "asset_changes": model.asset_changes.into_iter().map(asset_change_json).collect::<Vec<_>>(),
         "audit_events": model.audit_events.into_iter().map(|event| json!({
             "id": event.id, "request_id": event.request_id, "operation": event.operation,
             "agent_id": event.agent_id, "skill_name": event.skill_name,
@@ -141,7 +143,7 @@ fn scope_json(scope: Scope) -> Value {
 fn task_json(task: Task) -> Value {
     json!({"id": task.id, "scope_id": task.scope_id, "policy_id": task.policy_id,
         "state": task.state, "created_at": timestamp(task.created_at),
-        "updated_at": timestamp(task.updated_at)})
+        "updated_at": timestamp(task.updated_at), "schedule_id": task.schedule_id})
 }
 
 fn asset_json(asset: Asset) -> Value {
@@ -154,6 +156,12 @@ fn schedule_json(schedule: Schedule) -> Value {
         "interval_seconds": schedule.interval_seconds, "enabled": schedule.enabled,
         "next_run_at": timestamp(schedule.next_run_at), "last_task_id": schedule.last_task_id,
         "created_at": timestamp(schedule.created_at)})
+}
+
+fn asset_change_json(change: AssetChange) -> Value {
+    json!({"id": change.id, "schedule_id": change.schedule_id, "task_id": change.task_id,
+        "asset_id": change.asset_id, "kind": change.kind,
+        "detected_at": timestamp(change.detected_at)})
 }
 
 fn timestamp(value: Option<prost_types::Timestamp>) -> Value {

@@ -15,9 +15,10 @@ use tonic::{Code, Request, Response, Status};
 use uuid::Uuid;
 
 use crate::proto::{
-    CancelTaskRequest, CreateScheduleRequest, CreateScopeRequest, ErrorDetail, GetEvidenceRequest,
-    GetScopeRequest, GetTaskReportRequest, GetTaskRequest, HealthResponse, InvocationContext,
-    Schedule, Scope, ScopeTarget, SearchAssetsRequest, SearchAssetsResponse, SearchAuditRequest,
+    AssetChange, CancelTaskRequest, CreateScheduleRequest, CreateScopeRequest, ErrorDetail,
+    GetEvidenceRequest, GetScopeRequest, GetTaskReportRequest, GetTaskRequest, HealthResponse,
+    InvocationContext, Schedule, Scope, ScopeTarget, SearchAssetChangesRequest,
+    SearchAssetChangesResponse, SearchAssetsRequest, SearchAssetsResponse, SearchAuditRequest,
     SearchAuditResponse, SearchObservationsRequest, SearchObservationsResponse,
     SearchSchedulesRequest, SearchSchedulesResponse, StartScanRequest, TargetKind, Task, TaskEvent,
     TaskReport, TaskState, WatchTaskRequest,
@@ -139,6 +140,7 @@ impl CyberEdge for CyberEdgeService {
             state: TaskState::Queued.into(),
             created_at: Some(timestamp),
             updated_at: Some(timestamp),
+            schedule_id: String::new(),
         };
         let event = TaskEvent {
             task_id: task.id.clone(),
@@ -223,6 +225,21 @@ impl CyberEdge for CyberEdgeService {
             .await
             .map_err(repository_status)?;
         Ok(Response::new(SearchSchedulesResponse { schedules }))
+    }
+
+    async fn search_asset_changes(
+        &self,
+        request: Request<SearchAssetChangesRequest>,
+    ) -> Result<Response<SearchAssetChangesResponse>, Status> {
+        let request = request.into_inner();
+        let context = validate_context(request.context.as_ref())?;
+        self.authorize(context, "monitor.read")?;
+        let changes: Vec<AssetChange> = self
+            .repository
+            .search_asset_changes(&request.schedule_id)
+            .await
+            .map_err(repository_status)?;
+        Ok(Response::new(SearchAssetChangesResponse { changes }))
     }
 
     async fn watch_task(

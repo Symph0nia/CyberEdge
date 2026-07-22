@@ -1,6 +1,9 @@
 use std::{
     net::{IpAddr, Ipv4Addr},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
 };
 
 use async_trait::async_trait;
@@ -8,10 +11,10 @@ use cyberedge::{
     Authorizer, CertificateSource, CyberEdgeService, DiscoveryWorker, DnsResolver,
     MemoryRepository, Repository,
     proto::{
-        CreateScheduleRequest, CreateScopeRequest, GetEvidenceRequest, GetTaskReportRequest,
-        InvocationContext, ScopeTarget, SearchAssetsRequest, SearchAuditRequest,
-        SearchObservationsRequest, SearchSchedulesRequest, StartScanRequest, TargetKind, TaskState,
-        cyber_edge_server::CyberEdge,
+        AssetChangeKind, CreateScheduleRequest, CreateScopeRequest, GetEvidenceRequest,
+        GetTaskReportRequest, InvocationContext, ScopeTarget, SearchAssetChangesRequest,
+        SearchAssetsRequest, SearchAuditRequest, SearchObservationsRequest, SearchSchedulesRequest,
+        StartScanRequest, TargetKind, TaskState, cyber_edge_server::CyberEdge,
     },
 };
 use sha2::{Digest, Sha256};
@@ -48,6 +51,33 @@ impl CertificateSource for Certificates {
             "notexample.com".to_owned(),
             "bad name.example.com".to_owned(),
         ])
+    }
+}
+
+struct ChangingResolver(AtomicUsize);
+
+#[async_trait]
+impl DnsResolver for ChangingResolver {
+    async fn resolve(&self, _domain: &str) -> Result<Vec<IpAddr>, String> {
+        let suffix = if self.0.fetch_add(1, Ordering::SeqCst) == 0 {
+            10
+        } else {
+            11
+        };
+        Ok(vec![IpAddr::V4(Ipv4Addr::new(192, 0, 2, suffix))])
+    }
+}
+
+struct FailingResolver(AtomicUsize);
+
+#[async_trait]
+impl DnsResolver for FailingResolver {
+    async fn resolve(&self, _domain: &str) -> Result<Vec<IpAddr>, String> {
+        if self.0.fetch_add(1, Ordering::SeqCst) == 0 {
+            Ok(vec![IpAddr::V4(Ipv4Addr::new(192, 0, 2, 20))])
+        } else {
+            Err("upstream timeout".to_owned())
+        }
     }
 }
 
@@ -273,6 +303,133 @@ async fn due_schedule_creates_a_normal_task() {
         .unwrap()
         .into_inner();
     assert_eq!(task.state, i32::from(TaskState::Completed));
+}
+
+#[tokio::test]
+async fn monitoring_records_appeared_and_disappeared_assets_after_baseline() {
+    let repository: Arc<dyn Repository> = Arc::new(MemoryRepository::default());
+    let service = CyberEdgeService::new(repository.clone(), Arc::new(Allow));
+    let scope = service
+        .create_scope(Request::new(CreateScopeRequest {
+            context: Some(context("monitor-scope")),
+            name: "Asset monitor".to_owned(),
+            authorization_ref: "authorization:test".to_owned(),
+            targets: vec![ScopeTarget {
+                kind: TargetKind::Domain.into(),
+                value: "example.com".to_owned(),
+            }],
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let schedule = service
+        .create_schedule(Request::new(CreateScheduleRequest {
+            context: Some(context("monitor-schedule")),
+            scope_id: scope.id,
+            policy_id: "policy_passive_dns".to_owned(),
+            interval_seconds: 60,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let worker = DiscoveryWorker::new(
+        repository.clone(),
+        Arc::new(ChangingResolver(AtomicUsize::new(0))),
+    );
+
+    repository
+        .enqueue_due_schedules(schedule.next_run_at.unwrap())
+        .await
+        .unwrap();
+    worker.run_once().await.unwrap();
+    assert!(
+        repository
+            .search_asset_changes(&schedule.id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+
+    let next = repository
+        .search_schedules(&schedule.scope_id)
+        .await
+        .unwrap()[0]
+        .next_run_at
+        .unwrap();
+    repository.enqueue_due_schedules(next).await.unwrap();
+    worker.run_once().await.unwrap();
+    let changes = service
+        .search_asset_changes(Request::new(SearchAssetChangesRequest {
+            context: Some(context("monitor-changes")),
+            schedule_id: schedule.id,
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .changes;
+    assert_eq!(changes.len(), 2);
+    assert!(
+        changes
+            .iter()
+            .any(|change| change.kind == i32::from(AssetChangeKind::Appeared))
+    );
+    assert!(
+        changes
+            .iter()
+            .any(|change| change.kind == i32::from(AssetChangeKind::Disappeared))
+    );
+}
+
+#[tokio::test]
+async fn monitoring_does_not_report_disappearance_when_coverage_fails() {
+    let repository: Arc<dyn Repository> = Arc::new(MemoryRepository::default());
+    let service = CyberEdgeService::new(repository.clone(), Arc::new(Allow));
+    let scope = service
+        .create_scope(Request::new(CreateScopeRequest {
+            context: Some(context("coverage-scope")),
+            name: "Coverage guard".to_owned(),
+            authorization_ref: "authorization:test".to_owned(),
+            targets: vec![ScopeTarget {
+                kind: TargetKind::Domain.into(),
+                value: "example.com".to_owned(),
+            }],
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let schedule = service
+        .create_schedule(Request::new(CreateScheduleRequest {
+            context: Some(context("coverage-schedule")),
+            scope_id: scope.id,
+            policy_id: "policy_passive_dns".to_owned(),
+            interval_seconds: 60,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let worker = DiscoveryWorker::new(
+        repository.clone(),
+        Arc::new(FailingResolver(AtomicUsize::new(0))),
+    );
+    let first = schedule.next_run_at.unwrap();
+    repository.enqueue_due_schedules(first).await.unwrap();
+    worker.run_once().await.unwrap();
+    let second = repository
+        .search_schedules(&schedule.scope_id)
+        .await
+        .unwrap()[0]
+        .next_run_at
+        .unwrap();
+    repository.enqueue_due_schedules(second).await.unwrap();
+    worker.run_once().await.unwrap();
+
+    assert!(
+        repository
+            .search_asset_changes(&schedule.id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
 }
 
 fn context(suffix: &str) -> InvocationContext {

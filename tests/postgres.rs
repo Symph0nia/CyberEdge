@@ -1,15 +1,18 @@
 use std::{
     net::{IpAddr, Ipv4Addr},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
 };
 
 use async_trait::async_trait;
 use cyberedge::{
     Authorizer, CyberEdgeService, DiscoveryWorker, DnsResolver, PostgresRepository, Repository,
     proto::{
-        CreateScheduleRequest, CreateScopeRequest, GetTaskReportRequest, GetTaskRequest,
-        InvocationContext, ScopeTarget, SearchAuditRequest, SearchSchedulesRequest,
-        StartScanRequest, TargetKind, WatchTaskRequest,
+        AssetChangeKind, CreateScheduleRequest, CreateScopeRequest, GetTaskReportRequest,
+        GetTaskRequest, InvocationContext, ScopeTarget, SearchAssetChangesRequest,
+        SearchAuditRequest, SearchSchedulesRequest, StartScanRequest, TargetKind, WatchTaskRequest,
         cyber_edge_server::CyberEdge,
     },
 };
@@ -19,12 +22,13 @@ use tonic::Request;
 
 struct TestAuthorizer;
 
-struct Resolver;
+struct Resolver(AtomicUsize);
 
 #[async_trait]
 impl DnsResolver for Resolver {
     async fn resolve(&self, _domain: &str) -> Result<Vec<IpAddr>, String> {
-        Ok(vec![IpAddr::V4(Ipv4Addr::new(192, 0, 2, 20))])
+        let suffix = 20 + self.0.fetch_add(1, Ordering::SeqCst) as u8;
+        Ok(vec![IpAddr::V4(Ipv4Addr::new(192, 0, 2, suffix))])
     }
 }
 
@@ -75,7 +79,7 @@ async fn persists_scope_task_events_audit_and_outbox() {
         .create_schedule(Request::new(CreateScheduleRequest {
             context: Some(context("schedule")),
             scope_id: scope.id.clone(),
-            policy_id: "policy_passive_inventory".to_owned(),
+            policy_id: "policy_passive_dns".to_owned(),
             interval_seconds: 60,
         }))
         .await
@@ -86,8 +90,34 @@ async fn persists_scope_task_events_audit_and_outbox() {
         .await
         .unwrap();
     assert_eq!(scheduled_tasks.len(), 1);
-    let worker = DiscoveryWorker::new(repository, Arc::new(Resolver));
+    let worker = DiscoveryWorker::new(repository.clone(), Arc::new(Resolver(AtomicUsize::new(0))));
     assert!(worker.run_once().await.unwrap());
+    assert!(worker.run_once().await.unwrap());
+    let next = repository.search_schedules(&scope.id).await.unwrap()[0]
+        .next_run_at
+        .unwrap();
+    let latest_scheduled_tasks = repository.enqueue_due_schedules(next).await.unwrap();
+    assert!(worker.run_once().await.unwrap());
+    let changes = service
+        .search_asset_changes(Request::new(SearchAssetChangesRequest {
+            context: Some(context("changes")),
+            schedule_id: schedule.id.clone(),
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .changes;
+    assert_eq!(changes.len(), 2);
+    assert!(
+        changes
+            .iter()
+            .any(|change| change.kind == i32::from(AssetChangeKind::Appeared))
+    );
+    assert!(
+        changes
+            .iter()
+            .any(|change| change.kind == i32::from(AssetChangeKind::Disappeared))
+    );
     drop(service);
 
     let restarted = CyberEdgeService::new(
@@ -142,9 +172,9 @@ async fn persists_scope_task_events_audit_and_outbox() {
         .fetch_one(&pool)
         .await
         .unwrap();
-    assert_eq!(outbox_count, 6);
-    assert_eq!(asset_count, 2);
-    assert_eq!(observation_count, 2);
+    assert_eq!(outbox_count, 13);
+    assert_eq!(asset_count, 4);
+    assert_eq!(observation_count, 6);
     let report = restarted
         .get_task_report(Request::new(GetTaskReportRequest {
             context: Some(context("report")),
@@ -172,7 +202,7 @@ async fn persists_scope_task_events_audit_and_outbox() {
         .unwrap()
         .into_inner()
         .schedules;
-    assert_eq!(schedules[0].last_task_id, scheduled_tasks[0].id);
+    assert_eq!(schedules[0].last_task_id, latest_scheduled_tasks[0].id);
 }
 
 fn context(suffix: &str) -> InvocationContext {
@@ -188,7 +218,7 @@ fn context(suffix: &str) -> InvocationContext {
 async fn reset(pool: &PgPool) {
     sqlx::query(
         "TRUNCATE observations, evidence, assets, outbox_events, audit_events,
-         idempotency_keys, task_events, tasks, schedules, scope_targets, scopes
+         idempotency_keys, asset_changes, task_events, tasks, schedules, scope_targets, scopes
          RESTART IDENTITY CASCADE",
     )
     .execute(pool)

@@ -10,6 +10,7 @@ capabilities = [
   "task.cancel",
   "schedule.manage",
   "schedule.read",
+  "monitor.read",
   "asset.read",
   "evidence.read",
   "report.read",
