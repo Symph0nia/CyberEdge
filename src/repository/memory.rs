@@ -11,8 +11,8 @@ use super::{
     RepositoryError,
 };
 use crate::proto::{
-    Asset, AssetChange, AssetChangeKind, AuditEvent, Evidence, Observation, Schedule, Scope,
-    Service, Task, TaskEvent, TaskState,
+    Asset, AssetChange, AssetChangeKind, AuditEvent, Certificate, Evidence, Observation, Schedule,
+    Scope, Service, Task, TaskEvent, TaskState,
 };
 
 #[derive(Default)]
@@ -27,6 +27,7 @@ struct State {
     evidence: HashMap<String, Evidence>,
     asset_changes: Vec<AssetChange>,
     services: HashMap<String, Service>,
+    certificates: HashMap<String, Certificate>,
     audits: Vec<AuditEvent>,
 }
 
@@ -314,6 +315,33 @@ impl Repository for MemoryRepository {
             .collect())
     }
 
+    async fn search_certificates(
+        &self,
+        scope_id: &str,
+    ) -> Result<Vec<Certificate>, RepositoryError> {
+        let state = self.state.read().await;
+        if !state.scopes.contains_key(scope_id) {
+            return Err(RepositoryError::NotFound("scope"));
+        }
+        let service_ids = state
+            .services
+            .values()
+            .filter(|service| {
+                state
+                    .assets
+                    .get(&service.asset_id)
+                    .is_some_and(|asset| asset.scope_id == scope_id)
+            })
+            .map(|service| service.id.as_str())
+            .collect::<BTreeSet<_>>();
+        Ok(state
+            .certificates
+            .values()
+            .filter(|certificate| service_ids.contains(certificate.service_id.as_str()))
+            .cloned()
+            .collect())
+    }
+
     async fn search_observations(
         &self,
         task_id: &str,
@@ -398,6 +426,11 @@ impl Repository for MemoryRepository {
             if let Some(service) = record.service {
                 state.services.insert(service.id.clone(), service);
             }
+            if let Some(certificate) = record.certificate {
+                state
+                    .certificates
+                    .insert(certificate.id.clone(), certificate);
+            }
             state
                 .observations
                 .insert(record.observation.id.clone(), record.observation);
@@ -435,12 +468,14 @@ impl Repository for MemoryRepository {
             schedules: state.schedules.values().cloned().collect(),
             asset_changes: state.asset_changes.clone(),
             services: state.services.values().cloned().collect(),
+            certificates: state.certificates.values().cloned().collect(),
             scope_count: state.scopes.len() as i64,
             task_count: state.tasks.len() as i64,
             asset_count: state.assets.len() as i64,
             schedule_count: state.schedules.len() as i64,
             asset_change_count: state.asset_changes.len() as i64,
             service_count: state.services.len() as i64,
+            certificate_count: state.certificates.len() as i64,
             observation_count: state.observations.len() as i64,
             evidence_count: state.evidence.len() as i64,
             audit_events: state.audits.iter().rev().take(50).cloned().collect(),

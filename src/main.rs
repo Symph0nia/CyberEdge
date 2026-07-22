@@ -8,7 +8,8 @@ use std::{
 
 use cyberedge::{
     BASELINE_SERVICE_PORTS, CrtShSource, CyberEdgeService, DiscoveryWorker, PostgresRepository,
-    Repository, StaticAuthorizer, SystemDnsResolver, SystemPortConnector, serve_read_only_web,
+    Repository, StaticAuthorizer, SystemCertificateProbe, SystemDnsResolver, SystemPortConnector,
+    serve_read_only_web,
 };
 use tokio::{net::UnixListener, signal};
 use tokio_stream::wrappers::UnixListenerStream;
@@ -35,7 +36,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_port_connector(
             Arc::new(SystemPortConnector),
             BASELINE_SERVICE_PORTS.to_vec(),
-        );
+        )
+        .with_certificate_probe(Arc::new(SystemCertificateProbe::new()));
     let scheduler_repository = repository.clone();
     let scheduler = tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));

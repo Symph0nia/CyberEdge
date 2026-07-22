@@ -8,14 +8,15 @@ use std::{
 
 use async_trait::async_trait;
 use cyberedge::{
-    Authorizer, CertificateSource, CyberEdgeService, DiscoveryWorker, DnsResolver,
-    MemoryRepository, Repository, SystemPortConnector,
+    Authorizer, CertificateProbe, CertificateSource, CyberEdgeService, DiscoveryWorker,
+    DnsResolver, MemoryRepository, PortConnector, Repository, SystemCertificateProbe,
+    SystemPortConnector,
     proto::{
         AssetChangeKind, CreateScheduleRequest, CreateScopeRequest, GetEvidenceRequest,
         GetTaskReportRequest, InvocationContext, ScopeTarget, SearchAssetChangesRequest,
-        SearchAssetsRequest, SearchAuditRequest, SearchObservationsRequest, SearchSchedulesRequest,
-        SearchServicesRequest, StartScanRequest, TargetKind, TaskState,
-        cyber_edge_server::CyberEdge,
+        SearchAssetsRequest, SearchAuditRequest, SearchCertificatesRequest,
+        SearchObservationsRequest, SearchSchedulesRequest, SearchServicesRequest, StartScanRequest,
+        TargetKind, TaskState, cyber_edge_server::CyberEdge,
     },
 };
 use sha2::{Digest, Sha256};
@@ -79,6 +80,30 @@ impl DnsResolver for FailingResolver {
         } else {
             Err("upstream timeout".to_owned())
         }
+    }
+}
+
+struct OpenPort;
+
+#[async_trait]
+impl PortConnector for OpenPort {
+    async fn connect(&self, _address: IpAddr, _port: u16) -> Result<bool, String> {
+        Ok(true)
+    }
+}
+
+struct TestCertificate(Vec<u8>);
+
+#[async_trait]
+impl CertificateProbe for TestCertificate {
+    async fn leaf_certificate(
+        &self,
+        _address: IpAddr,
+        _port: u16,
+        server_name: &str,
+    ) -> Result<Vec<u8>, String> {
+        assert_eq!(server_name, "127.0.0.1");
+        Ok(self.0.clone())
     }
 }
 
@@ -489,6 +514,100 @@ async fn discovers_service_on_authorized_local_listener() {
     assert_eq!(report.services.len(), 1);
     assert_eq!(report.services[0].port, u32::from(port));
     drop(listener);
+}
+
+#[tokio::test]
+async fn retains_tls_certificate_as_inventory_and_der_evidence() {
+    let certificate = rcgen::generate_simple_self_signed(vec!["localhost".to_owned()]).unwrap();
+    let der = certificate.cert.der().to_vec();
+    let repository: Arc<dyn Repository> = Arc::new(MemoryRepository::default());
+    let service = CyberEdgeService::new(repository.clone(), Arc::new(Allow));
+    let scope = service
+        .create_scope(Request::new(CreateScopeRequest {
+            context: Some(context("tls-scope")),
+            name: "Local TLS".to_owned(),
+            authorization_ref: "authorization:local-test".to_owned(),
+            targets: vec![ScopeTarget {
+                kind: TargetKind::Ip.into(),
+                value: "127.0.0.1".to_owned(),
+            }],
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let task = service
+        .start_scan(Request::new(StartScanRequest {
+            context: Some(context("tls-start")),
+            scope_id: scope.id.clone(),
+            policy_id: "policy_service_baseline".to_owned(),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let worker = DiscoveryWorker::new(repository, Arc::new(Resolver))
+        .with_port_connector(Arc::new(OpenPort), vec![443])
+        .with_certificate_probe(Arc::new(TestCertificate(der.clone())));
+    assert!(worker.run_once().await.unwrap());
+
+    let certificates = service
+        .search_certificates(Request::new(SearchCertificatesRequest {
+            context: Some(context("certificates")),
+            scope_id: scope.id,
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .certificates;
+    assert_eq!(certificates.len(), 1);
+    assert_eq!(certificates[0].dns_names, ["localhost"]);
+    assert_eq!(
+        certificates[0].sha256,
+        format!("{:x}", Sha256::digest(&der))
+    );
+    let report = service
+        .get_task_report(Request::new(GetTaskReportRequest {
+            context: Some(context("tls-report")),
+            task_id: task.id,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(report.certificates.len(), 1);
+    let evidence = report
+        .evidence
+        .iter()
+        .find(|item| item.media_type == "application/pkix-cert")
+        .unwrap();
+    assert_eq!(evidence.content, der);
+}
+
+#[tokio::test]
+async fn system_certificate_probe_handshakes_with_local_tls_listener() {
+    let certificate = rcgen::generate_simple_self_signed(vec!["localhost".to_owned()]).unwrap();
+    let expected = certificate.cert.der().to_vec();
+    let key = rustls::pki_types::PrivatePkcs8KeyDer::from(certificate.signing_key.serialize_der());
+    let config = rustls::ServerConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .unwrap()
+    .with_no_client_auth()
+    .with_single_cert(vec![certificate.cert.der().clone()], key.into())
+    .unwrap();
+    let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(config));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        acceptor.accept(stream).await.unwrap();
+    });
+
+    let observed = SystemCertificateProbe::new()
+        .leaf_certificate(address.ip(), address.port(), "localhost")
+        .await
+        .unwrap();
+    assert_eq!(observed, expected);
+    server.await.unwrap();
 }
 
 fn context(suffix: &str) -> InvocationContext {

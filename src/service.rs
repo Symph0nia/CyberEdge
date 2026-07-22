@@ -19,9 +19,10 @@ use crate::proto::{
     GetEvidenceRequest, GetScopeRequest, GetTaskReportRequest, GetTaskRequest, HealthResponse,
     InvocationContext, Schedule, Scope, ScopeTarget, SearchAssetChangesRequest,
     SearchAssetChangesResponse, SearchAssetsRequest, SearchAssetsResponse, SearchAuditRequest,
-    SearchAuditResponse, SearchObservationsRequest, SearchObservationsResponse,
-    SearchSchedulesRequest, SearchSchedulesResponse, SearchServicesRequest, SearchServicesResponse,
-    StartScanRequest, TargetKind, Task, TaskEvent, TaskReport, TaskState, WatchTaskRequest,
+    SearchAuditResponse, SearchCertificatesRequest, SearchCertificatesResponse,
+    SearchObservationsRequest, SearchObservationsResponse, SearchSchedulesRequest,
+    SearchSchedulesResponse, SearchServicesRequest, SearchServicesResponse, StartScanRequest,
+    TargetKind, Task, TaskEvent, TaskReport, TaskState, WatchTaskRequest,
     cyber_edge_server::{CyberEdge, CyberEdgeServer},
 };
 use crate::{
@@ -342,6 +343,21 @@ impl CyberEdge for CyberEdgeService {
         Ok(Response::new(SearchServicesResponse { services }))
     }
 
+    async fn search_certificates(
+        &self,
+        request: Request<SearchCertificatesRequest>,
+    ) -> Result<Response<SearchCertificatesResponse>, Status> {
+        let request = request.into_inner();
+        let context = validate_context(request.context.as_ref())?;
+        self.authorize(context, "certificate.read")?;
+        let certificates = self
+            .repository
+            .search_certificates(&request.scope_id)
+            .await
+            .map_err(repository_status)?;
+        Ok(Response::new(SearchCertificatesResponse { certificates }))
+    }
+
     async fn search_observations(
         &self,
         request: Request<SearchObservationsRequest>,
@@ -411,7 +427,7 @@ impl CyberEdge for CyberEdgeService {
             .map_err(repository_status)?
             .into_iter()
             .filter(|asset| asset_ids.contains(asset.id.as_str()))
-            .collect();
+            .collect::<Vec<_>>();
         let service_keys = observations
             .iter()
             .filter(|observation| observation.observation_type == "tcp.open")
@@ -430,6 +446,30 @@ impl CyberEdge for CyberEdgeService {
             .map_err(repository_status)?
             .into_iter()
             .filter(|service| service_keys.contains(&(service.asset_id.as_str(), service.port)))
+            .collect::<Vec<_>>();
+        let certificate_hashes = observations
+            .iter()
+            .filter(|observation| observation.observation_type == "tls.certificate")
+            .filter_map(|observation| {
+                serde_json::from_str::<serde_json::Value>(&observation.value_json)
+                    .ok()?
+                    .get("sha256")?
+                    .as_str()
+                    .map(str::to_owned)
+            })
+            .collect::<std::collections::HashSet<_>>();
+        let certificates = self
+            .repository
+            .search_certificates(&scope.id)
+            .await
+            .map_err(repository_status)?
+            .into_iter()
+            .filter(|certificate| {
+                certificate_hashes.contains(&certificate.sha256)
+                    && services
+                        .iter()
+                        .any(|service| service.id == certificate.service_id)
+            })
             .collect();
         let mut evidence_ids = std::collections::HashSet::new();
         let mut evidence = Vec::new();
@@ -451,6 +491,7 @@ impl CyberEdge for CyberEdgeService {
             evidence,
             generated_at: Some(now()),
             services,
+            certificates,
         }))
     }
 

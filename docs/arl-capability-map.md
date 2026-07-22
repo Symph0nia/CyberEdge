@@ -18,7 +18,7 @@ CyberEdge copies neither repository's code, database shape, Web workflow, nor op
 | Scheduled and periodic tasks | Schedule producing normal Task | 2 | Implemented baseline |
 | Controlled baseline TCP connect scan | Service inventory and Observation | 3 | Implemented |
 | Banner and product identification | Service Observation | 3 | Not implemented |
-| TLS certificate collection | Certificate Asset, Evidence | 3 | Not implemented |
+| TLS certificate collection | Certificate Asset, Evidence | 3 | Implemented for open baseline HTTPS services |
 | Website and fingerprint discovery | Website Asset, Observation | 3 | Not implemented |
 | Crawler and screenshots | Evidence adapters | 3 | Not implemented |
 | File exposure and host collision checks | Finding and Evidence | 4 | Not implemented |

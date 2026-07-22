@@ -9,8 +9,8 @@ use super::{
     RepositoryError,
 };
 use crate::proto::{
-    Asset, AssetChange, AssetChangeKind, AuditEvent, Evidence, Observation, Schedule, Scope,
-    ScopeTarget, Service, Task, TaskEvent, TaskState,
+    Asset, AssetChange, AssetChangeKind, AuditEvent, Certificate, Evidence, Observation, Schedule,
+    Scope, ScopeTarget, Service, Task, TaskEvent, TaskState,
 };
 
 pub struct PostgresRepository {
@@ -473,6 +473,37 @@ impl Repository for PostgresRepository {
         Ok(rows.iter().map(service_from_row).collect())
     }
 
+    async fn search_certificates(
+        &self,
+        scope_id: &str,
+    ) -> Result<Vec<Certificate>, RepositoryError> {
+        let exists = sqlx::query("SELECT 1 FROM scopes WHERE id = $1")
+            .bind(scope_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .is_some();
+        if !exists {
+            return Err(RepositoryError::NotFound("scope"));
+        }
+        let rows = sqlx::query(
+            "SELECT certificates.id, certificates.service_id, certificates.sha256,
+                    certificates.subject, certificates.issuer, certificates.dns_names,
+                    certificates.not_before_seconds, certificates.not_before_nanos,
+                    certificates.not_after_seconds, certificates.not_after_nanos,
+                    certificates.first_seen_at_seconds, certificates.first_seen_at_nanos,
+                    certificates.last_seen_at_seconds, certificates.last_seen_at_nanos
+             FROM certificates
+             JOIN services ON services.id = certificates.service_id
+             JOIN assets ON assets.id = services.asset_id
+             WHERE assets.scope_id = $1
+             ORDER BY certificates.not_after_seconds, certificates.id",
+        )
+        .bind(scope_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.iter().map(certificate_from_row).collect())
+    }
+
     async fn search_observations(
         &self,
         task_id: &str,
@@ -664,6 +695,45 @@ impl Repository for PostgresRepository {
                 .execute(&mut *tx)
                 .await?;
             }
+            if let Some(certificate) = record.certificate {
+                let not_before = certificate
+                    .not_before
+                    .expect("certificate not-before exists");
+                let not_after = certificate.not_after.expect("certificate not-after exists");
+                let first_seen = certificate
+                    .first_seen_at
+                    .expect("certificate first-seen exists");
+                let last_seen = certificate
+                    .last_seen_at
+                    .expect("certificate last-seen exists");
+                sqlx::query(
+                    "INSERT INTO certificates
+                     (id, service_id, sha256, subject, issuer, dns_names,
+                      not_before_seconds, not_before_nanos, not_after_seconds, not_after_nanos,
+                      first_seen_at_seconds, first_seen_at_nanos,
+                      last_seen_at_seconds, last_seen_at_nanos)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                     ON CONFLICT (service_id, sha256) DO UPDATE SET
+                       last_seen_at_seconds = EXCLUDED.last_seen_at_seconds,
+                       last_seen_at_nanos = EXCLUDED.last_seen_at_nanos",
+                )
+                .bind(&certificate.id)
+                .bind(&certificate.service_id)
+                .bind(&certificate.sha256)
+                .bind(&certificate.subject)
+                .bind(&certificate.issuer)
+                .bind(json!(certificate.dns_names))
+                .bind(not_before.seconds)
+                .bind(not_before.nanos)
+                .bind(not_after.seconds)
+                .bind(not_after.nanos)
+                .bind(first_seen.seconds)
+                .bind(first_seen.nanos)
+                .bind(last_seen.seconds)
+                .bind(last_seen.nanos)
+                .execute(&mut *tx)
+                .await?;
+            }
             let observed_at = record
                 .observation
                 .observed_at
@@ -803,6 +873,18 @@ impl Repository for PostgresRepository {
         .iter()
         .map(service_from_row)
         .collect();
+        let certificates = sqlx::query(
+            "SELECT id, service_id, sha256, subject, issuer, dns_names,
+                    not_before_seconds, not_before_nanos, not_after_seconds, not_after_nanos,
+                    first_seen_at_seconds, first_seen_at_nanos,
+                    last_seen_at_seconds, last_seen_at_nanos FROM certificates
+             ORDER BY last_seen_at_seconds DESC, last_seen_at_nanos DESC LIMIT 100",
+        )
+        .fetch_all(&self.pool)
+        .await?
+        .iter()
+        .map(certificate_from_row)
+        .collect();
         let observation_count = sqlx::query_scalar("SELECT COUNT(*) FROM observations")
             .fetch_one(&self.pool)
             .await?;
@@ -827,6 +909,9 @@ impl Repository for PostgresRepository {
         let service_count = sqlx::query_scalar("SELECT COUNT(*) FROM services")
             .fetch_one(&self.pool)
             .await?;
+        let certificate_count = sqlx::query_scalar("SELECT COUNT(*) FROM certificates")
+            .fetch_one(&self.pool)
+            .await?;
         let audit_events = fetch_audit(&self.pool, 50).await?;
         Ok(ReadOverview {
             scopes,
@@ -835,12 +920,14 @@ impl Repository for PostgresRepository {
             schedules,
             asset_changes,
             services,
+            certificates,
             scope_count,
             task_count,
             asset_count,
             schedule_count,
             asset_change_count,
             service_count,
+            certificate_count,
             observation_count,
             evidence_count,
             audit_events,
@@ -1261,6 +1348,39 @@ fn service_from_row(row: &sqlx::postgres::PgRow) -> Service {
         transport: row.get("transport"),
         port: row.get::<i32, _>("port") as u32,
         service_hint: row.get("service_hint"),
+        first_seen_at: Some(prost_types::Timestamp {
+            seconds: row.get("first_seen_at_seconds"),
+            nanos: row.get("first_seen_at_nanos"),
+        }),
+        last_seen_at: Some(prost_types::Timestamp {
+            seconds: row.get("last_seen_at_seconds"),
+            nanos: row.get("last_seen_at_nanos"),
+        }),
+    }
+}
+
+fn certificate_from_row(row: &sqlx::postgres::PgRow) -> Certificate {
+    Certificate {
+        id: row.get("id"),
+        service_id: row.get("service_id"),
+        sha256: row.get("sha256"),
+        subject: row.get("subject"),
+        issuer: row.get("issuer"),
+        dns_names: row
+            .get::<serde_json::Value, _>("dns_names")
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|value| value.as_str().map(str::to_owned))
+            .collect(),
+        not_before: Some(prost_types::Timestamp {
+            seconds: row.get("not_before_seconds"),
+            nanos: row.get("not_before_nanos"),
+        }),
+        not_after: Some(prost_types::Timestamp {
+            seconds: row.get("not_after_seconds"),
+            nanos: row.get("not_after_nanos"),
+        }),
         first_seen_at: Some(prost_types::Timestamp {
             seconds: row.get("first_seen_at_seconds"),
             nanos: row.get("first_seen_at_nanos"),

@@ -8,9 +8,9 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use cyberedge::proto::{
     CancelTaskRequest, CreateScheduleRequest, CreateScopeRequest, ErrorDetail, GetEvidenceRequest,
     GetScopeRequest, GetTaskReportRequest, GetTaskRequest, InvocationContext, ScopeTarget,
-    SearchAssetChangesRequest, SearchAssetsRequest, SearchAuditRequest, SearchObservationsRequest,
-    SearchSchedulesRequest, SearchServicesRequest, StartScanRequest, TargetKind, WatchTaskRequest,
-    cyber_edge_client::CyberEdgeClient,
+    SearchAssetChangesRequest, SearchAssetsRequest, SearchAuditRequest, SearchCertificatesRequest,
+    SearchObservationsRequest, SearchSchedulesRequest, SearchServicesRequest, StartScanRequest,
+    TargetKind, WatchTaskRequest, cyber_edge_client::CyberEdgeClient,
 };
 use hyper_util::rt::TokioIo;
 use prost::Message;
@@ -76,6 +76,9 @@ enum Command {
         scope_id: String,
     },
     SearchServices {
+        scope_id: String,
+    },
+    SearchCertificates {
         scope_id: String,
     },
     SearchObservations {
@@ -285,6 +288,18 @@ async fn run() -> Result<(), Value> {
                 .collect::<Vec<_>>();
             emit(json!({"services": values}));
         }
+        Command::SearchCertificates { scope_id } => {
+            let values = client
+                .search_certificates(SearchCertificatesRequest { context, scope_id })
+                .await
+                .map_err(rpc_error)?
+                .into_inner()
+                .certificates
+                .into_iter()
+                .map(certificate_json)
+                .collect::<Vec<_>>();
+            emit(json!({"certificates": values}));
+        }
         Command::SearchObservations { task_id } => {
             let values = client.search_observations(SearchObservationsRequest { context, task_id })
                 .await.map_err(rpc_error)?.into_inner().observations.into_iter().map(|item| json!({
@@ -322,6 +337,7 @@ async fn run() -> Result<(), Value> {
                 "observations": report.observations.into_iter().map(observation_json).collect::<Vec<_>>(),
                 "evidence": report.evidence.into_iter().map(evidence_json).collect::<Vec<_>>(),
                 "services": report.services.into_iter().map(service_json).collect::<Vec<_>>(),
+                "certificates": report.certificates.into_iter().map(certificate_json).collect::<Vec<_>>(),
                 "generated_at": timestamp_json(report.generated_at)
             }));
         }
@@ -438,6 +454,14 @@ fn evidence_json(value: cyberedge::proto::Evidence) -> Value {
 fn service_json(value: cyberedge::proto::Service) -> Value {
     json!({"id": value.id, "asset_id": value.asset_id, "transport": value.transport,
         "port": value.port, "service_hint": value.service_hint,
+        "first_seen_at": timestamp_json(value.first_seen_at),
+        "last_seen_at": timestamp_json(value.last_seen_at)})
+}
+
+fn certificate_json(value: cyberedge::proto::Certificate) -> Value {
+    json!({"id": value.id, "service_id": value.service_id, "sha256": value.sha256,
+        "subject": value.subject, "issuer": value.issuer, "dns_names": value.dns_names,
+        "not_before": timestamp_json(value.not_before), "not_after": timestamp_json(value.not_after),
         "first_seen_at": timestamp_json(value.first_seen_at),
         "last_seen_at": timestamp_json(value.last_seen_at)})
 }

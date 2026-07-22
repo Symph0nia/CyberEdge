@@ -6,15 +6,23 @@ use std::{
 };
 
 use async_trait::async_trait;
+use rustls::{
+    DigitallySignedStruct, SignatureScheme,
+    client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
+    crypto::{CryptoProvider, verify_tls12_signature, verify_tls13_signature},
+    pki_types::{CertificateDer, ServerName, UnixTime},
+};
 use serde::Deserialize;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use tokio::net::lookup_host;
 use tokio::{net::TcpStream, time::timeout};
+use tokio_rustls::TlsConnector;
 use uuid::Uuid;
+use x509_parser::{extensions::GeneralName, parse_x509_certificate};
 
 use crate::{
-    proto::{Asset, Evidence, Observation, ScopeTarget, Service, TargetKind},
+    proto::{Asset, Certificate, Evidence, Observation, ScopeTarget, Service, TargetKind},
     repository::{DiscoveryRecord, Repository, RepositoryError},
 };
 
@@ -70,6 +78,130 @@ impl PortConnector for SystemPortConnector {
             Ok(Err(error)) => Err(error.to_string()),
             Err(_) => Ok(false),
         }
+    }
+}
+
+#[async_trait]
+pub trait CertificateProbe: Send + Sync {
+    async fn leaf_certificate(
+        &self,
+        address: IpAddr,
+        port: u16,
+        server_name: &str,
+    ) -> Result<Vec<u8>, String>;
+}
+
+pub struct SystemCertificateProbe {
+    connector: TlsConnector,
+}
+
+impl SystemCertificateProbe {
+    pub fn new() -> Self {
+        let provider = Arc::new(rustls::crypto::ring::default_provider());
+        let verifier = Arc::new(CollectCertificateVerifier {
+            provider: provider.clone(),
+        });
+        let config = rustls::ClientConfig::builder_with_provider(provider)
+            .with_safe_default_protocol_versions()
+            .expect("ring provider supports default TLS versions")
+            .dangerous()
+            .with_custom_certificate_verifier(verifier)
+            .with_no_client_auth();
+        Self {
+            connector: TlsConnector::from(Arc::new(config)),
+        }
+    }
+}
+
+impl Default for SystemCertificateProbe {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Debug)]
+struct CollectCertificateVerifier {
+    provider: Arc<CryptoProvider>,
+}
+
+impl ServerCertVerifier for CollectCertificateVerifier {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &CertificateDer<'_>,
+        _intermediates: &[CertificateDer<'_>],
+        _server_name: &ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: UnixTime,
+    ) -> Result<ServerCertVerified, rustls::Error> {
+        Ok(ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        verify_tls12_signature(
+            message,
+            cert,
+            dss,
+            &self.provider.signature_verification_algorithms,
+        )
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        verify_tls13_signature(
+            message,
+            cert,
+            dss,
+            &self.provider.signature_verification_algorithms,
+        )
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        self.provider
+            .signature_verification_algorithms
+            .supported_schemes()
+    }
+}
+
+#[async_trait]
+impl CertificateProbe for SystemCertificateProbe {
+    async fn leaf_certificate(
+        &self,
+        address: IpAddr,
+        port: u16,
+        server_name: &str,
+    ) -> Result<Vec<u8>, String> {
+        let stream = timeout(
+            std::time::Duration::from_secs(2),
+            TcpStream::connect((address, port)),
+        )
+        .await
+        .map_err(|_| "TLS connect timed out".to_owned())?
+        .map_err(|error| error.to_string())?;
+        let server_name =
+            ServerName::try_from(server_name.to_owned()).map_err(|error| error.to_string())?;
+        let stream = timeout(
+            std::time::Duration::from_secs(3),
+            self.connector.connect(server_name, stream),
+        )
+        .await
+        .map_err(|_| "TLS handshake timed out".to_owned())?
+        .map_err(|error| error.to_string())?;
+        stream
+            .get_ref()
+            .1
+            .peer_certificates()
+            .and_then(|certificates| certificates.first())
+            .map(|certificate| certificate.as_ref().to_vec())
+            .ok_or_else(|| "TLS peer did not provide a certificate".to_owned())
     }
 }
 
@@ -132,6 +264,7 @@ pub struct DiscoveryWorker {
     resolver: Arc<dyn DnsResolver>,
     certificate_source: Option<Arc<dyn CertificateSource>>,
     port_connector: Option<Arc<dyn PortConnector>>,
+    certificate_probe: Option<Arc<dyn CertificateProbe>>,
     service_ports: Vec<u16>,
 }
 
@@ -142,8 +275,14 @@ impl DiscoveryWorker {
             resolver,
             certificate_source: None,
             port_connector: None,
+            certificate_probe: None,
             service_ports: Vec::new(),
         }
+    }
+
+    pub fn with_certificate_probe(mut self, probe: Arc<dyn CertificateProbe>) -> Self {
+        self.certificate_probe = Some(probe);
+        self
     }
 
     pub fn with_port_connector(
@@ -216,7 +355,10 @@ impl DiscoveryWorker {
                         "scope.seed",
                         json!({"source": "authorized_scope", "value": target.value}),
                     )];
-                    records.extend(self.discover_services(task_id, scope_id, address).await);
+                    records.extend(
+                        self.discover_services(task_id, scope_id, address, &target.value)
+                            .await,
+                    );
                     records
                 }
                 Err(error) => vec![record(
@@ -243,7 +385,10 @@ impl DiscoveryWorker {
                         json!({"domain": target.value, "addresses": values}),
                     )];
                     for address in addresses {
-                        records.extend(self.discover_services(task_id, scope_id, address).await);
+                        records.extend(
+                            self.discover_services(task_id, scope_id, address, &target.value)
+                                .await,
+                        );
                     }
                     records
                 }
@@ -270,6 +415,7 @@ impl DiscoveryWorker {
         task_id: &str,
         scope_id: &str,
         address: IpAddr,
+        server_name: &str,
     ) -> Vec<DiscoveryRecord> {
         let Some(connector) = &self.port_connector else {
             return vec![record(
@@ -298,7 +444,21 @@ impl DiscoveryWorker {
         let mut records = Vec::new();
         for (port, result) in results {
             match result {
-                Ok(true) => records.push(service_record(task_id, scope_id, address, port)),
+                Ok(true) => {
+                    records.push(service_record(task_id, scope_id, address, port));
+                    if matches!(port, 443 | 8443) {
+                        records.push(
+                            self.discover_certificate(
+                                task_id,
+                                scope_id,
+                                address,
+                                port,
+                                server_name,
+                            )
+                            .await,
+                        );
+                    }
+                }
                 Ok(false) => {}
                 Err(error) => records.push(record(
                     task_id,
@@ -321,6 +481,48 @@ impl DiscoveryWorker {
             ));
         }
         records
+    }
+
+    async fn discover_certificate(
+        &self,
+        task_id: &str,
+        scope_id: &str,
+        address: IpAddr,
+        port: u16,
+        server_name: &str,
+    ) -> DiscoveryRecord {
+        let Some(probe) = &self.certificate_probe else {
+            return record(
+                task_id,
+                scope_id,
+                TargetKind::Ip,
+                &address.to_string(),
+                "tls.error",
+                json!({"address": address, "port": port, "error": "certificate probe unavailable"}),
+            );
+        };
+        match probe.leaf_certificate(address, port, server_name).await {
+            Ok(der) => {
+                certificate_record(task_id, scope_id, address, port, der).unwrap_or_else(|error| {
+                    record(
+                        task_id,
+                        scope_id,
+                        TargetKind::Ip,
+                        &address.to_string(),
+                        "tls.error",
+                        json!({"address": address, "port": port, "error": error}),
+                    )
+                })
+            }
+            Err(error) => record(
+                task_id,
+                scope_id,
+                TargetKind::Ip,
+                &address.to_string(),
+                "tls.error",
+                json!({"address": address, "port": port, "error": error}),
+            ),
+        }
     }
 
     async fn discover_certificates(
@@ -499,6 +701,7 @@ fn record(
             last_seen_at: Some(timestamp),
         },
         service: None,
+        certificate: None,
         observation: Observation {
             id: format!("observation_{}", Uuid::now_v7()),
             task_id: task_id.to_owned(),
@@ -545,6 +748,101 @@ fn service_record(task_id: &str, scope_id: &str, address: IpAddr, port: u16) -> 
         last_seen_at: Some(timestamp),
     });
     record
+}
+
+fn certificate_record(
+    task_id: &str,
+    scope_id: &str,
+    address: IpAddr,
+    port: u16,
+    der: Vec<u8>,
+) -> Result<DiscoveryRecord, String> {
+    let (_, parsed) = parse_x509_certificate(&der).map_err(|error| error.to_string())?;
+    let dns_names = parsed
+        .subject_alternative_name()
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .flat_map(|extension| extension.value.general_names.iter())
+        .filter_map(|name| match name {
+            GeneralName::DNSName(value) => Some((*value).to_owned()),
+            _ => None,
+        })
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    let timestamp = now();
+    let value = address.to_string();
+    let asset_id = stable_id(
+        "asset",
+        format!("{scope_id}:{}:{value}", i32::from(TargetKind::Ip)).as_bytes(),
+    );
+    let service_id = stable_id("service", format!("{asset_id}:tcp:{port}").as_bytes());
+    let sha256 = hex_hash(&der);
+    let certificate = Certificate {
+        id: stable_id("certificate", format!("{service_id}:{sha256}").as_bytes()),
+        service_id: service_id.clone(),
+        sha256: sha256.clone(),
+        subject: parsed.subject().to_string(),
+        issuer: parsed.issuer().to_string(),
+        dns_names: dns_names.clone(),
+        not_before: Some(prost_types::Timestamp {
+            seconds: parsed.validity().not_before.timestamp(),
+            nanos: 0,
+        }),
+        not_after: Some(prost_types::Timestamp {
+            seconds: parsed.validity().not_after.timestamp(),
+            nanos: 0,
+        }),
+        first_seen_at: Some(timestamp),
+        last_seen_at: Some(timestamp),
+    };
+    let payload = json!({
+        "address": address,
+        "port": port,
+        "sha256": sha256,
+        "subject": certificate.subject,
+        "issuer": certificate.issuer,
+        "dns_names": dns_names,
+        "not_before_unix": certificate.not_before.as_ref().map(|value| value.seconds),
+        "not_after_unix": certificate.not_after.as_ref().map(|value| value.seconds),
+    });
+    let evidence_id = format!("evidence_{sha256}");
+    Ok(DiscoveryRecord {
+        asset: Asset {
+            id: asset_id.clone(),
+            scope_id: scope_id.to_owned(),
+            kind: TargetKind::Ip.into(),
+            value,
+            first_seen_at: Some(timestamp),
+            last_seen_at: Some(timestamp),
+        },
+        service: Some(Service {
+            id: service_id,
+            asset_id: asset_id.clone(),
+            transport: "tcp".to_owned(),
+            port: u32::from(port),
+            service_hint: "https".to_owned(),
+            first_seen_at: Some(timestamp),
+            last_seen_at: Some(timestamp),
+        }),
+        certificate: Some(certificate),
+        observation: Observation {
+            id: format!("observation_{}", Uuid::now_v7()),
+            task_id: task_id.to_owned(),
+            asset_id,
+            observation_type: "tls.certificate".to_owned(),
+            value_json: payload.to_string(),
+            evidence_id: evidence_id.clone(),
+            observed_at: Some(timestamp),
+        },
+        evidence: Evidence {
+            id: evidence_id,
+            media_type: "application/pkix-cert".to_owned(),
+            sha256,
+            content: der,
+            created_at: Some(timestamp),
+        },
+    })
 }
 
 fn unsupported_target_record(

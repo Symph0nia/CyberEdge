@@ -387,12 +387,14 @@ dependencies = [
  "protoc-bin-vendored",
  "rcgen",
  "reqwest",
+ "rustls",
  "serde",
  "serde_json",
  "sha2 0.10.9",
  "sqlx",
  "thiserror",
  "tokio",
+ "tokio-rustls",
  "tokio-stream",
  "toml",
  "tonic",
@@ -401,6 +403,7 @@ dependencies = [
  "tower",
  "tower-http",
  "uuid",
+ "x509-parser",
 ]
 
 [[package]]

@@ -1,0 +1,4 @@
+interface:
+  display_name: "CyberEdge Observe Certificates"
+  short_description: "Collect and inspect authorized TLS certificate evidence"
+  default_prompt: "Observe TLS certificates for an authorized CyberEdge scope and return evidence-backed inventory."

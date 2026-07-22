@@ -13,6 +13,6 @@ pub use repository::{MemoryRepository, PostgresRepository, Repository, Repositor
 pub use service::CyberEdgeService;
 pub use web::{read_only_router, serve_read_only_web};
 pub use worker::{
-    BASELINE_SERVICE_PORTS, CertificateSource, CrtShSource, DiscoveryWorker, DnsResolver,
-    PortConnector, SystemDnsResolver, SystemPortConnector,
+    BASELINE_SERVICE_PORTS, CertificateProbe, CertificateSource, CrtShSource, DiscoveryWorker,
+    DnsResolver, PortConnector, SystemCertificateProbe, SystemDnsResolver, SystemPortConnector,
 };

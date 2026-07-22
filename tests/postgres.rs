@@ -8,13 +8,14 @@ use std::{
 
 use async_trait::async_trait;
 use cyberedge::{
-    Authorizer, CyberEdgeService, DiscoveryWorker, DnsResolver, PortConnector, PostgresRepository,
-    Repository,
+    Authorizer, CertificateProbe, CyberEdgeService, DiscoveryWorker, DnsResolver, PortConnector,
+    PostgresRepository, Repository,
     proto::{
         AssetChangeKind, CreateScheduleRequest, CreateScopeRequest, GetTaskReportRequest,
         GetTaskRequest, InvocationContext, ScopeTarget, SearchAssetChangesRequest,
-        SearchAuditRequest, SearchSchedulesRequest, SearchServicesRequest, StartScanRequest,
-        TargetKind, WatchTaskRequest, cyber_edge_server::CyberEdge,
+        SearchAuditRequest, SearchCertificatesRequest, SearchSchedulesRequest,
+        SearchServicesRequest, StartScanRequest, TargetKind, WatchTaskRequest,
+        cyber_edge_server::CyberEdge,
     },
 };
 use sqlx::PgPool;
@@ -26,6 +27,7 @@ struct TestAuthorizer;
 struct Resolver(AtomicUsize);
 
 struct OpenConnector;
+struct TestCertificate(Vec<u8>);
 
 #[async_trait]
 impl DnsResolver for Resolver {
@@ -39,6 +41,18 @@ impl DnsResolver for Resolver {
 impl PortConnector for OpenConnector {
     async fn connect(&self, _address: IpAddr, port: u16) -> Result<bool, String> {
         Ok(port == 443)
+    }
+}
+
+#[async_trait]
+impl CertificateProbe for TestCertificate {
+    async fn leaf_certificate(
+        &self,
+        _address: IpAddr,
+        _port: u16,
+        _server_name: &str,
+    ) -> Result<Vec<u8>, String> {
+        Ok(self.0.clone())
     }
 }
 
@@ -100,8 +114,10 @@ async fn persists_scope_task_events_audit_and_outbox() {
         .await
         .unwrap();
     assert_eq!(scheduled_tasks.len(), 1);
+    let certificate = rcgen::generate_simple_self_signed(vec!["example.com".to_owned()]).unwrap();
     let worker = DiscoveryWorker::new(repository.clone(), Arc::new(Resolver(AtomicUsize::new(0))))
-        .with_port_connector(Arc::new(OpenConnector), vec![443]);
+        .with_port_connector(Arc::new(OpenConnector), vec![443])
+        .with_certificate_probe(Arc::new(TestCertificate(certificate.cert.der().to_vec())));
     assert!(worker.run_once().await.unwrap());
     assert!(worker.run_once().await.unwrap());
     let next = repository.search_schedules(&scope.id).await.unwrap()[0]
@@ -150,6 +166,17 @@ async fn persists_scope_task_events_audit_and_outbox() {
         .services;
     assert_eq!(services.len(), 1);
     assert_eq!(services[0].port, 443);
+    let certificates = service
+        .search_certificates(Request::new(SearchCertificatesRequest {
+            context: Some(context("certificates")),
+            scope_id: scope.id.clone(),
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .certificates;
+    assert_eq!(certificates.len(), 1);
+    assert_eq!(certificates[0].dns_names, ["example.com"]);
     let service_report = service
         .get_task_report(Request::new(GetTaskReportRequest {
             context: Some(context("service-report")),
@@ -159,6 +186,7 @@ async fn persists_scope_task_events_audit_and_outbox() {
         .unwrap()
         .into_inner();
     assert_eq!(service_report.services.len(), 1);
+    assert_eq!(service_report.certificates.len(), 1);
     drop(service);
 
     let restarted = CyberEdgeService::new(
@@ -215,7 +243,7 @@ async fn persists_scope_task_events_audit_and_outbox() {
         .unwrap();
     assert_eq!(outbox_count, 16);
     assert_eq!(asset_count, 5);
-    assert_eq!(observation_count, 8);
+    assert_eq!(observation_count, 9);
     let report = restarted
         .get_task_report(Request::new(GetTaskReportRequest {
             context: Some(context("report")),
@@ -258,7 +286,7 @@ fn context(suffix: &str) -> InvocationContext {
 
 async fn reset(pool: &PgPool) {
     sqlx::query(
-        "TRUNCATE observations, evidence, services, assets, outbox_events, audit_events,
+        "TRUNCATE observations, evidence, certificates, services, assets, outbox_events, audit_events,
          idempotency_keys, asset_changes, task_events, tasks, schedules, scope_targets, scopes
          RESTART IDENTITY CASCADE",
     )

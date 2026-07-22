@@ -14,15 +14,17 @@ type Scope = { id: string; name: string; authorization_ref: string; targets: { k
 type Task = { id: string; scope_id: string; policy_id: string; state: number; created_at: Stamp; updated_at: Stamp; schedule_id: string }
 type Asset = { id: string; scope_id: string; kind: number; value: string; first_seen_at: Stamp; last_seen_at: Stamp }
 type Service = { id: string; asset_id: string; transport: string; port: number; service_hint: string; first_seen_at: Stamp; last_seen_at: Stamp }
+type Certificate = { id: string; service_id: string; sha256: string; subject: string; issuer: string; dns_names: string[]; not_before: Stamp; not_after: Stamp; first_seen_at: Stamp; last_seen_at: Stamp }
 type Schedule = { id: string; scope_id: string; policy_id: string; interval_seconds: number; enabled: boolean; next_run_at: Stamp; last_task_id: string; created_at: Stamp }
 type AssetChange = { id: string; schedule_id: string; task_id: string; asset_id: string; kind: number; detected_at: Stamp }
 type AuditEvent = { id: string; request_id: string; operation: string; agent_id: string; skill_name: string; skill_version: string; resource_id: string; occurred_at: Stamp }
 type Overview = {
-  counts: { scopes: number; tasks: number; assets: number; services: number; schedules: number; asset_changes: number; observations: number; evidence: number }
+  counts: { scopes: number; tasks: number; assets: number; services: number; certificates: number; schedules: number; asset_changes: number; observations: number; evidence: number }
   scopes: Scope[]
   tasks: Task[]
   assets: Asset[]
   services: Service[]
+  certificates: Certificate[]
   schedules: Schedule[]
   asset_changes: AssetChange[]
   audit_events: AuditEvent[]
@@ -71,6 +73,7 @@ function App() {
           <SideNavLink href="#overview" renderIcon={Dashboard}>Overview</SideNavLink>
           <SideNavLink href="#assets" renderIcon={Network_3}>Assets</SideNavLink>
           <SideNavLink href="#services" renderIcon={Network_3}>Services</SideNavLink>
+          <SideNavLink href="#certificates" renderIcon={DocumentSecurity}>Certificates</SideNavLink>
           <SideNavLink href="#tasks" renderIcon={TaskIcon}>Tasks</SideNavLink>
           <SideNavLink href="#monitoring" renderIcon={DataVis_1}>Monitoring</SideNavLink>
           <SideNavLink href="#evidence" renderIcon={DocumentSecurity}>Evidence</SideNavLink>
@@ -93,7 +96,7 @@ function App() {
               <Metric label="Authorized scopes" value={data.counts.scopes} />
               <Metric label="Observed assets" value={data.counts.assets} />
               <Metric label="Open services" value={data.counts.services} />
-              <Metric label="Evidence objects" value={data.counts.evidence} />
+              <Metric label="TLS certificates" value={data.counts.certificates} />
             </Grid>
 
             <section id="assets" className="data-section" aria-labelledby="assets-title">
@@ -107,6 +110,11 @@ function App() {
             <section id="services" className="data-section" aria-labelledby="services-title">
               <div className="section-heading"><div><p className="section-label">Exposure</p><h2 id="services-title">Observed services</h2></div></div>
               <ServiceTable services={data.services} assets={data.assets} />
+            </section>
+
+            <section id="certificates" className="data-section" aria-labelledby="certificates-title">
+              <div className="section-heading"><div><p className="section-label">Transport security</p><h2 id="certificates-title">Observed TLS certificates</h2></div></div>
+              <CertificateTable certificates={data.certificates} services={data.services} assets={data.assets} />
             </section>
 
             <section id="tasks" className="data-section" aria-labelledby="tasks-title">
@@ -146,7 +154,7 @@ function App() {
                   <p className="section-label">Chain of custody</p>
                   <h2 id="evidence-title">Evidence retention</h2>
                   <p className="evidence-number">{formatNumber(data.counts.evidence)}</p>
-                  <p>Content-addressed JSON objects are linked from every observation. Mutations are unavailable on this surface.</p>
+                  <p>Content-addressed JSON and binary evidence objects are linked from observations. Mutations are unavailable on this surface.</p>
                 </section>
               </Column>
             </Grid>
@@ -198,6 +206,21 @@ function ServiceTable({ services, assets }: { services: Service[]; assets: Asset
       <TableCell><code>{service.transport}/{service.port}</code></TableCell>
       <TableCell>{service.service_hint}</TableCell>
       <TableCell>{formatTime(service.last_seen_at)}</TableCell>
+    </TableRow>)}</TableBody>
+  </Table></TableContainer>
+}
+
+function CertificateTable({ certificates, services, assets }: { certificates: Certificate[]; services: Service[]; assets: Asset[] }) {
+  const assetNames = new Map(assets.map((asset) => [asset.id, asset.value]))
+  const endpoints = new Map(services.map((service) => [service.id, `${assetNames.get(service.asset_id) ?? service.asset_id}:${service.port}`]))
+  if (certificates.length === 0) return <Empty text="No TLS certificates have been observed." />
+  return <TableContainer><Table size="lg">
+    <TableHead><TableRow><TableHeader>Endpoint</TableHeader><TableHeader>Subject</TableHeader><TableHeader>Issuer</TableHeader><TableHeader>Expires</TableHeader></TableRow></TableHead>
+    <TableBody>{certificates.map((certificate) => <TableRow key={certificate.id}>
+      <TableCell><strong>{endpoints.get(certificate.service_id) ?? 'Retained service'}</strong><code>{shortId(certificate.sha256)}</code></TableCell>
+      <TableCell>{certificate.subject}<code>{certificate.dns_names.join(', ') || 'No DNS SAN'}</code></TableCell>
+      <TableCell>{certificate.issuer}</TableCell>
+      <TableCell>{formatTime(certificate.not_after)}</TableCell>
     </TableRow>)}</TableBody>
   </Table></TableContainer>
 }

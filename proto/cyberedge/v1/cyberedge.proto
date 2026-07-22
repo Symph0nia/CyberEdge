@@ -18,6 +18,7 @@ service CyberEdge {
   rpc SearchAssetChanges(SearchAssetChangesRequest) returns (SearchAssetChangesResponse);
   rpc SearchAssets(SearchAssetsRequest) returns (SearchAssetsResponse);
   rpc SearchServices(SearchServicesRequest) returns (SearchServicesResponse);
+  rpc SearchCertificates(SearchCertificatesRequest) returns (SearchCertificatesResponse);
   rpc SearchObservations(SearchObservationsRequest) returns (SearchObservationsResponse);
   rpc GetEvidence(GetEvidenceRequest) returns (Evidence);
   rpc GetTaskReport(GetTaskReportRequest) returns (TaskReport);
@@ -196,6 +197,26 @@ message SearchServicesRequest {
 
 message SearchServicesResponse { repeated Service services = 1; }
 
+message Certificate {
+  string id = 1;
+  string service_id = 2;
+  string sha256 = 3;
+  string subject = 4;
+  string issuer = 5;
+  repeated string dns_names = 6;
+  google.protobuf.Timestamp not_before = 7;
+  google.protobuf.Timestamp not_after = 8;
+  google.protobuf.Timestamp first_seen_at = 9;
+  google.protobuf.Timestamp last_seen_at = 10;
+}
+
+message SearchCertificatesRequest {
+  InvocationContext context = 1;
+  string scope_id = 2;
+}
+
+message SearchCertificatesResponse { repeated Certificate certificates = 1; }
+
 message Observation {
   string id = 1;
   string task_id = 2;
@@ -246,6 +267,7 @@ message TaskReport {
   repeated Evidence evidence = 5;
   google.protobuf.Timestamp generated_at = 6;
   repeated Service services = 7;
+  repeated Certificate certificates = 8;
 }
 
 message AuditEvent {
