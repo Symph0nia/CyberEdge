@@ -96,6 +96,7 @@ impl PortConnector for OpenPort {
 
 struct TestCertificate(Vec<u8>);
 struct TestWebsite;
+struct DirectoryWebsite;
 struct ChangingWebsite(AtomicUsize);
 struct FailingWebsite(AtomicUsize);
 
@@ -127,6 +128,26 @@ impl WebsiteProbe for TestWebsite {
             server: "test-server".to_owned(),
             content_type: "text/html".to_owned(),
             body: b"<title>CyberEdge Test</title>".to_vec(),
+        })
+    }
+}
+
+#[async_trait]
+impl WebsiteProbe for DirectoryWebsite {
+    async fn fetch(
+        &self,
+        _address: IpAddr,
+        port: u16,
+        server_name: &str,
+    ) -> Result<WebSnapshot, String> {
+        Ok(WebSnapshot {
+            url: format!("http://{server_name}:{port}/"),
+            status_code: 200,
+            title: "Index of /".to_owned(),
+            server: "nginx".to_owned(),
+            content_type: "text/html".to_owned(),
+            body: b"<html><title>Index of /</title><a href=\"../\">Parent Directory</a></html>"
+                .to_vec(),
         })
     }
 }
@@ -791,6 +812,68 @@ async fn discovers_service_on_authorized_local_listener() {
     assert_eq!(report.services.len(), 1);
     assert_eq!(report.services[0].port, u32::from(port));
     drop(listener);
+}
+
+#[tokio::test]
+async fn reports_directory_listing_from_retained_http_evidence() {
+    let repository: Arc<dyn Repository> = Arc::new(MemoryRepository::default());
+    let service = CyberEdgeService::new(repository.clone(), Arc::new(Allow));
+    let scope = service
+        .create_scope(Request::new(CreateScopeRequest {
+            context: Some(context("directory-scope")),
+            name: "Directory listing".to_owned(),
+            authorization_ref: "authorization:local-test".to_owned(),
+            targets: vec![ScopeTarget {
+                kind: TargetKind::Ip.into(),
+                value: "127.0.0.1".to_owned(),
+            }],
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let task = service
+        .start_scan(Request::new(StartScanRequest {
+            context: Some(context("directory-start")),
+            scope_id: scope.id.clone(),
+            policy_id: "policy_service_baseline".to_owned(),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    DiscoveryWorker::new(repository, Arc::new(Resolver))
+        .with_port_connector(Arc::new(OpenPort), vec![80])
+        .with_website_probe(Arc::new(DirectoryWebsite))
+        .run_once()
+        .await
+        .unwrap();
+
+    let findings = service
+        .search_findings(Request::new(SearchFindingsRequest {
+            context: Some(context("directory-findings")),
+            scope_id: scope.id,
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .findings;
+    assert_eq!(findings.len(), 1);
+    assert_eq!(findings[0].rule_id, "http-directory-listing-v1");
+    assert_eq!(findings[0].severity, i32::from(FindingSeverity::Medium));
+    let report = service
+        .get_task_report(Request::new(GetTaskReportRequest {
+            context: Some(context("directory-report")),
+            task_id: task.id,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(report.findings.len(), 1);
+    let evidence = report
+        .evidence
+        .iter()
+        .find(|evidence| evidence.id == findings[0].evidence_id)
+        .unwrap();
+    assert!(String::from_utf8_lossy(&evidence.content).contains("Parent Directory"));
 }
 
 #[tokio::test]

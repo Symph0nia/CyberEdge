@@ -34,6 +34,8 @@ Set `CYBEREDGE_WEBHOOK_URL` to enable notification delivery. Only `http` and `ht
 
 Finding adapters use `ReportFinding` and require `finding.report`. A Finding must reference an Observation from the same running or completed Task; Asset and Evidence linkage is derived server-side. Findings deduplicate by Scope, detector, rule, Asset, and stable fingerprint. This contract does not expose arbitrary execution, template upload, or an online PoC editor.
 
+The service baseline also runs the built-in `cyberedge-http/http-directory-listing-v1` detector. It requires a successful HTTP response with both a directory-index title and a listing marker, and stores the raw response body as the referenced Evidence. Built-in findings are committed in the same transaction as their Observation and Evidence.
+
 Do not grant `scan.active` to passive discovery Skills. Keep active grants in a separate Skill binding and verify the Scope before invocation.
 
 ## Native runtime

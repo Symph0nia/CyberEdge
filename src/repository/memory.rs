@@ -537,6 +537,25 @@ impl Repository for MemoryRepository {
             state
                 .evidence
                 .insert(record.evidence.id.clone(), record.evidence);
+            for finding in record.findings {
+                if let Some(existing) = state.findings.values_mut().find(|existing| {
+                    existing.scope_id == finding.scope_id
+                        && existing.detector == finding.detector
+                        && existing.rule_id == finding.rule_id
+                        && existing.asset_id == finding.asset_id
+                        && existing.fingerprint == finding.fingerprint
+                }) {
+                    existing.task_id = finding.task_id;
+                    existing.observation_id = finding.observation_id;
+                    existing.evidence_id = finding.evidence_id;
+                    existing.title = finding.title;
+                    existing.description = finding.description;
+                    existing.severity = finding.severity;
+                    existing.last_seen_at = finding.last_seen_at;
+                } else {
+                    state.findings.insert(finding.id.clone(), finding);
+                }
+            }
         }
         if let Some(previous_assets) = previous_assets {
             state.asset_changes.extend(asset_changes(

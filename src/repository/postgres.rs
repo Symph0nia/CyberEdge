@@ -1023,6 +1023,55 @@ impl Repository for PostgresRepository {
             .bind(observed_at.nanos)
             .execute(&mut *tx)
             .await?;
+            for finding in record.findings {
+                let first = finding.first_seen_at.expect("finding first-seen exists");
+                let last = finding.last_seen_at.expect("finding last-seen exists");
+                let finding_id: String = sqlx::query_scalar(
+                    "INSERT INTO findings
+                     (id, scope_id, task_id, asset_id, observation_id, evidence_id,
+                      detector, rule_id, title, description, severity, state, fingerprint,
+                      first_seen_at_seconds, first_seen_at_nanos,
+                      last_seen_at_seconds, last_seen_at_nanos)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+                             $14, $15, $16, $17)
+                     ON CONFLICT (scope_id, detector, rule_id, asset_id, fingerprint) DO UPDATE SET
+                       task_id = EXCLUDED.task_id, observation_id = EXCLUDED.observation_id,
+                       evidence_id = EXCLUDED.evidence_id, title = EXCLUDED.title,
+                       description = EXCLUDED.description, severity = EXCLUDED.severity,
+                       last_seen_at_seconds = EXCLUDED.last_seen_at_seconds,
+                       last_seen_at_nanos = EXCLUDED.last_seen_at_nanos
+                     RETURNING id",
+                )
+                .bind(&finding.id)
+                .bind(&finding.scope_id)
+                .bind(&finding.task_id)
+                .bind(&finding.asset_id)
+                .bind(&finding.observation_id)
+                .bind(&finding.evidence_id)
+                .bind(&finding.detector)
+                .bind(&finding.rule_id)
+                .bind(&finding.title)
+                .bind(&finding.description)
+                .bind(finding.severity)
+                .bind(finding.state)
+                .bind(&finding.fingerprint)
+                .bind(first.seconds)
+                .bind(first.nanos)
+                .bind(last.seconds)
+                .bind(last.nanos)
+                .fetch_one(&mut *tx)
+                .await?;
+                insert_outbox(
+                    &mut tx,
+                    "finding",
+                    &finding_id,
+                    None,
+                    "finding.reported",
+                    json!({"finding_id": finding_id, "scope_id": finding.scope_id,
+                        "severity": finding.severity, "rule_id": finding.rule_id}),
+                )
+                .await?;
+            }
         }
         if let Some(previous_assets) = previous_assets {
             for change in asset_changes(

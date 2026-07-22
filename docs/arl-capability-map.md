@@ -21,7 +21,7 @@ CyberEdge copies neither repository's code, database shape, Web workflow, nor op
 | TLS certificate collection | Certificate Asset, Evidence | 3 | Implemented for open baseline HTTPS services |
 | Website and fingerprint discovery | Website Asset, Observation | 3 | Bounded HTTP metadata and body evidence implemented |
 | Crawler and screenshots | Evidence adapters | 3 | Not implemented |
-| File exposure and host collision checks | Finding and Evidence | 4 | Finding ingestion contract implemented; detectors pending |
+| File exposure and host collision checks | Finding and Evidence | 4 | Evidence-backed HTTP directory listing detector implemented; broader file and host collision rules pending |
 | Nuclei and custom PoC execution | Finding scanner adapter | 4 | Evidence-bound adapter contract implemented; no online PoC editor will be added |
 | Domain and IP asset change monitoring | Monitor asset baseline and diff | 2 | Implemented |
 | Website and service change monitoring | Observation diff | 3 | Implemented with coverage-aware exposure changes |

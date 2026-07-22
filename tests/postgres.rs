@@ -70,10 +70,10 @@ impl WebsiteProbe for TestWebsite {
         Ok(WebSnapshot {
             url: format!("https://{server_name}:{port}/"),
             status_code: 200,
-            title: "Postgres Test".to_owned(),
+            title: "Index of /".to_owned(),
             server: "test".to_owned(),
             content_type: "text/html".to_owned(),
-            body: b"<title>Postgres Test</title>".to_vec(),
+            body: b"<title>Index of /</title><a href=\"../\">Parent Directory</a>".to_vec(),
         })
     }
 }
@@ -230,7 +230,7 @@ async fn persists_scope_task_events_audit_and_outbox() {
         .into_inner()
         .websites;
     assert_eq!(websites.len(), 1);
-    assert_eq!(websites[0].title, "Postgres Test");
+    assert_eq!(websites[0].title, "Index of /");
     let service_report = service
         .get_task_report(Request::new(GetTaskReportRequest {
             context: Some(context("service-report")),
@@ -242,6 +242,11 @@ async fn persists_scope_task_events_audit_and_outbox() {
     assert_eq!(service_report.services.len(), 1);
     assert_eq!(service_report.certificates.len(), 1);
     assert_eq!(service_report.websites.len(), 1);
+    assert_eq!(service_report.findings.len(), 1);
+    assert_eq!(
+        service_report.findings[0].rule_id,
+        "http-directory-listing-v1"
+    );
     drop(service);
 
     let restarted = CyberEdgeService::new(
@@ -296,7 +301,7 @@ async fn persists_scope_task_events_audit_and_outbox() {
         .fetch_one(&pool)
         .await
         .unwrap();
-    assert_eq!(outbox_count, 16);
+    assert_eq!(outbox_count, 17);
     assert_eq!(asset_count, 5);
     assert_eq!(observation_count, 10);
     let report = restarted
@@ -353,7 +358,7 @@ async fn persists_scope_task_events_audit_and_outbox() {
         .unwrap()
         .into_inner()
         .findings;
-    assert_eq!(findings.len(), 1);
+    assert_eq!(findings.len(), 2);
 
     let monitor_scope = restarted
         .create_scope(Request::new(CreateScopeRequest {

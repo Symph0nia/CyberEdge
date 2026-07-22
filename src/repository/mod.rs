@@ -46,6 +46,7 @@ pub struct DiscoveryRecord {
     pub website: Option<Website>,
     pub observation: Observation,
     pub evidence: Evidence,
+    pub findings: Vec<Finding>,
 }
 
 pub struct ReadOverview {

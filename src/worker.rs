@@ -22,7 +22,10 @@ use uuid::Uuid;
 use x509_parser::{extensions::GeneralName, parse_x509_certificate};
 
 use crate::{
-    proto::{Asset, Certificate, Evidence, Observation, ScopeTarget, Service, TargetKind, Website},
+    proto::{
+        Asset, Certificate, Evidence, Finding, FindingSeverity, FindingState, Observation,
+        ScopeTarget, Service, TargetKind, Website,
+    },
     repository::{DiscoveryRecord, Repository, RepositoryError},
 };
 
@@ -859,6 +862,7 @@ fn record(
             content,
             created_at: Some(timestamp),
         },
+        findings: Vec::new(),
     }
 }
 
@@ -984,6 +988,7 @@ fn certificate_record(
             content: der,
             created_at: Some(timestamp),
         },
+        findings: Vec::new(),
     })
 }
 
@@ -1003,6 +1008,7 @@ fn website_record(
     let service_id = stable_id("service", format!("{asset_id}:tcp:{port}").as_bytes());
     let content_sha256 = hex_hash(&snapshot.body);
     let evidence_id = format!("evidence_{content_sha256}");
+    let observation_id = format!("observation_{}", Uuid::now_v7());
     let website = Website {
         id: stable_id("website", service_id.as_bytes()),
         service_id: service_id.clone(),
@@ -1016,6 +1022,17 @@ fn website_record(
         last_seen_at: Some(timestamp),
     };
     let evidence_media_type = website.content_type.clone();
+    let findings = directory_listing_finding(
+        task_id,
+        scope_id,
+        &asset_id,
+        &observation_id,
+        &evidence_id,
+        &snapshot,
+        timestamp,
+    )
+    .into_iter()
+    .collect();
     let payload = json!({
         "address": address, "port": port, "url": snapshot.url,
         "status_code": snapshot.status_code, "title": snapshot.title,
@@ -1043,7 +1060,7 @@ fn website_record(
         certificate: None,
         website: Some(website),
         observation: Observation {
-            id: format!("observation_{}", Uuid::now_v7()),
+            id: observation_id,
             task_id: task_id.to_owned(),
             asset_id,
             observation_type: "http.response".to_owned(),
@@ -1058,7 +1075,55 @@ fn website_record(
             content: snapshot.body,
             created_at: Some(timestamp),
         },
+        findings,
     }
+}
+
+fn directory_listing_finding(
+    task_id: &str,
+    scope_id: &str,
+    asset_id: &str,
+    observation_id: &str,
+    evidence_id: &str,
+    snapshot: &WebSnapshot,
+    timestamp: prost_types::Timestamp,
+) -> Option<Finding> {
+    let title = snapshot.title.trim().to_ascii_lowercase();
+    let body = String::from_utf8_lossy(&snapshot.body).to_ascii_lowercase();
+    let listing_title = title.starts_with("index of /")
+        || body.contains("<title>index of /")
+        || body.contains("<h1>index of /");
+    let listing_marker = body.contains("parent directory") || body.contains("?c=n;o=");
+    if snapshot.status_code != 200 || !listing_title || !listing_marker {
+        return None;
+    }
+
+    let detector = "cyberedge-http";
+    let rule_id = "http-directory-listing-v1";
+    let fingerprint = hex_hash(format!("{rule_id}:{}", snapshot.url).as_bytes());
+    Some(Finding {
+        id: stable_id(
+            "finding",
+            format!("{scope_id}:{detector}:{rule_id}:{asset_id}:{fingerprint}").as_bytes(),
+        ),
+        scope_id: scope_id.to_owned(),
+        task_id: task_id.to_owned(),
+        asset_id: asset_id.to_owned(),
+        observation_id: observation_id.to_owned(),
+        evidence_id: evidence_id.to_owned(),
+        detector: detector.to_owned(),
+        rule_id: rule_id.to_owned(),
+        title: "HTTP directory listing exposed".to_owned(),
+        description: format!(
+            "The HTTP response at {} exposes a directory index backed by the retained response body.",
+            snapshot.url
+        ),
+        severity: FindingSeverity::Medium.into(),
+        state: FindingState::Open.into(),
+        fingerprint,
+        first_seen_at: Some(timestamp),
+        last_seen_at: Some(timestamp),
+    })
 }
 
 const MAX_WEB_BODY_BYTES: usize = 1_048_576;
