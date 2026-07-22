@@ -1,29 +1,30 @@
 # Architecture
 
-CyberEdge starts again as a modular monolith. One deployable API owns the domain model and one worker pool executes scan jobs. PostgreSQL is the source of truth and the initial job queue.
+CyberEdge is a single-organization, self-hosted modular monolith. AI Agents are the only operators. Skills call the Rust Core through gRPC; humans use an optional strictly read-only Web projection.
 
 ## Baseline
 
 - Rust 1.97: API, scheduler, workers, and scanner adapters
-- Axum + Tokio: HTTP and asynchronous runtime
+- tonic + Tokio: gRPC and asynchronous runtime
+- Protobuf: the only control-plane contract
 - SQLx: PostgreSQL access once the first persistent domain model lands
-- PostgreSQL: assets, observations, findings, jobs, and audit events
-- React 19.2 + TypeScript + Vite 8.1: operator console
-- OpenAPI: the contract between API and console
+- PostgreSQL: assets, observations, findings, tasks, and audit events
+- Read Model: isolated query projection for the optional enterprise Web
 - OCI images + Docker Compose: the first deployment target
 
 ## Domain flow
 
 `scope -> asset -> observation -> finding -> evidence -> remediation`
 
-Jobs are claimed with PostgreSQL row locking. A dedicated broker is introduced only when measured throughput proves PostgreSQL insufficient.
+Tasks are claimed with PostgreSQL row locking. A dedicated broker is introduced only when measured throughput proves PostgreSQL insufficient.
 
 Scanner tools run behind adapters with explicit timeouts, resource limits, and normalized output. Raw tool output is evidence, never the domain model.
 
 ## Boundaries
 
-- `src/`: API, domain, and infrastructure code
-- `web/`: operator console
+- `proto/`: versioned Agent RPC contract
+- `src/`: domain, RPC, task engine, and infrastructure code
+- `web/`: optional read-only observation interface
 - `docs/`: architecture decisions and operator documentation
 
-No microservices, plugin framework, or distributed workflow engine until a real constraint requires one.
+No human CLI, mutable Web console, multi-tenancy, microservices, message broker, plugin framework, or distributed workflow engine until a real constraint requires one.

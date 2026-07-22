@@ -1,0 +1,111 @@
+syntax = "proto3";
+
+package cyberedge.v1;
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+
+service CyberEdge {
+  rpc Health(google.protobuf.Empty) returns (HealthResponse);
+  rpc CreateScope(CreateScopeRequest) returns (Scope);
+  rpc GetScope(GetScopeRequest) returns (Scope);
+  rpc StartScan(StartScanRequest) returns (Task);
+  rpc GetTask(GetTaskRequest) returns (Task);
+  rpc WatchTask(WatchTaskRequest) returns (stream TaskEvent);
+  rpc CancelTask(CancelTaskRequest) returns (Task);
+}
+
+message InvocationContext {
+  string request_id = 1;
+  string idempotency_key = 2;
+  string agent_id = 3;
+  string skill_name = 4;
+  string skill_version = 5;
+}
+
+message ErrorDetail {
+  string code = 1;
+  bool retryable = 2;
+  map<string, string> metadata = 3;
+}
+
+message HealthResponse {
+  string status = 1;
+}
+
+enum TargetKind {
+  TARGET_KIND_UNSPECIFIED = 0;
+  TARGET_KIND_DOMAIN = 1;
+  TARGET_KIND_IP = 2;
+  TARGET_KIND_CIDR = 3;
+  TARGET_KIND_ORGANIZATION = 4;
+}
+
+message ScopeTarget {
+  TargetKind kind = 1;
+  string value = 2;
+}
+
+message Scope {
+  string id = 1;
+  string name = 2;
+  string authorization_ref = 3;
+  repeated ScopeTarget targets = 4;
+  google.protobuf.Timestamp created_at = 5;
+}
+
+message CreateScopeRequest {
+  InvocationContext context = 1;
+  string name = 2;
+  string authorization_ref = 3;
+  repeated ScopeTarget targets = 4;
+}
+
+message GetScopeRequest {
+  string scope_id = 1;
+}
+
+enum TaskState {
+  TASK_STATE_UNSPECIFIED = 0;
+  TASK_STATE_QUEUED = 1;
+  TASK_STATE_RUNNING = 2;
+  TASK_STATE_COMPLETED = 3;
+  TASK_STATE_FAILED = 4;
+  TASK_STATE_CANCELED = 5;
+}
+
+message Task {
+  string id = 1;
+  string scope_id = 2;
+  string policy_id = 3;
+  TaskState state = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+message StartScanRequest {
+  InvocationContext context = 1;
+  string scope_id = 2;
+  string policy_id = 3;
+}
+
+message GetTaskRequest {
+  string task_id = 1;
+}
+
+message WatchTaskRequest {
+  string task_id = 1;
+  uint64 after_sequence = 2;
+}
+
+message CancelTaskRequest {
+  InvocationContext context = 1;
+  string task_id = 2;
+}
+
+message TaskEvent {
+  string task_id = 1;
+  uint64 sequence = 2;
+  string event_type = 3;
+  google.protobuf.Timestamp occurred_at = 4;
+}

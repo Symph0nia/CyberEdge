@@ -3,13 +3,23 @@ name = "cyberedge"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.97.1"
+build = "build.rs"
 
 [dependencies]
-axum = "0.8.9"
-serde = { version = "1", features = ["derive"] }
-tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal"] }
+async-stream = "0.3.6"
+bytes = "1"
+prost = "0.14.4"
+prost-types = "0.14.4"
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal", "sync"] }
+tokio-stream = { version = "0.1.19", features = ["net"] }
+tonic = "0.14.6"
+tonic-prost = "0.14.6"
+uuid = { version = "1.24.0", features = ["v7"] }
+
+[build-dependencies]
+protoc-bin-vendored = "3.2.0"
+tonic-prost-build = "0.14.6"
 
 [profile.release]
 lto = "thin"
 strip = "symbols"
-
