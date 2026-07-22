@@ -12,7 +12,7 @@ use cyberedge::{
     PostgresRepository, Repository, WebSnapshot, WebsiteProbe,
     proto::{
         AssetChangeKind, CreateScheduleRequest, CreateScopeRequest, ExposureChangeKind,
-        FindingSeverity, GetTaskReportRequest, GetTaskRequest, InvocationContext,
+        FindingSeverity, FindingState, GetTaskReportRequest, GetTaskRequest, InvocationContext,
         ReportFindingRequest, ScopeTarget, SearchAssetChangesRequest, SearchAuditRequest,
         SearchCertificatesRequest, SearchExposureChangesRequest, SearchFindingsRequest,
         SearchSchedulesRequest, SearchServicesRequest, SearchWebsitesRequest, StartScanRequest,
@@ -31,6 +31,7 @@ struct OpenConnector;
 struct TestCertificate(Vec<u8>);
 struct TestWebsite;
 struct ChangingWebsite(AtomicUsize);
+struct CyclingDirectoryWebsite(AtomicUsize);
 
 #[async_trait]
 impl DnsResolver for Resolver {
@@ -94,6 +95,34 @@ impl WebsiteProbe for ChangingWebsite {
             server: "test".to_owned(),
             content_type: "text/html".to_owned(),
             body: format!("version {version}").into_bytes(),
+        })
+    }
+}
+
+#[async_trait]
+impl WebsiteProbe for CyclingDirectoryWebsite {
+    async fn fetch(
+        &self,
+        _address: IpAddr,
+        port: u16,
+        server_name: &str,
+    ) -> Result<WebSnapshot, String> {
+        let exposed = self.0.fetch_add(1, Ordering::SeqCst) != 1;
+        let (title, body) = if exposed {
+            (
+                "Index of /",
+                b"<title>Index of /</title><a href=\"../\">Parent Directory</a>".as_slice(),
+            )
+        } else {
+            ("Application", b"<title>Application</title>".as_slice())
+        };
+        Ok(WebSnapshot {
+            url: format!("https://{server_name}:{port}/"),
+            status_code: 200,
+            title: title.to_owned(),
+            server: "test".to_owned(),
+            content_type: "text/html".to_owned(),
+            body: body.to_vec(),
         })
     }
 }
@@ -414,6 +443,58 @@ async fn persists_scope_task_events_audit_and_outbox() {
         exposure_changes[0].kind,
         i32::from(ExposureChangeKind::Modified)
     );
+
+    let lifecycle_scope = restarted
+        .create_scope(Request::new(CreateScopeRequest {
+            context: Some(context("finding-lifecycle-scope")),
+            name: "Finding lifecycle".to_owned(),
+            authorization_ref: "authorization:postgres-test".to_owned(),
+            targets: vec![ScopeTarget {
+                kind: TargetKind::Ip.into(),
+                value: "127.0.0.2".to_owned(),
+            }],
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let lifecycle_worker =
+        DiscoveryWorker::new(repository.clone(), Arc::new(Resolver(AtomicUsize::new(0))))
+            .with_port_connector(Arc::new(OpenConnector), vec![443])
+            .with_website_probe(Arc::new(CyclingDirectoryWebsite(AtomicUsize::new(0))));
+    let mut finding_id = String::new();
+    for (index, expected_state) in [
+        FindingState::Open,
+        FindingState::Resolved,
+        FindingState::Open,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        restarted
+            .start_scan(Request::new(StartScanRequest {
+                context: Some(context(&format!("finding-lifecycle-task-{index}"))),
+                scope_id: lifecycle_scope.id.clone(),
+                policy_id: "policy_service_baseline".to_owned(),
+            }))
+            .await
+            .unwrap();
+        lifecycle_worker.run_once().await.unwrap();
+        let findings = restarted
+            .search_findings(Request::new(SearchFindingsRequest {
+                context: Some(context(&format!("finding-lifecycle-search-{index}"))),
+                scope_id: lifecycle_scope.id.clone(),
+            }))
+            .await
+            .unwrap()
+            .into_inner()
+            .findings;
+        assert_eq!(findings.len(), 1);
+        if finding_id.is_empty() {
+            finding_id = findings[0].id.clone();
+        }
+        assert_eq!(findings[0].id, finding_id);
+        assert_eq!(findings[0].state, i32::from(expected_state));
+    }
 }
 
 fn context(suffix: &str) -> InvocationContext {

@@ -46,7 +46,15 @@ pub struct DiscoveryRecord {
     pub website: Option<Website>,
     pub observation: Observation,
     pub evidence: Evidence,
+    pub finding_evaluations: Vec<FindingEvaluation>,
     pub findings: Vec<Finding>,
+}
+
+pub struct FindingEvaluation {
+    pub asset_id: String,
+    pub detector: &'static str,
+    pub rule_id: &'static str,
+    pub fingerprint: String,
 }
 
 pub struct ReadOverview {

@@ -12,7 +12,8 @@ use super::{
 };
 use crate::proto::{
     Asset, AssetChange, AssetChangeKind, AuditEvent, Certificate, Evidence, ExposureChange,
-    Finding, Observation, Schedule, Scope, Service, Task, TaskEvent, TaskState, Website,
+    Finding, FindingState, Observation, Schedule, Scope, Service, Task, TaskEvent, TaskState,
+    Website,
 };
 
 #[derive(Default)]
@@ -406,6 +407,7 @@ impl Repository for MemoryRepository {
             existing.title = finding.title;
             existing.description = finding.description;
             existing.severity = finding.severity;
+            existing.state = finding.state;
             existing.last_seen_at = finding.last_seen_at;
             finding = existing.clone();
         } else {
@@ -537,6 +539,26 @@ impl Repository for MemoryRepository {
             state
                 .evidence
                 .insert(record.evidence.id.clone(), record.evidence);
+            for evaluation in record.finding_evaluations {
+                let emitted = record.findings.iter().any(|finding| {
+                    finding.asset_id == evaluation.asset_id
+                        && finding.detector == evaluation.detector
+                        && finding.rule_id == evaluation.rule_id
+                        && finding.fingerprint == evaluation.fingerprint
+                });
+                if emitted {
+                    continue;
+                }
+                if let Some(existing) = state.findings.values_mut().find(|finding| {
+                    finding.asset_id == evaluation.asset_id
+                        && finding.detector == evaluation.detector
+                        && finding.rule_id == evaluation.rule_id
+                        && finding.fingerprint == evaluation.fingerprint
+                }) {
+                    existing.state = FindingState::Resolved.into();
+                    existing.last_seen_at = Some(timestamp);
+                }
+            }
             for finding in record.findings {
                 if let Some(existing) = state.findings.values_mut().find(|existing| {
                     existing.scope_id == finding.scope_id
@@ -551,6 +573,7 @@ impl Repository for MemoryRepository {
                     existing.title = finding.title;
                     existing.description = finding.description;
                     existing.severity = finding.severity;
+                    existing.state = finding.state;
                     existing.last_seen_at = finding.last_seen_at;
                 } else {
                     state.findings.insert(finding.id.clone(), finding);

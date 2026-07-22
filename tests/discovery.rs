@@ -13,7 +13,7 @@ use cyberedge::{
     SystemPortConnector, SystemWebsiteProbe, WebSnapshot, WebsiteProbe,
     proto::{
         AssetChangeKind, CreateScheduleRequest, CreateScopeRequest, ExposureChangeKind,
-        FindingSeverity, GetEvidenceRequest, GetTaskReportRequest, InvocationContext,
+        FindingSeverity, FindingState, GetEvidenceRequest, GetTaskReportRequest, InvocationContext,
         ReportFindingRequest, ScopeTarget, SearchAssetChangesRequest, SearchAssetsRequest,
         SearchAuditRequest, SearchCertificatesRequest, SearchExposureChangesRequest,
         SearchFindingsRequest, SearchObservationsRequest, SearchSchedulesRequest,
@@ -97,6 +97,7 @@ impl PortConnector for OpenPort {
 struct TestCertificate(Vec<u8>);
 struct TestWebsite;
 struct DirectoryWebsite;
+struct CyclingDirectoryWebsite(AtomicUsize);
 struct ChangingWebsite(AtomicUsize);
 struct FailingWebsite(AtomicUsize);
 
@@ -148,6 +149,34 @@ impl WebsiteProbe for DirectoryWebsite {
             content_type: "text/html".to_owned(),
             body: b"<html><title>Index of /</title><a href=\"../\">Parent Directory</a></html>"
                 .to_vec(),
+        })
+    }
+}
+
+#[async_trait]
+impl WebsiteProbe for CyclingDirectoryWebsite {
+    async fn fetch(
+        &self,
+        _address: IpAddr,
+        port: u16,
+        server_name: &str,
+    ) -> Result<WebSnapshot, String> {
+        let exposed = self.0.fetch_add(1, Ordering::SeqCst) != 1;
+        let (title, body) = if exposed {
+            (
+                "Index of /",
+                b"<title>Index of /</title><a href=\"../\">Parent Directory</a>".as_slice(),
+            )
+        } else {
+            ("Application", b"<title>Application</title>".as_slice())
+        };
+        Ok(WebSnapshot {
+            url: format!("http://{server_name}:{port}/"),
+            status_code: 200,
+            title: title.to_owned(),
+            server: "nginx".to_owned(),
+            content_type: "text/html".to_owned(),
+            body: body.to_vec(),
         })
     }
 }
@@ -874,6 +903,63 @@ async fn reports_directory_listing_from_retained_http_evidence() {
         .find(|evidence| evidence.id == findings[0].evidence_id)
         .unwrap();
     assert!(String::from_utf8_lossy(&evidence.content).contains("Parent Directory"));
+}
+
+#[tokio::test]
+async fn resolves_and_reopens_builtin_finding_after_successful_reevaluation() {
+    let repository: Arc<dyn Repository> = Arc::new(MemoryRepository::default());
+    let service = CyberEdgeService::new(repository.clone(), Arc::new(Allow));
+    let scope = service
+        .create_scope(Request::new(CreateScopeRequest {
+            context: Some(context("finding-lifecycle-scope")),
+            name: "Finding lifecycle".to_owned(),
+            authorization_ref: "authorization:local-test".to_owned(),
+            targets: vec![ScopeTarget {
+                kind: TargetKind::Ip.into(),
+                value: "127.0.0.1".to_owned(),
+            }],
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let worker = DiscoveryWorker::new(repository, Arc::new(Resolver))
+        .with_port_connector(Arc::new(OpenPort), vec![80])
+        .with_website_probe(Arc::new(CyclingDirectoryWebsite(AtomicUsize::new(0))));
+
+    let mut finding_id = String::new();
+    for (index, expected_state) in [
+        FindingState::Open,
+        FindingState::Resolved,
+        FindingState::Open,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        service
+            .start_scan(Request::new(StartScanRequest {
+                context: Some(context(&format!("finding-lifecycle-task-{index}"))),
+                scope_id: scope.id.clone(),
+                policy_id: "policy_service_baseline".to_owned(),
+            }))
+            .await
+            .unwrap();
+        worker.run_once().await.unwrap();
+        let findings = service
+            .search_findings(Request::new(SearchFindingsRequest {
+                context: Some(context(&format!("finding-lifecycle-search-{index}"))),
+                scope_id: scope.id.clone(),
+            }))
+            .await
+            .unwrap()
+            .into_inner()
+            .findings;
+        assert_eq!(findings.len(), 1);
+        if finding_id.is_empty() {
+            finding_id = findings[0].id.clone();
+        }
+        assert_eq!(findings[0].id, finding_id);
+        assert_eq!(findings[0].state, i32::from(expected_state));
+    }
 }
 
 #[tokio::test]

@@ -26,7 +26,7 @@ use crate::{
         Asset, Certificate, Evidence, Finding, FindingSeverity, FindingState, Observation,
         ScopeTarget, Service, TargetKind, Website,
     },
-    repository::{DiscoveryRecord, Repository, RepositoryError},
+    repository::{DiscoveryRecord, FindingEvaluation, Repository, RepositoryError},
 };
 
 #[async_trait]
@@ -862,6 +862,7 @@ fn record(
             content,
             created_at: Some(timestamp),
         },
+        finding_evaluations: Vec::new(),
         findings: Vec::new(),
     }
 }
@@ -988,6 +989,7 @@ fn certificate_record(
             content: der,
             created_at: Some(timestamp),
         },
+        finding_evaluations: Vec::new(),
         findings: Vec::new(),
     })
 }
@@ -1022,7 +1024,7 @@ fn website_record(
         last_seen_at: Some(timestamp),
     };
     let evidence_media_type = website.content_type.clone();
-    let findings = directory_listing_finding(
+    let (finding_evaluation, finding) = directory_listing_detection(
         task_id,
         scope_id,
         &asset_id,
@@ -1030,9 +1032,7 @@ fn website_record(
         &evidence_id,
         &snapshot,
         timestamp,
-    )
-    .into_iter()
-    .collect();
+    );
     let payload = json!({
         "address": address, "port": port, "url": snapshot.url,
         "status_code": snapshot.status_code, "title": snapshot.title,
@@ -1075,11 +1075,12 @@ fn website_record(
             content: snapshot.body,
             created_at: Some(timestamp),
         },
-        findings,
+        finding_evaluations: vec![finding_evaluation],
+        findings: finding.into_iter().collect(),
     }
 }
 
-fn directory_listing_finding(
+fn directory_listing_detection(
     task_id: &str,
     scope_id: &str,
     asset_id: &str,
@@ -1087,7 +1088,16 @@ fn directory_listing_finding(
     evidence_id: &str,
     snapshot: &WebSnapshot,
     timestamp: prost_types::Timestamp,
-) -> Option<Finding> {
+) -> (FindingEvaluation, Option<Finding>) {
+    let detector = "cyberedge-http";
+    let rule_id = "http-directory-listing-v1";
+    let fingerprint = hex_hash(format!("{rule_id}:{}", snapshot.url).as_bytes());
+    let evaluation = FindingEvaluation {
+        asset_id: asset_id.to_owned(),
+        detector,
+        rule_id,
+        fingerprint: fingerprint.clone(),
+    };
     let title = snapshot.title.trim().to_ascii_lowercase();
     let body = String::from_utf8_lossy(&snapshot.body).to_ascii_lowercase();
     let listing_title = title.starts_with("index of /")
@@ -1095,13 +1105,10 @@ fn directory_listing_finding(
         || body.contains("<h1>index of /");
     let listing_marker = body.contains("parent directory") || body.contains("?c=n;o=");
     if snapshot.status_code != 200 || !listing_title || !listing_marker {
-        return None;
+        return (evaluation, None);
     }
 
-    let detector = "cyberedge-http";
-    let rule_id = "http-directory-listing-v1";
-    let fingerprint = hex_hash(format!("{rule_id}:{}", snapshot.url).as_bytes());
-    Some(Finding {
+    let finding = Finding {
         id: stable_id(
             "finding",
             format!("{scope_id}:{detector}:{rule_id}:{asset_id}:{fingerprint}").as_bytes(),
@@ -1123,7 +1130,8 @@ fn directory_listing_finding(
         fingerprint,
         first_seen_at: Some(timestamp),
         last_seen_at: Some(timestamp),
-    })
+    };
+    (evaluation, Some(finding))
 }
 
 const MAX_WEB_BODY_BYTES: usize = 1_048_576;

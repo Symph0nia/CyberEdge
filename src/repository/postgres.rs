@@ -10,8 +10,8 @@ use super::{
 };
 use crate::proto::{
     Asset, AssetChange, AssetChangeKind, AuditEvent, Certificate, Evidence, ExposureChange,
-    Finding, Observation, Schedule, Scope, ScopeTarget, Service, Task, TaskEvent, TaskState,
-    Website,
+    Finding, FindingState, Observation, Schedule, Scope, ScopeTarget, Service, Task, TaskEvent,
+    TaskState, Website,
 };
 
 pub struct PostgresRepository {
@@ -1023,6 +1023,46 @@ impl Repository for PostgresRepository {
             .bind(observed_at.nanos)
             .execute(&mut *tx)
             .await?;
+            for evaluation in record.finding_evaluations {
+                let emitted = record.findings.iter().any(|finding| {
+                    finding.asset_id == evaluation.asset_id
+                        && finding.detector == evaluation.detector
+                        && finding.rule_id == evaluation.rule_id
+                        && finding.fingerprint == evaluation.fingerprint
+                });
+                if emitted {
+                    continue;
+                }
+                let resolved_finding_id = sqlx::query_scalar::<_, String>(
+                    "UPDATE findings SET state = $1,
+                       last_seen_at_seconds = $2, last_seen_at_nanos = $3
+                     WHERE asset_id = $4 AND detector = $5 AND rule_id = $6
+                       AND fingerprint = $7 AND state = $8
+                     RETURNING id",
+                )
+                .bind(i32::from(FindingState::Resolved))
+                .bind(timestamp.seconds)
+                .bind(timestamp.nanos)
+                .bind(&evaluation.asset_id)
+                .bind(evaluation.detector)
+                .bind(evaluation.rule_id)
+                .bind(&evaluation.fingerprint)
+                .bind(i32::from(FindingState::Open))
+                .fetch_optional(&mut *tx)
+                .await?;
+                if let Some(finding_id) = resolved_finding_id {
+                    insert_outbox(
+                        &mut tx,
+                        "finding",
+                        &finding_id,
+                        None,
+                        "finding.resolved",
+                        json!({"finding_id": finding_id, "task_id": task_id,
+                            "detector": evaluation.detector, "rule_id": evaluation.rule_id}),
+                    )
+                    .await?;
+                }
+            }
             for finding in record.findings {
                 let first = finding.first_seen_at.expect("finding first-seen exists");
                 let last = finding.last_seen_at.expect("finding last-seen exists");
@@ -1038,6 +1078,7 @@ impl Repository for PostgresRepository {
                        task_id = EXCLUDED.task_id, observation_id = EXCLUDED.observation_id,
                        evidence_id = EXCLUDED.evidence_id, title = EXCLUDED.title,
                        description = EXCLUDED.description, severity = EXCLUDED.severity,
+                       state = EXCLUDED.state,
                        last_seen_at_seconds = EXCLUDED.last_seen_at_seconds,
                        last_seen_at_nanos = EXCLUDED.last_seen_at_nanos
                      RETURNING id",
