@@ -924,6 +924,8 @@ fn certificate_record(
     );
     let service_id = stable_id("service", format!("{asset_id}:tcp:{port}").as_bytes());
     let sha256 = hex_hash(&der);
+    let observation_id = format!("observation_{}", Uuid::now_v7());
+    let evidence_id = format!("evidence_{sha256}");
     let certificate = Certificate {
         id: stable_id("certificate", format!("{service_id}:{sha256}").as_bytes()),
         service_id: service_id.clone(),
@@ -942,6 +944,16 @@ fn certificate_record(
         first_seen_at: Some(timestamp),
         last_seen_at: Some(timestamp),
     };
+    let (finding_evaluations, findings) = certificate_validity_detections(
+        task_id,
+        scope_id,
+        &asset_id,
+        &service_id,
+        &observation_id,
+        &evidence_id,
+        &certificate,
+        timestamp,
+    );
     let payload = json!({
         "address": address,
         "port": port,
@@ -952,7 +964,6 @@ fn certificate_record(
         "not_before_unix": certificate.not_before.as_ref().map(|value| value.seconds),
         "not_after_unix": certificate.not_after.as_ref().map(|value| value.seconds),
     });
-    let evidence_id = format!("evidence_{sha256}");
     Ok(DiscoveryRecord {
         asset: Asset {
             id: asset_id.clone(),
@@ -974,7 +985,7 @@ fn certificate_record(
         certificate: Some(certificate),
         website: None,
         observation: Observation {
-            id: format!("observation_{}", Uuid::now_v7()),
+            id: observation_id,
             task_id: task_id.to_owned(),
             asset_id,
             observation_type: "tls.certificate".to_owned(),
@@ -989,9 +1000,89 @@ fn certificate_record(
             content: der,
             created_at: Some(timestamp),
         },
-        finding_evaluations: Vec::new(),
-        findings: Vec::new(),
+        finding_evaluations,
+        findings,
     })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn certificate_validity_detections(
+    task_id: &str,
+    scope_id: &str,
+    asset_id: &str,
+    service_id: &str,
+    observation_id: &str,
+    evidence_id: &str,
+    certificate: &Certificate,
+    timestamp: prost_types::Timestamp,
+) -> (Vec<FindingEvaluation>, Vec<Finding>) {
+    const EXPIRING_WINDOW_SECONDS: i64 = 30 * 24 * 60 * 60;
+    const DETECTOR: &str = "cyberedge-tls";
+    const EXPIRED_RULE: &str = "tls-certificate-expired-v1";
+    const EXPIRING_RULE: &str = "tls-certificate-expiring-v1";
+
+    let fingerprint = |rule_id: &'static str| {
+        let fingerprint = hex_hash(format!("{rule_id}:{service_id}").as_bytes());
+        FindingEvaluation {
+            asset_id: asset_id.to_owned(),
+            detector: DETECTOR,
+            rule_id,
+            fingerprint,
+        }
+    };
+    let expired = fingerprint(EXPIRED_RULE);
+    let expiring = fingerprint(EXPIRING_RULE);
+    let evaluations = vec![expired, expiring];
+    let Some(not_after) = certificate.not_after else {
+        return (evaluations, Vec::new());
+    };
+
+    let selected = if not_after.seconds <= timestamp.seconds {
+        Some((
+            &evaluations[0],
+            "TLS certificate expired",
+            FindingSeverity::High,
+        ))
+    } else if not_after.seconds <= timestamp.seconds + EXPIRING_WINDOW_SECONDS {
+        Some((
+            &evaluations[1],
+            "TLS certificate expires within 30 days",
+            FindingSeverity::Medium,
+        ))
+    } else {
+        None
+    };
+    let Some((evaluation, title, severity)) = selected else {
+        return (evaluations, Vec::new());
+    };
+    let finding = Finding {
+        id: stable_id(
+            "finding",
+            format!(
+                "{scope_id}:{}:{}:{asset_id}:{}",
+                evaluation.detector, evaluation.rule_id, evaluation.fingerprint
+            )
+            .as_bytes(),
+        ),
+        scope_id: scope_id.to_owned(),
+        task_id: task_id.to_owned(),
+        asset_id: asset_id.to_owned(),
+        observation_id: observation_id.to_owned(),
+        evidence_id: evidence_id.to_owned(),
+        detector: evaluation.detector.to_owned(),
+        rule_id: evaluation.rule_id.to_owned(),
+        title: title.to_owned(),
+        description: format!(
+            "The retained DER certificate for service {service_id} expires at Unix timestamp {}.",
+            not_after.seconds
+        ),
+        severity: severity.into(),
+        state: FindingState::Open.into(),
+        fingerprint: evaluation.fingerprint.clone(),
+        first_seen_at: Some(timestamp),
+        last_seen_at: Some(timestamp),
+    };
+    (evaluations, vec![finding])
 }
 
 fn website_record(
@@ -1212,5 +1303,50 @@ fn now() -> prost_types::Timestamp {
     prost_types::Timestamp {
         seconds: duration.as_secs() as i64,
         nanos: duration.subsec_nanos() as i32,
+    }
+}
+
+#[cfg(test)]
+mod detector_tests {
+    use super::*;
+
+    fn certificate(not_after: i64) -> Certificate {
+        Certificate {
+            not_after: Some(prost_types::Timestamp {
+                seconds: not_after,
+                nanos: 0,
+            }),
+            ..Certificate::default()
+        }
+    }
+
+    #[test]
+    fn classifies_certificate_validity_windows() {
+        let timestamp = prost_types::Timestamp {
+            seconds: 1_000_000_000,
+            nanos: 0,
+        };
+        let detect = |not_after| {
+            certificate_validity_detections(
+                "task",
+                "scope",
+                "asset",
+                "service",
+                "observation",
+                "evidence",
+                &certificate(not_after),
+                timestamp,
+            )
+            .1
+        };
+        assert_eq!(
+            detect(timestamp.seconds - 1)[0].rule_id,
+            "tls-certificate-expired-v1"
+        );
+        assert_eq!(
+            detect(timestamp.seconds + 29 * 24 * 60 * 60)[0].rule_id,
+            "tls-certificate-expiring-v1"
+        );
+        assert!(detect(timestamp.seconds + 31 * 24 * 60 * 60).is_empty());
     }
 }

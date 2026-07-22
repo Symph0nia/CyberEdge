@@ -185,10 +185,15 @@ async fn persists_scope_task_events_audit_and_outbox() {
         .await
         .unwrap();
     assert_eq!(scheduled_tasks.len(), 1);
-    let certificate = rcgen::generate_simple_self_signed(vec!["example.com".to_owned()]).unwrap();
+    let mut certificate_params =
+        rcgen::CertificateParams::new(vec!["example.com".to_owned()]).unwrap();
+    certificate_params.not_before = rcgen::date_time_ymd(2019, 1, 1);
+    certificate_params.not_after = rcgen::date_time_ymd(2020, 1, 1);
+    let certificate_key = rcgen::KeyPair::generate().unwrap();
+    let certificate = certificate_params.self_signed(&certificate_key).unwrap();
     let worker = DiscoveryWorker::new(repository.clone(), Arc::new(Resolver(AtomicUsize::new(0))))
         .with_port_connector(Arc::new(OpenConnector), vec![443])
-        .with_certificate_probe(Arc::new(TestCertificate(certificate.cert.der().to_vec())))
+        .with_certificate_probe(Arc::new(TestCertificate(certificate.der().to_vec())))
         .with_website_probe(Arc::new(TestWebsite));
     assert!(worker.run_once().await.unwrap());
     assert!(worker.run_once().await.unwrap());
@@ -271,10 +276,17 @@ async fn persists_scope_task_events_audit_and_outbox() {
     assert_eq!(service_report.services.len(), 1);
     assert_eq!(service_report.certificates.len(), 1);
     assert_eq!(service_report.websites.len(), 1);
-    assert_eq!(service_report.findings.len(), 1);
+    assert_eq!(service_report.findings.len(), 2);
     assert_eq!(
-        service_report.findings[0].rule_id,
-        "http-directory-listing-v1"
+        service_report
+            .findings
+            .iter()
+            .map(|finding| finding.rule_id.as_str())
+            .collect::<std::collections::BTreeSet<_>>(),
+        std::collections::BTreeSet::from([
+            "http-directory-listing-v1",
+            "tls-certificate-expired-v1"
+        ])
     );
     drop(service);
 
@@ -330,7 +342,7 @@ async fn persists_scope_task_events_audit_and_outbox() {
         .fetch_one(&pool)
         .await
         .unwrap();
-    assert_eq!(outbox_count, 17);
+    assert_eq!(outbox_count, 18);
     assert_eq!(asset_count, 5);
     assert_eq!(observation_count, 10);
     let report = restarted
@@ -387,7 +399,7 @@ async fn persists_scope_task_events_audit_and_outbox() {
         .unwrap()
         .into_inner()
         .findings;
-    assert_eq!(findings.len(), 2);
+    assert_eq!(findings.len(), 3);
 
     let monitor_scope = restarted
         .create_scope(Request::new(CreateScopeRequest {

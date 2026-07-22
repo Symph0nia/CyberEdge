@@ -95,6 +95,11 @@ impl PortConnector for OpenPort {
 }
 
 struct TestCertificate(Vec<u8>);
+struct CyclingCertificate {
+    expired: Vec<u8>,
+    healthy: Vec<u8>,
+    calls: AtomicUsize,
+}
 struct TestWebsite;
 struct DirectoryWebsite;
 struct CyclingDirectoryWebsite(AtomicUsize);
@@ -111,6 +116,22 @@ impl CertificateProbe for TestCertificate {
     ) -> Result<Vec<u8>, String> {
         assert_eq!(server_name, "127.0.0.1");
         Ok(self.0.clone())
+    }
+}
+
+#[async_trait]
+impl CertificateProbe for CyclingCertificate {
+    async fn leaf_certificate(
+        &self,
+        _address: IpAddr,
+        _port: u16,
+        _server_name: &str,
+    ) -> Result<Vec<u8>, String> {
+        if self.calls.fetch_add(1, Ordering::SeqCst) == 1 {
+            Ok(self.healthy.clone())
+        } else {
+            Ok(self.expired.clone())
+        }
     }
 }
 
@@ -1032,12 +1053,83 @@ async fn retains_tls_certificate_as_inventory_and_der_evidence() {
         .into_inner();
     assert_eq!(report.certificates.len(), 1);
     assert_eq!(report.websites.len(), 1);
+    assert!(report.findings.is_empty());
     let evidence = report
         .evidence
         .iter()
         .find(|item| item.media_type == "application/pkix-cert")
         .unwrap();
     assert_eq!(evidence.content, der);
+}
+
+#[tokio::test]
+async fn resolves_and_reopens_expired_certificate_finding_after_replacement() {
+    let certificate = |not_after_year| {
+        let mut params = rcgen::CertificateParams::new(vec!["localhost".to_owned()]).unwrap();
+        params.not_before = rcgen::date_time_ymd(2019, 1, 1);
+        params.not_after = rcgen::date_time_ymd(not_after_year, 1, 1);
+        let key = rcgen::KeyPair::generate().unwrap();
+        params.self_signed(&key).unwrap().der().to_vec()
+    };
+    let repository: Arc<dyn Repository> = Arc::new(MemoryRepository::default());
+    let service = CyberEdgeService::new(repository.clone(), Arc::new(Allow));
+    let scope = service
+        .create_scope(Request::new(CreateScopeRequest {
+            context: Some(context("certificate-lifecycle-scope")),
+            name: "Certificate lifecycle".to_owned(),
+            authorization_ref: "authorization:local-test".to_owned(),
+            targets: vec![ScopeTarget {
+                kind: TargetKind::Ip.into(),
+                value: "127.0.0.1".to_owned(),
+            }],
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let worker = DiscoveryWorker::new(repository, Arc::new(Resolver))
+        .with_port_connector(Arc::new(OpenPort), vec![443])
+        .with_certificate_probe(Arc::new(CyclingCertificate {
+            expired: certificate(2020),
+            healthy: certificate(4090),
+            calls: AtomicUsize::new(0),
+        }))
+        .with_website_probe(Arc::new(TestWebsite));
+
+    let mut finding_id = String::new();
+    for (index, expected_state) in [
+        FindingState::Open,
+        FindingState::Resolved,
+        FindingState::Open,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        service
+            .start_scan(Request::new(StartScanRequest {
+                context: Some(context(&format!("certificate-lifecycle-task-{index}"))),
+                scope_id: scope.id.clone(),
+                policy_id: "policy_service_baseline".to_owned(),
+            }))
+            .await
+            .unwrap();
+        worker.run_once().await.unwrap();
+        let findings = service
+            .search_findings(Request::new(SearchFindingsRequest {
+                context: Some(context(&format!("certificate-lifecycle-search-{index}"))),
+                scope_id: scope.id.clone(),
+            }))
+            .await
+            .unwrap()
+            .into_inner()
+            .findings;
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].rule_id, "tls-certificate-expired-v1");
+        if finding_id.is_empty() {
+            finding_id = findings[0].id.clone();
+        }
+        assert_eq!(findings[0].id, finding_id);
+        assert_eq!(findings[0].state, i32::from(expected_state));
+    }
 }
 
 #[tokio::test]

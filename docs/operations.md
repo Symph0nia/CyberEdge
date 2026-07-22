@@ -36,6 +36,8 @@ Finding adapters use `ReportFinding` and require `finding.report`. A Finding mus
 
 The service baseline also runs the built-in `cyberedge-http/http-directory-listing-v1` detector. It requires a successful HTTP response with both a directory-index title and a listing marker, and stores the raw response body as the referenced Evidence. Built-in findings are committed in the same transaction as their Observation and Evidence. A later successful evaluation resolves a missing condition; recurrence reopens the same deterministic Finding. Probe errors do not resolve findings because coverage is unknown.
 
+Successful TLS probes evaluate `cyberedge-tls/tls-certificate-expired-v1` and `cyberedge-tls/tls-certificate-expiring-v1`. The latter uses a fixed 30-day window. Findings are keyed to the service endpoint rather than a certificate hash, so replacing the certificate resolves the existing endpoint condition instead of leaving a stale finding. The retained DER certificate is the supporting Evidence.
+
 Do not grant `scan.active` to passive discovery Skills. Keep active grants in a separate Skill binding and verify the Scope before invocation.
 
 ## Native runtime
