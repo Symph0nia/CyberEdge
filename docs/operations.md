@@ -30,6 +30,8 @@ Open `80`, `443`, `8080`, and `8443` services receive one `GET /` request. Redir
 
 Scheduled active baseline Tasks compare Service and Website observation fingerprints with the preceding successful Task. They emit `APPEARED`, `DISAPPEARED`, or `MODIFIED` ExposureChange records and outbox events. Any collection error suppresses disappearance events for that run, preventing an upstream outage from becoming false exposure drift.
 
+Set `CYBEREDGE_WEBHOOK_URL` to enable notification delivery. Only `http` and `https` endpoints are accepted; redirects are disabled and requests time out after ten seconds. `CYBEREDGE_WEBHOOK_BEARER_TOKEN` optionally adds a bearer credential and is never included in payloads. Outbox events are atomically leased, retried with exponential backoff capped at fifteen minutes, and dead-lettered after eight failed attempts. The read-only Web reports pending, delivered, and dead-letter counts.
+
 Do not grant `scan.active` to passive discovery Skills. Keep active grants in a separate Skill binding and verify the Scope before invocation.
 
 ## Native runtime

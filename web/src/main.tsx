@@ -21,7 +21,7 @@ type AssetChange = { id: string; schedule_id: string; task_id: string; asset_id:
 type ExposureChange = { id: string; schedule_id: string; task_id: string; resource_kind: string; resource_id: string; kind: number; previous_fingerprint: string; current_fingerprint: string; detected_at: Stamp }
 type AuditEvent = { id: string; request_id: string; operation: string; agent_id: string; skill_name: string; skill_version: string; resource_id: string; occurred_at: Stamp }
 type Overview = {
-  counts: { scopes: number; tasks: number; assets: number; services: number; certificates: number; websites: number; schedules: number; asset_changes: number; exposure_changes: number; observations: number; evidence: number }
+  counts: { scopes: number; tasks: number; assets: number; services: number; certificates: number; websites: number; schedules: number; asset_changes: number; exposure_changes: number; observations: number; evidence: number; notifications_pending: number; notifications_delivered: number; notifications_dead_letter: number }
   scopes: Scope[]
   tasks: Task[]
   assets: Asset[]
@@ -139,6 +139,7 @@ function App() {
               <ChangeTable changes={data.asset_changes} assets={data.assets} />
               <div className="subsection-heading"><p className="section-label">Exposure drift</p><h3>Service and website changes</h3><span>{formatNumber(data.counts.exposure_changes)} recorded</span></div>
               <ExposureChangeTable changes={data.exposure_changes} />
+              <div className="subsection-heading"><p className="section-label">Notifications</p><h3>Outbox delivery</h3><span>{formatNumber(data.counts.notifications_delivered)} delivered · {formatNumber(data.counts.notifications_pending)} pending · {formatNumber(data.counts.notifications_dead_letter)} dead-lettered</span></div>
             </section>
 
             <section id="audit" className="data-section" aria-labelledby="audit-title">

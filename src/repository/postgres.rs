@@ -17,6 +17,17 @@ pub struct PostgresRepository {
     pool: PgPool,
 }
 
+#[derive(Clone, Debug)]
+pub struct OutboxEvent {
+    pub id: String,
+    pub aggregate_kind: String,
+    pub aggregate_id: String,
+    pub sequence: Option<i64>,
+    pub event_type: String,
+    pub payload: serde_json::Value,
+    pub attempts: i32,
+}
+
 impl PostgresRepository {
     pub async fn connect(database_url: &str) -> Result<Self, RepositoryError> {
         let pool = PgPoolOptions::new()
@@ -25,6 +36,67 @@ impl PostgresRepository {
             .await?;
         sqlx::migrate!().run(&pool).await?;
         Ok(Self { pool })
+    }
+
+    pub async fn claim_outbox(&self) -> Result<Option<OutboxEvent>, RepositoryError> {
+        let row = sqlx::query(
+            "UPDATE outbox_events SET attempts = attempts + 1,
+                    lease_until = now() + interval '30 seconds'
+             WHERE id = (
+               SELECT id FROM outbox_events
+               WHERE published_at IS NULL AND dead_lettered_at IS NULL
+                 AND next_attempt_at <= now()
+                 AND (lease_until IS NULL OR lease_until <= now())
+               ORDER BY next_attempt_at, created_at
+               FOR UPDATE SKIP LOCKED LIMIT 1
+             )
+             RETURNING id, aggregate_kind, aggregate_id, sequence, event_type, payload, attempts",
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|row| OutboxEvent {
+            id: row.get("id"),
+            aggregate_kind: row.get("aggregate_kind"),
+            aggregate_id: row.get("aggregate_id"),
+            sequence: row.get("sequence"),
+            event_type: row.get("event_type"),
+            payload: row.get("payload"),
+            attempts: row.get("attempts"),
+        }))
+    }
+
+    pub async fn publish_outbox(&self, event_id: &str) -> Result<(), RepositoryError> {
+        sqlx::query(
+            "UPDATE outbox_events SET published_at = now(), lease_until = NULL, last_error = ''
+             WHERE id = $1 AND published_at IS NULL",
+        )
+        .bind(event_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn retry_outbox(
+        &self,
+        event_id: &str,
+        attempts: i32,
+        error: &str,
+    ) -> Result<(), RepositoryError> {
+        let error = error.chars().take(1_000).collect::<String>();
+        let delay = 2_i64.pow(attempts.clamp(1, 10) as u32).min(900);
+        sqlx::query(
+            "UPDATE outbox_events SET lease_until = NULL, last_error = $2,
+                    next_attempt_at = now() + make_interval(secs => $3),
+                    dead_lettered_at = CASE WHEN $4 >= 8 THEN now() ELSE NULL END
+             WHERE id = $1 AND published_at IS NULL",
+        )
+        .bind(event_id)
+        .bind(error)
+        .bind(delay as f64)
+        .bind(attempts)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 }
 
@@ -1052,6 +1124,21 @@ impl Repository for PostgresRepository {
         let evidence_count = sqlx::query_scalar("SELECT COUNT(*) FROM evidence")
             .fetch_one(&self.pool)
             .await?;
+        let notification_pending_count = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM outbox_events
+             WHERE published_at IS NULL AND dead_lettered_at IS NULL",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        let notification_delivered_count =
+            sqlx::query_scalar("SELECT COUNT(*) FROM outbox_events WHERE published_at IS NOT NULL")
+                .fetch_one(&self.pool)
+                .await?;
+        let notification_dead_letter_count = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM outbox_events WHERE dead_lettered_at IS NOT NULL",
+        )
+        .fetch_one(&self.pool)
+        .await?;
         let scope_count = sqlx::query_scalar("SELECT COUNT(*) FROM scopes")
             .fetch_one(&self.pool)
             .await?;
@@ -1101,6 +1188,9 @@ impl Repository for PostgresRepository {
             website_count,
             observation_count,
             evidence_count,
+            notification_pending_count,
+            notification_delivered_count,
+            notification_dead_letter_count,
             audit_events,
         })
     }

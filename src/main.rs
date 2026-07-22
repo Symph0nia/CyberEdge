@@ -7,9 +7,9 @@ use std::{
 };
 
 use cyberedge::{
-    BASELINE_SERVICE_PORTS, CrtShSource, CyberEdgeService, DiscoveryWorker, PostgresRepository,
-    Repository, StaticAuthorizer, SystemCertificateProbe, SystemDnsResolver, SystemPortConnector,
-    SystemWebsiteProbe, serve_read_only_web,
+    BASELINE_SERVICE_PORTS, CrtShSource, CyberEdgeService, DiscoveryWorker, NotificationDispatcher,
+    PostgresRepository, Repository, StaticAuthorizer, SystemCertificateProbe, SystemDnsResolver,
+    SystemPortConnector, SystemWebsiteProbe, WebhookSink, serve_read_only_web,
 };
 use tokio::{net::UnixListener, signal};
 use tokio_stream::wrappers::UnixListenerStream;
@@ -65,6 +65,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     });
+    let notification = match env::var("CYBEREDGE_WEBHOOK_URL") {
+        Ok(url) => {
+            let sink = Arc::new(WebhookSink::new(
+                &url,
+                env::var("CYBEREDGE_WEBHOOK_BEARER_TOKEN").ok(),
+            )?);
+            let dispatcher = NotificationDispatcher::new(repository.clone(), sink);
+            Some(tokio::spawn(async move {
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
+                loop {
+                    interval.tick().await;
+                    if let Err(error) = dispatcher.dispatch_once().await {
+                        eprintln!("notification dispatcher error: {error}");
+                    }
+                }
+            }))
+        }
+        Err(env::VarError::NotPresent) => None,
+        Err(error) => return Err(error.into()),
+    };
     let web = match env::var("CYBEREDGE_WEB_BIND") {
         Ok(value) => {
             let address = value.parse()?;
@@ -112,6 +132,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     worker.abort();
     scheduler.abort();
+    if let Some(notification) = notification {
+        notification.abort();
+    }
     if let Some(web) = web {
         web.abort();
     }

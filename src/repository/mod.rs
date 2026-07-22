@@ -11,7 +11,7 @@ use crate::proto::{
 };
 
 pub use memory::MemoryRepository;
-pub use postgres::PostgresRepository;
+pub use postgres::{OutboxEvent, PostgresRepository};
 
 #[derive(Clone)]
 pub struct Mutation {
@@ -69,6 +69,9 @@ pub struct ReadOverview {
     pub website_count: i64,
     pub observation_count: i64,
     pub evidence_count: i64,
+    pub notification_pending_count: i64,
+    pub notification_delivered_count: i64,
+    pub notification_dead_letter_count: i64,
     pub audit_events: Vec<AuditEvent>,
 }
 

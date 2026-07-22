@@ -533,6 +533,9 @@ impl Repository for MemoryRepository {
             website_count: state.websites.len() as i64,
             observation_count: state.observations.len() as i64,
             evidence_count: state.evidence.len() as i64,
+            notification_pending_count: 0,
+            notification_delivered_count: 0,
+            notification_dead_letter_count: 0,
             audit_events: state.audits.iter().rev().take(50).cloned().collect(),
         })
     }
