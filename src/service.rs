@@ -21,8 +21,9 @@ use crate::proto::{
     SearchAssetChangesResponse, SearchAssetsRequest, SearchAssetsResponse, SearchAuditRequest,
     SearchAuditResponse, SearchCertificatesRequest, SearchCertificatesResponse,
     SearchObservationsRequest, SearchObservationsResponse, SearchSchedulesRequest,
-    SearchSchedulesResponse, SearchServicesRequest, SearchServicesResponse, StartScanRequest,
-    TargetKind, Task, TaskEvent, TaskReport, TaskState, WatchTaskRequest,
+    SearchSchedulesResponse, SearchServicesRequest, SearchServicesResponse, SearchWebsitesRequest,
+    SearchWebsitesResponse, StartScanRequest, TargetKind, Task, TaskEvent, TaskReport, TaskState,
+    WatchTaskRequest,
     cyber_edge_server::{CyberEdge, CyberEdgeServer},
 };
 use crate::{
@@ -358,6 +359,21 @@ impl CyberEdge for CyberEdgeService {
         Ok(Response::new(SearchCertificatesResponse { certificates }))
     }
 
+    async fn search_websites(
+        &self,
+        request: Request<SearchWebsitesRequest>,
+    ) -> Result<Response<SearchWebsitesResponse>, Status> {
+        let request = request.into_inner();
+        let context = validate_context(request.context.as_ref())?;
+        self.authorize(context, "website.read")?;
+        let websites = self
+            .repository
+            .search_websites(&request.scope_id)
+            .await
+            .map_err(repository_status)?;
+        Ok(Response::new(SearchWebsitesResponse { websites }))
+    }
+
     async fn search_observations(
         &self,
         request: Request<SearchObservationsRequest>,
@@ -471,6 +487,30 @@ impl CyberEdge for CyberEdgeService {
                         .any(|service| service.id == certificate.service_id)
             })
             .collect();
+        let website_hashes = observations
+            .iter()
+            .filter(|observation| observation.observation_type == "http.response")
+            .filter_map(|observation| {
+                serde_json::from_str::<serde_json::Value>(&observation.value_json)
+                    .ok()?
+                    .get("content_sha256")?
+                    .as_str()
+                    .map(str::to_owned)
+            })
+            .collect::<std::collections::HashSet<_>>();
+        let websites = self
+            .repository
+            .search_websites(&scope.id)
+            .await
+            .map_err(repository_status)?
+            .into_iter()
+            .filter(|website| {
+                website_hashes.contains(&website.content_sha256)
+                    && services
+                        .iter()
+                        .any(|service| service.id == website.service_id)
+            })
+            .collect();
         let mut evidence_ids = std::collections::HashSet::new();
         let mut evidence = Vec::new();
         for observation in &observations {
@@ -492,6 +532,7 @@ impl CyberEdge for CyberEdgeService {
             generated_at: Some(now()),
             services,
             certificates,
+            websites,
         }))
     }
 

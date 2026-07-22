@@ -10,13 +10,14 @@ use async_trait::async_trait;
 use cyberedge::{
     Authorizer, CertificateProbe, CertificateSource, CyberEdgeService, DiscoveryWorker,
     DnsResolver, MemoryRepository, PortConnector, Repository, SystemCertificateProbe,
-    SystemPortConnector,
+    SystemPortConnector, SystemWebsiteProbe, WebSnapshot, WebsiteProbe,
     proto::{
         AssetChangeKind, CreateScheduleRequest, CreateScopeRequest, GetEvidenceRequest,
         GetTaskReportRequest, InvocationContext, ScopeTarget, SearchAssetChangesRequest,
         SearchAssetsRequest, SearchAuditRequest, SearchCertificatesRequest,
-        SearchObservationsRequest, SearchSchedulesRequest, SearchServicesRequest, StartScanRequest,
-        TargetKind, TaskState, cyber_edge_server::CyberEdge,
+        SearchObservationsRequest, SearchSchedulesRequest, SearchServicesRequest,
+        SearchWebsitesRequest, StartScanRequest, TargetKind, TaskState,
+        cyber_edge_server::CyberEdge,
     },
 };
 use sha2::{Digest, Sha256};
@@ -93,6 +94,7 @@ impl PortConnector for OpenPort {
 }
 
 struct TestCertificate(Vec<u8>);
+struct TestWebsite;
 
 #[async_trait]
 impl CertificateProbe for TestCertificate {
@@ -104,6 +106,25 @@ impl CertificateProbe for TestCertificate {
     ) -> Result<Vec<u8>, String> {
         assert_eq!(server_name, "127.0.0.1");
         Ok(self.0.clone())
+    }
+}
+
+#[async_trait]
+impl WebsiteProbe for TestWebsite {
+    async fn fetch(
+        &self,
+        _address: IpAddr,
+        port: u16,
+        _server_name: &str,
+    ) -> Result<WebSnapshot, String> {
+        Ok(WebSnapshot {
+            url: format!("https://127.0.0.1:{port}/"),
+            status_code: 200,
+            title: "CyberEdge Test".to_owned(),
+            server: "test-server".to_owned(),
+            content_type: "text/html".to_owned(),
+            body: b"<title>CyberEdge Test</title>".to_vec(),
+        })
     }
 }
 
@@ -546,13 +567,14 @@ async fn retains_tls_certificate_as_inventory_and_der_evidence() {
         .into_inner();
     let worker = DiscoveryWorker::new(repository, Arc::new(Resolver))
         .with_port_connector(Arc::new(OpenPort), vec![443])
-        .with_certificate_probe(Arc::new(TestCertificate(der.clone())));
+        .with_certificate_probe(Arc::new(TestCertificate(der.clone())))
+        .with_website_probe(Arc::new(TestWebsite));
     assert!(worker.run_once().await.unwrap());
 
     let certificates = service
         .search_certificates(Request::new(SearchCertificatesRequest {
             context: Some(context("certificates")),
-            scope_id: scope.id,
+            scope_id: scope.id.clone(),
         }))
         .await
         .unwrap()
@@ -564,6 +586,17 @@ async fn retains_tls_certificate_as_inventory_and_der_evidence() {
         certificates[0].sha256,
         format!("{:x}", Sha256::digest(&der))
     );
+    let websites = service
+        .search_websites(Request::new(SearchWebsitesRequest {
+            context: Some(context("websites")),
+            scope_id: scope.id,
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .websites;
+    assert_eq!(websites.len(), 1);
+    assert_eq!(websites[0].title, "CyberEdge Test");
     let report = service
         .get_task_report(Request::new(GetTaskReportRequest {
             context: Some(context("tls-report")),
@@ -573,6 +606,7 @@ async fn retains_tls_certificate_as_inventory_and_der_evidence() {
         .unwrap()
         .into_inner();
     assert_eq!(report.certificates.len(), 1);
+    assert_eq!(report.websites.len(), 1);
     let evidence = report
         .evidence
         .iter()
@@ -607,6 +641,31 @@ async fn system_certificate_probe_handshakes_with_local_tls_listener() {
         .await
         .unwrap();
     assert_eq!(observed, expected);
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn system_website_probe_collects_local_response_without_redirecting() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut request = [0_u8; 1024];
+        let _ = stream.read(&mut request).await.unwrap();
+        stream
+            .write_all(b"HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:1/\r\nServer: local-test\r\nContent-Type: text/html\r\nContent-Length: 40\r\nConnection: close\r\n\r\n<html><title> Local Test </title></html>")
+            .await
+            .unwrap();
+    });
+    let snapshot = SystemWebsiteProbe
+        .fetch(address.ip(), address.port(), "127.0.0.1")
+        .await
+        .unwrap();
+    assert_eq!(snapshot.status_code, 302);
+    assert_eq!(snapshot.title, "Local Test");
+    assert_eq!(snapshot.server, "local-test");
     server.await.unwrap();
 }
 

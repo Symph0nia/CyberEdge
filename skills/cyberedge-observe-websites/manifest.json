@@ -1,0 +1,7 @@
+{
+  "name": "cyberedge-observe-websites",
+  "version": "0.1.0",
+  "entrypoint": "cyberedge-agent",
+  "transport": "grpc-json-bridge",
+  "capabilities": ["scope.read", "scan.active", "task.read", "asset.read", "service.read", "website.read", "evidence.read", "report.read"]
+}

@@ -5,7 +5,7 @@ use async_trait::async_trait;
 
 use crate::proto::{
     Asset, AssetChange, AuditEvent, Certificate, Evidence, InvocationContext, Observation,
-    Schedule, Scope, Service, Task, TaskEvent,
+    Schedule, Scope, Service, Task, TaskEvent, Website,
 };
 
 pub use memory::MemoryRepository;
@@ -41,6 +41,7 @@ pub struct DiscoveryRecord {
     pub asset: Asset,
     pub service: Option<Service>,
     pub certificate: Option<Certificate>,
+    pub website: Option<Website>,
     pub observation: Observation,
     pub evidence: Evidence,
 }
@@ -53,6 +54,7 @@ pub struct ReadOverview {
     pub asset_changes: Vec<AssetChange>,
     pub services: Vec<Service>,
     pub certificates: Vec<Certificate>,
+    pub websites: Vec<Website>,
     pub scope_count: i64,
     pub task_count: i64,
     pub asset_count: i64,
@@ -60,6 +62,7 @@ pub struct ReadOverview {
     pub asset_change_count: i64,
     pub service_count: i64,
     pub certificate_count: i64,
+    pub website_count: i64,
     pub observation_count: i64,
     pub evidence_count: i64,
     pub audit_events: Vec<AuditEvent>,
@@ -137,6 +140,8 @@ pub trait Repository: Send + Sync {
         &self,
         scope_id: &str,
     ) -> Result<Vec<Certificate>, RepositoryError>;
+
+    async fn search_websites(&self, scope_id: &str) -> Result<Vec<Website>, RepositoryError>;
 
     async fn search_observations(&self, task_id: &str)
     -> Result<Vec<Observation>, RepositoryError>;

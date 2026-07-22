@@ -9,13 +9,13 @@ use std::{
 use async_trait::async_trait;
 use cyberedge::{
     Authorizer, CertificateProbe, CyberEdgeService, DiscoveryWorker, DnsResolver, PortConnector,
-    PostgresRepository, Repository,
+    PostgresRepository, Repository, WebSnapshot, WebsiteProbe,
     proto::{
         AssetChangeKind, CreateScheduleRequest, CreateScopeRequest, GetTaskReportRequest,
         GetTaskRequest, InvocationContext, ScopeTarget, SearchAssetChangesRequest,
         SearchAuditRequest, SearchCertificatesRequest, SearchSchedulesRequest,
-        SearchServicesRequest, StartScanRequest, TargetKind, WatchTaskRequest,
-        cyber_edge_server::CyberEdge,
+        SearchServicesRequest, SearchWebsitesRequest, StartScanRequest, TargetKind,
+        WatchTaskRequest, cyber_edge_server::CyberEdge,
     },
 };
 use sqlx::PgPool;
@@ -28,6 +28,7 @@ struct Resolver(AtomicUsize);
 
 struct OpenConnector;
 struct TestCertificate(Vec<u8>);
+struct TestWebsite;
 
 #[async_trait]
 impl DnsResolver for Resolver {
@@ -53,6 +54,25 @@ impl CertificateProbe for TestCertificate {
         _server_name: &str,
     ) -> Result<Vec<u8>, String> {
         Ok(self.0.clone())
+    }
+}
+
+#[async_trait]
+impl WebsiteProbe for TestWebsite {
+    async fn fetch(
+        &self,
+        _address: IpAddr,
+        port: u16,
+        server_name: &str,
+    ) -> Result<WebSnapshot, String> {
+        Ok(WebSnapshot {
+            url: format!("https://{server_name}:{port}/"),
+            status_code: 200,
+            title: "Postgres Test".to_owned(),
+            server: "test".to_owned(),
+            content_type: "text/html".to_owned(),
+            body: b"<title>Postgres Test</title>".to_vec(),
+        })
     }
 }
 
@@ -117,7 +137,8 @@ async fn persists_scope_task_events_audit_and_outbox() {
     let certificate = rcgen::generate_simple_self_signed(vec!["example.com".to_owned()]).unwrap();
     let worker = DiscoveryWorker::new(repository.clone(), Arc::new(Resolver(AtomicUsize::new(0))))
         .with_port_connector(Arc::new(OpenConnector), vec![443])
-        .with_certificate_probe(Arc::new(TestCertificate(certificate.cert.der().to_vec())));
+        .with_certificate_probe(Arc::new(TestCertificate(certificate.cert.der().to_vec())))
+        .with_website_probe(Arc::new(TestWebsite));
     assert!(worker.run_once().await.unwrap());
     assert!(worker.run_once().await.unwrap());
     let next = repository.search_schedules(&scope.id).await.unwrap()[0]
@@ -177,6 +198,17 @@ async fn persists_scope_task_events_audit_and_outbox() {
         .certificates;
     assert_eq!(certificates.len(), 1);
     assert_eq!(certificates[0].dns_names, ["example.com"]);
+    let websites = service
+        .search_websites(Request::new(SearchWebsitesRequest {
+            context: Some(context("websites")),
+            scope_id: scope.id.clone(),
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .websites;
+    assert_eq!(websites.len(), 1);
+    assert_eq!(websites[0].title, "Postgres Test");
     let service_report = service
         .get_task_report(Request::new(GetTaskReportRequest {
             context: Some(context("service-report")),
@@ -187,6 +219,7 @@ async fn persists_scope_task_events_audit_and_outbox() {
         .into_inner();
     assert_eq!(service_report.services.len(), 1);
     assert_eq!(service_report.certificates.len(), 1);
+    assert_eq!(service_report.websites.len(), 1);
     drop(service);
 
     let restarted = CyberEdgeService::new(
@@ -243,7 +276,7 @@ async fn persists_scope_task_events_audit_and_outbox() {
         .unwrap();
     assert_eq!(outbox_count, 16);
     assert_eq!(asset_count, 5);
-    assert_eq!(observation_count, 9);
+    assert_eq!(observation_count, 10);
     let report = restarted
         .get_task_report(Request::new(GetTaskReportRequest {
             context: Some(context("report")),
@@ -286,7 +319,7 @@ fn context(suffix: &str) -> InvocationContext {
 
 async fn reset(pool: &PgPool) {
     sqlx::query(
-        "TRUNCATE observations, evidence, certificates, services, assets, outbox_events, audit_events,
+        "TRUNCATE observations, evidence, websites, certificates, services, assets, outbox_events, audit_events,
          idempotency_keys, asset_changes, task_events, tasks, schedules, scope_targets, scopes
          RESTART IDENTITY CASCADE",
     )

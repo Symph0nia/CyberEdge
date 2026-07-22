@@ -1,0 +1,4 @@
+interface:
+  display_name: "CyberEdge Observe Websites"
+  short_description: "Collect authorized HTTP metadata and evidence"
+  default_prompt: "Observe websites in an authorized CyberEdge scope and return evidence-backed HTTP metadata."

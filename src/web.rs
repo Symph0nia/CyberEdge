@@ -14,7 +14,7 @@ use tower_http::{
 };
 
 use crate::{
-    proto::{Asset, AssetChange, Certificate, Schedule, Scope, Service, Task},
+    proto::{Asset, AssetChange, Certificate, Schedule, Scope, Service, Task, Website},
     repository::Repository,
 };
 
@@ -40,6 +40,7 @@ pub fn read_only_router(repository: Arc<dyn Repository>, dist: PathBuf) -> Route
         .route("/api/v1/scopes/{scope_id}/assets", get(assets))
         .route("/api/v1/scopes/{scope_id}/services", get(services))
         .route("/api/v1/scopes/{scope_id}/certificates", get(certificates))
+        .route("/api/v1/scopes/{scope_id}/websites", get(websites))
         .route("/api/v1/tasks/{task_id}/observations", get(observations))
         .route("/api/v1/evidence/{evidence_id}", get(evidence))
         .route("/api/{*path}", any(api_not_found))
@@ -74,6 +75,7 @@ async fn overview(State(state): State<WebState>) -> Result<Json<Value>, WebError
             "asset_changes": model.asset_change_count,
             "services": model.service_count,
             "certificates": model.certificate_count,
+            "websites": model.website_count,
             "observations": model.observation_count,
             "evidence": model.evidence_count},
         "scopes": model.scopes.into_iter().map(scope_json).collect::<Vec<_>>(),
@@ -83,6 +85,7 @@ async fn overview(State(state): State<WebState>) -> Result<Json<Value>, WebError
         "asset_changes": model.asset_changes.into_iter().map(asset_change_json).collect::<Vec<_>>(),
         "services": model.services.into_iter().map(service_json).collect::<Vec<_>>(),
         "certificates": model.certificates.into_iter().map(certificate_json).collect::<Vec<_>>(),
+        "websites": model.websites.into_iter().map(website_json).collect::<Vec<_>>(),
         "audit_events": model.audit_events.into_iter().map(|event| json!({
             "id": event.id, "request_id": event.request_id, "operation": event.operation,
             "agent_id": event.agent_id, "skill_name": event.skill_name,
@@ -153,6 +156,20 @@ async fn certificates(
     ))
 }
 
+async fn websites(
+    State(state): State<WebState>,
+    Path(scope_id): Path<String>,
+) -> Result<Json<Value>, WebError> {
+    let values = state
+        .repository
+        .search_websites(&scope_id)
+        .await
+        .map_err(WebError)?;
+    Ok(Json(
+        json!({"websites": values.into_iter().map(website_json).collect::<Vec<_>>() }),
+    ))
+}
+
 async fn evidence(
     State(state): State<WebState>,
     Path(evidence_id): Path<String>,
@@ -199,6 +216,14 @@ fn certificate_json(certificate: Certificate) -> Value {
         "not_before": timestamp(certificate.not_before), "not_after": timestamp(certificate.not_after),
         "first_seen_at": timestamp(certificate.first_seen_at),
         "last_seen_at": timestamp(certificate.last_seen_at)})
+}
+
+fn website_json(website: Website) -> Value {
+    json!({"id": website.id, "service_id": website.service_id, "url": website.url,
+        "status_code": website.status_code, "title": website.title, "server": website.server,
+        "content_type": website.content_type, "content_sha256": website.content_sha256,
+        "first_seen_at": timestamp(website.first_seen_at),
+        "last_seen_at": timestamp(website.last_seen_at)})
 }
 
 fn schedule_json(schedule: Schedule) -> Value {

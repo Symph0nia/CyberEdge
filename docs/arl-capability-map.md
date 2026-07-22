@@ -17,9 +17,9 @@ CyberEdge copies neither repository's code, database shape, Web workflow, nor op
 | Task policy and lifecycle | Policy, Task, Event | 1 | Passive policy and durable lifecycle complete |
 | Scheduled and periodic tasks | Schedule producing normal Task | 2 | Implemented baseline |
 | Controlled baseline TCP connect scan | Service inventory and Observation | 3 | Implemented |
-| Banner and product identification | Service Observation | 3 | Not implemented |
+| Banner and product identification | Service Observation | 3 | HTTP Server header hint implemented; verified product identification pending |
 | TLS certificate collection | Certificate Asset, Evidence | 3 | Implemented for open baseline HTTPS services |
-| Website and fingerprint discovery | Website Asset, Observation | 3 | Not implemented |
+| Website and fingerprint discovery | Website Asset, Observation | 3 | Bounded HTTP metadata and body evidence implemented |
 | Crawler and screenshots | Evidence adapters | 3 | Not implemented |
 | File exposure and host collision checks | Finding and Evidence | 4 | Not implemented |
 | Nuclei and custom PoC execution | Finding scanner adapter | 4 | Not implemented; no online PoC editor will be added |

@@ -12,7 +12,7 @@ use super::{
 };
 use crate::proto::{
     Asset, AssetChange, AssetChangeKind, AuditEvent, Certificate, Evidence, Observation, Schedule,
-    Scope, Service, Task, TaskEvent, TaskState,
+    Scope, Service, Task, TaskEvent, TaskState, Website,
 };
 
 #[derive(Default)]
@@ -28,6 +28,7 @@ struct State {
     asset_changes: Vec<AssetChange>,
     services: HashMap<String, Service>,
     certificates: HashMap<String, Certificate>,
+    websites: HashMap<String, Website>,
     audits: Vec<AuditEvent>,
 }
 
@@ -342,6 +343,25 @@ impl Repository for MemoryRepository {
             .collect())
     }
 
+    async fn search_websites(&self, scope_id: &str) -> Result<Vec<Website>, RepositoryError> {
+        let state = self.state.read().await;
+        if !state.scopes.contains_key(scope_id) {
+            return Err(RepositoryError::NotFound("scope"));
+        }
+        Ok(state
+            .websites
+            .values()
+            .filter(|website| {
+                state
+                    .services
+                    .get(&website.service_id)
+                    .and_then(|service| state.assets.get(&service.asset_id))
+                    .is_some_and(|asset| asset.scope_id == scope_id)
+            })
+            .cloned()
+            .collect())
+    }
+
     async fn search_observations(
         &self,
         task_id: &str,
@@ -431,6 +451,9 @@ impl Repository for MemoryRepository {
                     .certificates
                     .insert(certificate.id.clone(), certificate);
             }
+            if let Some(website) = record.website {
+                state.websites.insert(website.id.clone(), website);
+            }
             state
                 .observations
                 .insert(record.observation.id.clone(), record.observation);
@@ -469,6 +492,7 @@ impl Repository for MemoryRepository {
             asset_changes: state.asset_changes.clone(),
             services: state.services.values().cloned().collect(),
             certificates: state.certificates.values().cloned().collect(),
+            websites: state.websites.values().cloned().collect(),
             scope_count: state.scopes.len() as i64,
             task_count: state.tasks.len() as i64,
             asset_count: state.assets.len() as i64,
@@ -476,6 +500,7 @@ impl Repository for MemoryRepository {
             asset_change_count: state.asset_changes.len() as i64,
             service_count: state.services.len() as i64,
             certificate_count: state.certificates.len() as i64,
+            website_count: state.websites.len() as i64,
             observation_count: state.observations.len() as i64,
             evidence_count: state.evidence.len() as i64,
             audit_events: state.audits.iter().rev().take(50).cloned().collect(),

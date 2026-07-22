@@ -10,7 +10,7 @@ use super::{
 };
 use crate::proto::{
     Asset, AssetChange, AssetChangeKind, AuditEvent, Certificate, Evidence, Observation, Schedule,
-    Scope, ScopeTarget, Service, Task, TaskEvent, TaskState,
+    Scope, ScopeTarget, Service, Task, TaskEvent, TaskState, Website,
 };
 
 pub struct PostgresRepository {
@@ -504,6 +504,32 @@ impl Repository for PostgresRepository {
         Ok(rows.iter().map(certificate_from_row).collect())
     }
 
+    async fn search_websites(&self, scope_id: &str) -> Result<Vec<Website>, RepositoryError> {
+        let exists = sqlx::query("SELECT 1 FROM scopes WHERE id = $1")
+            .bind(scope_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .is_some();
+        if !exists {
+            return Err(RepositoryError::NotFound("scope"));
+        }
+        let rows = sqlx::query(
+            "SELECT websites.id, websites.service_id, websites.url, websites.status_code,
+                    websites.title, websites.server, websites.content_type,
+                    websites.content_sha256, websites.first_seen_at_seconds,
+                    websites.first_seen_at_nanos, websites.last_seen_at_seconds,
+                    websites.last_seen_at_nanos
+             FROM websites
+             JOIN services ON services.id = websites.service_id
+             JOIN assets ON assets.id = services.asset_id
+             WHERE assets.scope_id = $1 ORDER BY websites.url",
+        )
+        .bind(scope_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.iter().map(website_from_row).collect())
+    }
+
     async fn search_observations(
         &self,
         task_id: &str,
@@ -734,6 +760,38 @@ impl Repository for PostgresRepository {
                 .execute(&mut *tx)
                 .await?;
             }
+            if let Some(website) = record.website {
+                let first_seen = website.first_seen_at.expect("website first-seen exists");
+                let last_seen = website.last_seen_at.expect("website last-seen exists");
+                sqlx::query(
+                    "INSERT INTO websites
+                     (id, service_id, url, status_code, title, server, content_type,
+                      content_sha256, first_seen_at_seconds, first_seen_at_nanos,
+                      last_seen_at_seconds, last_seen_at_nanos)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                     ON CONFLICT (service_id) DO UPDATE SET
+                       url = EXCLUDED.url, status_code = EXCLUDED.status_code,
+                       title = EXCLUDED.title, server = EXCLUDED.server,
+                       content_type = EXCLUDED.content_type,
+                       content_sha256 = EXCLUDED.content_sha256,
+                       last_seen_at_seconds = EXCLUDED.last_seen_at_seconds,
+                       last_seen_at_nanos = EXCLUDED.last_seen_at_nanos",
+                )
+                .bind(&website.id)
+                .bind(&website.service_id)
+                .bind(&website.url)
+                .bind(website.status_code as i32)
+                .bind(&website.title)
+                .bind(&website.server)
+                .bind(&website.content_type)
+                .bind(&website.content_sha256)
+                .bind(first_seen.seconds)
+                .bind(first_seen.nanos)
+                .bind(last_seen.seconds)
+                .bind(last_seen.nanos)
+                .execute(&mut *tx)
+                .await?;
+            }
             let observed_at = record
                 .observation
                 .observed_at
@@ -885,6 +943,17 @@ impl Repository for PostgresRepository {
         .iter()
         .map(certificate_from_row)
         .collect();
+        let websites = sqlx::query(
+            "SELECT id, service_id, url, status_code, title, server, content_type,
+                    content_sha256, first_seen_at_seconds, first_seen_at_nanos,
+                    last_seen_at_seconds, last_seen_at_nanos FROM websites
+             ORDER BY last_seen_at_seconds DESC, last_seen_at_nanos DESC LIMIT 100",
+        )
+        .fetch_all(&self.pool)
+        .await?
+        .iter()
+        .map(website_from_row)
+        .collect();
         let observation_count = sqlx::query_scalar("SELECT COUNT(*) FROM observations")
             .fetch_one(&self.pool)
             .await?;
@@ -912,6 +981,9 @@ impl Repository for PostgresRepository {
         let certificate_count = sqlx::query_scalar("SELECT COUNT(*) FROM certificates")
             .fetch_one(&self.pool)
             .await?;
+        let website_count = sqlx::query_scalar("SELECT COUNT(*) FROM websites")
+            .fetch_one(&self.pool)
+            .await?;
         let audit_events = fetch_audit(&self.pool, 50).await?;
         Ok(ReadOverview {
             scopes,
@@ -921,6 +993,7 @@ impl Repository for PostgresRepository {
             asset_changes,
             services,
             certificates,
+            websites,
             scope_count,
             task_count,
             asset_count,
@@ -928,6 +1001,7 @@ impl Repository for PostgresRepository {
             asset_change_count,
             service_count,
             certificate_count,
+            website_count,
             observation_count,
             evidence_count,
             audit_events,
@@ -1381,6 +1455,27 @@ fn certificate_from_row(row: &sqlx::postgres::PgRow) -> Certificate {
             seconds: row.get("not_after_seconds"),
             nanos: row.get("not_after_nanos"),
         }),
+        first_seen_at: Some(prost_types::Timestamp {
+            seconds: row.get("first_seen_at_seconds"),
+            nanos: row.get("first_seen_at_nanos"),
+        }),
+        last_seen_at: Some(prost_types::Timestamp {
+            seconds: row.get("last_seen_at_seconds"),
+            nanos: row.get("last_seen_at_nanos"),
+        }),
+    }
+}
+
+fn website_from_row(row: &sqlx::postgres::PgRow) -> Website {
+    Website {
+        id: row.get("id"),
+        service_id: row.get("service_id"),
+        url: row.get("url"),
+        status_code: row.get::<i32, _>("status_code") as u32,
+        title: row.get("title"),
+        server: row.get("server"),
+        content_type: row.get("content_type"),
+        content_sha256: row.get("content_sha256"),
         first_seen_at: Some(prost_types::Timestamp {
             seconds: row.get("first_seen_at_seconds"),
             nanos: row.get("first_seen_at_nanos"),

@@ -47,3 +47,18 @@ capabilities = [
   "evidence.read",
   "report.read",
 ]
+
+[[grants]]
+agent_id = "codex-main"
+skill_name = "cyberedge-observe-websites"
+skill_version = "0.1.0"
+capabilities = [
+  "scope.read",
+  "scan.active",
+  "task.read",
+  "asset.read",
+  "service.read",
+  "website.read",
+  "evidence.read",
+  "report.read",
+]

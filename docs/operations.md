@@ -26,6 +26,8 @@ The bridge accepts one JSON envelope on stdin and emits JSON Lines on stdout. It
 
 Open `443` and `8443` services receive a bounded TLS handshake with a two-second connect and three-second handshake timeout. The leaf certificate DER is content-addressed Evidence; Subject, Issuer, DNS SAN, validity and SHA-256 fingerprint form the Certificate read model. Verification is deliberately not a collection gate, so expired and self-signed certificates remain observable; collection never marks a certificate trusted.
 
+Open `80`, `443`, `8080`, and `8443` services receive one `GET /` request. Redirects are never followed, requests time out after five seconds, and response bodies above 1 MiB are rejected. The response body is immutable Evidence; status, title, content type, body hash and the untrusted `Server` header form the Website read model. RPC callers cannot supply a URL, path or headers.
+
 Do not grant `scan.active` to passive discovery Skills. Keep active grants in a separate Skill binding and verify the Scope before invocation.
 
 ## Native runtime

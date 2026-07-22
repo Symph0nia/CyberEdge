@@ -15,16 +15,18 @@ type Task = { id: string; scope_id: string; policy_id: string; state: number; cr
 type Asset = { id: string; scope_id: string; kind: number; value: string; first_seen_at: Stamp; last_seen_at: Stamp }
 type Service = { id: string; asset_id: string; transport: string; port: number; service_hint: string; first_seen_at: Stamp; last_seen_at: Stamp }
 type Certificate = { id: string; service_id: string; sha256: string; subject: string; issuer: string; dns_names: string[]; not_before: Stamp; not_after: Stamp; first_seen_at: Stamp; last_seen_at: Stamp }
+type Website = { id: string; service_id: string; url: string; status_code: number; title: string; server: string; content_type: string; content_sha256: string; first_seen_at: Stamp; last_seen_at: Stamp }
 type Schedule = { id: string; scope_id: string; policy_id: string; interval_seconds: number; enabled: boolean; next_run_at: Stamp; last_task_id: string; created_at: Stamp }
 type AssetChange = { id: string; schedule_id: string; task_id: string; asset_id: string; kind: number; detected_at: Stamp }
 type AuditEvent = { id: string; request_id: string; operation: string; agent_id: string; skill_name: string; skill_version: string; resource_id: string; occurred_at: Stamp }
 type Overview = {
-  counts: { scopes: number; tasks: number; assets: number; services: number; certificates: number; schedules: number; asset_changes: number; observations: number; evidence: number }
+  counts: { scopes: number; tasks: number; assets: number; services: number; certificates: number; websites: number; schedules: number; asset_changes: number; observations: number; evidence: number }
   scopes: Scope[]
   tasks: Task[]
   assets: Asset[]
   services: Service[]
   certificates: Certificate[]
+  websites: Website[]
   schedules: Schedule[]
   asset_changes: AssetChange[]
   audit_events: AuditEvent[]
@@ -74,6 +76,7 @@ function App() {
           <SideNavLink href="#assets" renderIcon={Network_3}>Assets</SideNavLink>
           <SideNavLink href="#services" renderIcon={Network_3}>Services</SideNavLink>
           <SideNavLink href="#certificates" renderIcon={DocumentSecurity}>Certificates</SideNavLink>
+          <SideNavLink href="#websites" renderIcon={Network_3}>Websites</SideNavLink>
           <SideNavLink href="#tasks" renderIcon={TaskIcon}>Tasks</SideNavLink>
           <SideNavLink href="#monitoring" renderIcon={DataVis_1}>Monitoring</SideNavLink>
           <SideNavLink href="#evidence" renderIcon={DocumentSecurity}>Evidence</SideNavLink>
@@ -115,6 +118,11 @@ function App() {
             <section id="certificates" className="data-section" aria-labelledby="certificates-title">
               <div className="section-heading"><div><p className="section-label">Transport security</p><h2 id="certificates-title">Observed TLS certificates</h2></div></div>
               <CertificateTable certificates={data.certificates} services={data.services} assets={data.assets} />
+            </section>
+
+            <section id="websites" className="data-section" aria-labelledby="websites-title">
+              <div className="section-heading"><div><p className="section-label">HTTP observation</p><h2 id="websites-title">Observed websites</h2></div></div>
+              <WebsiteTable websites={data.websites} />
             </section>
 
             <section id="tasks" className="data-section" aria-labelledby="tasks-title">
@@ -221,6 +229,20 @@ function CertificateTable({ certificates, services, assets }: { certificates: Ce
       <TableCell>{certificate.subject}<code>{certificate.dns_names.join(', ') || 'No DNS SAN'}</code></TableCell>
       <TableCell>{certificate.issuer}</TableCell>
       <TableCell>{formatTime(certificate.not_after)}</TableCell>
+    </TableRow>)}</TableBody>
+  </Table></TableContainer>
+}
+
+function WebsiteTable({ websites }: { websites: Website[] }) {
+  if (websites.length === 0) return <Empty text="No HTTP responses have been observed." />
+  return <TableContainer><Table size="lg">
+    <TableHead><TableRow><TableHeader>URL</TableHeader><TableHeader>Status</TableHeader><TableHeader>Title</TableHeader><TableHeader>Server hint</TableHeader><TableHeader>Last observed</TableHeader></TableRow></TableHead>
+    <TableBody>{websites.map((website) => <TableRow key={website.id}>
+      <TableCell><strong>{website.url}</strong><code>{shortId(website.content_sha256)}</code></TableCell>
+      <TableCell><Tag type={website.status_code < 400 ? 'green' : 'red'}>{website.status_code}</Tag></TableCell>
+      <TableCell>{website.title || 'Untitled response'}</TableCell>
+      <TableCell>{website.server || 'Not disclosed'}</TableCell>
+      <TableCell>{formatTime(website.last_seen_at)}</TableCell>
     </TableRow>)}</TableBody>
   </Table></TableContainer>
 }

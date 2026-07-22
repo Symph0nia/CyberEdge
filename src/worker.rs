@@ -1,6 +1,6 @@
 use std::{
     collections::BTreeSet,
-    net::IpAddr,
+    net::{IpAddr, SocketAddr},
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -22,7 +22,7 @@ use uuid::Uuid;
 use x509_parser::{extensions::GeneralName, parse_x509_certificate};
 
 use crate::{
-    proto::{Asset, Certificate, Evidence, Observation, ScopeTarget, Service, TargetKind},
+    proto::{Asset, Certificate, Evidence, Observation, ScopeTarget, Service, TargetKind, Website},
     repository::{DiscoveryRecord, Repository, RepositoryError},
 };
 
@@ -78,6 +78,97 @@ impl PortConnector for SystemPortConnector {
             Ok(Err(error)) => Err(error.to_string()),
             Err(_) => Ok(false),
         }
+    }
+}
+
+pub struct WebSnapshot {
+    pub url: String,
+    pub status_code: u16,
+    pub title: String,
+    pub server: String,
+    pub content_type: String,
+    pub body: Vec<u8>,
+}
+
+#[async_trait]
+pub trait WebsiteProbe: Send + Sync {
+    async fn fetch(
+        &self,
+        address: IpAddr,
+        port: u16,
+        server_name: &str,
+    ) -> Result<WebSnapshot, String>;
+}
+
+pub struct SystemWebsiteProbe;
+
+#[async_trait]
+impl WebsiteProbe for SystemWebsiteProbe {
+    async fn fetch(
+        &self,
+        address: IpAddr,
+        port: u16,
+        server_name: &str,
+    ) -> Result<WebSnapshot, String> {
+        install_crypto_provider();
+        let scheme = if matches!(port, 443 | 8443) {
+            "https"
+        } else {
+            "http"
+        };
+        let host = if server_name.contains(':') {
+            format!("[{server_name}]")
+        } else {
+            server_name.to_owned()
+        };
+        let url = format!("{scheme}://{host}:{port}/");
+        let mut builder = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .redirect(reqwest::redirect::Policy::none())
+            .danger_accept_invalid_certs(true)
+            .user_agent("CyberEdge/0.1 authorized-observer");
+        if server_name.parse::<IpAddr>().is_err() {
+            builder = builder.resolve(server_name, SocketAddr::new(address, port));
+        }
+        let mut response = builder
+            .build()
+            .map_err(|error| error.to_string())?
+            .get(&url)
+            .send()
+            .await
+            .map_err(|error| error.to_string())?;
+        let status_code = response.status().as_u16();
+        let server = response
+            .headers()
+            .get(reqwest::header::SERVER)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default()
+            .chars()
+            .take(256)
+            .collect::<String>();
+        let content_type = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or("application/octet-stream")
+            .chars()
+            .take(256)
+            .collect::<String>();
+        let mut body = Vec::new();
+        while let Some(chunk) = response.chunk().await.map_err(|error| error.to_string())? {
+            if body.len() + chunk.len() > MAX_WEB_BODY_BYTES {
+                return Err(format!("response body exceeds {MAX_WEB_BODY_BYTES} bytes"));
+            }
+            body.extend_from_slice(&chunk);
+        }
+        Ok(WebSnapshot {
+            url,
+            status_code,
+            title: html_title(&body),
+            server,
+            content_type,
+            body,
+        })
     }
 }
 
@@ -216,6 +307,7 @@ pub struct CrtShSource {
 
 impl CrtShSource {
     pub fn new() -> Result<Self, reqwest::Error> {
+        install_crypto_provider();
         Ok(Self {
             client: reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(15))
@@ -223,6 +315,10 @@ impl CrtShSource {
                 .build()?,
         })
     }
+}
+
+fn install_crypto_provider() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
 }
 
 #[derive(Deserialize)]
@@ -265,6 +361,7 @@ pub struct DiscoveryWorker {
     certificate_source: Option<Arc<dyn CertificateSource>>,
     port_connector: Option<Arc<dyn PortConnector>>,
     certificate_probe: Option<Arc<dyn CertificateProbe>>,
+    website_probe: Option<Arc<dyn WebsiteProbe>>,
     service_ports: Vec<u16>,
 }
 
@@ -276,12 +373,18 @@ impl DiscoveryWorker {
             certificate_source: None,
             port_connector: None,
             certificate_probe: None,
+            website_probe: None,
             service_ports: Vec::new(),
         }
     }
 
     pub fn with_certificate_probe(mut self, probe: Arc<dyn CertificateProbe>) -> Self {
         self.certificate_probe = Some(probe);
+        self
+    }
+
+    pub fn with_website_probe(mut self, probe: Arc<dyn WebsiteProbe>) -> Self {
+        self.website_probe = Some(probe);
         self
     }
 
@@ -458,6 +561,12 @@ impl DiscoveryWorker {
                             .await,
                         );
                     }
+                    if matches!(port, 80 | 443 | 8080 | 8443) {
+                        records.push(
+                            self.discover_website(task_id, scope_id, address, port, server_name)
+                                .await,
+                        );
+                    }
                 }
                 Ok(false) => {}
                 Err(error) => records.push(record(
@@ -481,6 +590,37 @@ impl DiscoveryWorker {
             ));
         }
         records
+    }
+
+    async fn discover_website(
+        &self,
+        task_id: &str,
+        scope_id: &str,
+        address: IpAddr,
+        port: u16,
+        server_name: &str,
+    ) -> DiscoveryRecord {
+        let Some(probe) = &self.website_probe else {
+            return record(
+                task_id,
+                scope_id,
+                TargetKind::Ip,
+                &address.to_string(),
+                "http.error",
+                json!({"address": address, "port": port, "error": "website probe unavailable"}),
+            );
+        };
+        match probe.fetch(address, port, server_name).await {
+            Ok(snapshot) => website_record(task_id, scope_id, address, port, snapshot),
+            Err(error) => record(
+                task_id,
+                scope_id,
+                TargetKind::Ip,
+                &address.to_string(),
+                "http.error",
+                json!({"address": address, "port": port, "error": error}),
+            ),
+        }
     }
 
     async fn discover_certificate(
@@ -702,6 +842,7 @@ fn record(
         },
         service: None,
         certificate: None,
+        website: None,
         observation: Observation {
             id: format!("observation_{}", Uuid::now_v7()),
             task_id: task_id.to_owned(),
@@ -826,6 +967,7 @@ fn certificate_record(
             last_seen_at: Some(timestamp),
         }),
         certificate: Some(certificate),
+        website: None,
         observation: Observation {
             id: format!("observation_{}", Uuid::now_v7()),
             task_id: task_id.to_owned(),
@@ -843,6 +985,103 @@ fn certificate_record(
             created_at: Some(timestamp),
         },
     })
+}
+
+fn website_record(
+    task_id: &str,
+    scope_id: &str,
+    address: IpAddr,
+    port: u16,
+    snapshot: WebSnapshot,
+) -> DiscoveryRecord {
+    let timestamp = now();
+    let value = address.to_string();
+    let asset_id = stable_id(
+        "asset",
+        format!("{scope_id}:{}:{value}", i32::from(TargetKind::Ip)).as_bytes(),
+    );
+    let service_id = stable_id("service", format!("{asset_id}:tcp:{port}").as_bytes());
+    let content_sha256 = hex_hash(&snapshot.body);
+    let evidence_id = format!("evidence_{content_sha256}");
+    let website = Website {
+        id: stable_id("website", service_id.as_bytes()),
+        service_id: service_id.clone(),
+        url: snapshot.url.clone(),
+        status_code: u32::from(snapshot.status_code),
+        title: snapshot.title.clone(),
+        server: snapshot.server.clone(),
+        content_type: snapshot.content_type.clone(),
+        content_sha256: content_sha256.clone(),
+        first_seen_at: Some(timestamp),
+        last_seen_at: Some(timestamp),
+    };
+    let evidence_media_type = website.content_type.clone();
+    let payload = json!({
+        "address": address, "port": port, "url": snapshot.url,
+        "status_code": snapshot.status_code, "title": snapshot.title,
+        "server": snapshot.server, "content_type": snapshot.content_type,
+        "content_sha256": content_sha256,
+    });
+    DiscoveryRecord {
+        asset: Asset {
+            id: asset_id.clone(),
+            scope_id: scope_id.to_owned(),
+            kind: TargetKind::Ip.into(),
+            value,
+            first_seen_at: Some(timestamp),
+            last_seen_at: Some(timestamp),
+        },
+        service: Some(Service {
+            id: service_id,
+            asset_id: asset_id.clone(),
+            transport: "tcp".to_owned(),
+            port: u32::from(port),
+            service_hint: service_hint(port).to_owned(),
+            first_seen_at: Some(timestamp),
+            last_seen_at: Some(timestamp),
+        }),
+        certificate: None,
+        website: Some(website),
+        observation: Observation {
+            id: format!("observation_{}", Uuid::now_v7()),
+            task_id: task_id.to_owned(),
+            asset_id,
+            observation_type: "http.response".to_owned(),
+            value_json: payload.to_string(),
+            evidence_id: evidence_id.clone(),
+            observed_at: Some(timestamp),
+        },
+        evidence: Evidence {
+            id: evidence_id,
+            media_type: evidence_media_type,
+            sha256: content_sha256,
+            content: snapshot.body,
+            created_at: Some(timestamp),
+        },
+    }
+}
+
+const MAX_WEB_BODY_BYTES: usize = 1_048_576;
+
+fn html_title(body: &[u8]) -> String {
+    let text = String::from_utf8_lossy(body);
+    let lower = text.to_ascii_lowercase();
+    let Some(start) = lower.find("<title") else {
+        return String::new();
+    };
+    let Some(open) = lower[start..].find('>').map(|offset| start + offset + 1) else {
+        return String::new();
+    };
+    let Some(close) = lower[open..].find("</title>").map(|offset| open + offset) else {
+        return String::new();
+    };
+    text[open..close]
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(512)
+        .collect()
 }
 
 fn unsupported_target_record(
