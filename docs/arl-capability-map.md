@@ -20,7 +20,7 @@ CyberEdge copies neither repository's code, database shape, Web workflow, nor op
 | Banner and product identification | Website TechnologyFingerprint | 3 | Header hint plus evidence-bound WordPress and Grafana strong-signature identification implemented |
 | TLS certificate collection | Certificate Asset, Evidence, Finding | 3 | Implemented with DER evidence and expired/30-day expiry detectors |
 | Website and fingerprint discovery | Website Asset, Observation | 3 | Bounded HTTP metadata and body evidence implemented |
-| Crawler and screenshots | Evidence adapters | 3 | Not implemented |
+| Crawler and screenshots | Website paths, Observation, Evidence | 3 | Same-origin depth-1 bounded crawler implemented; screenshots pending |
 | File exposure and host collision checks | Finding and Evidence | 4 | Directory listing, exposed Git HEAD, and DS_Store detectors implemented; host collision rules pending |
 | Nuclei and custom PoC execution | Finding scanner adapter | 4 | Evidence-bound adapter contract implemented; no online PoC editor will be added |
 | Domain and IP asset change monitoring | Monitor asset baseline and diff | 2 | Implemented |

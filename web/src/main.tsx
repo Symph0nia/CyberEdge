@@ -16,7 +16,7 @@ type Asset = { id: string; scope_id: string; kind: number; value: string; first_
 type Service = { id: string; asset_id: string; transport: string; port: number; service_hint: string; first_seen_at: Stamp; last_seen_at: Stamp }
 type Certificate = { id: string; service_id: string; sha256: string; subject: string; issuer: string; dns_names: string[]; not_before: Stamp; not_after: Stamp; first_seen_at: Stamp; last_seen_at: Stamp }
 type TechnologyFingerprint = { id: string; name: string; version: string; detector: string; rule_id: string; evidence_id: string }
-type Website = { id: string; service_id: string; url: string; status_code: number; title: string; server: string; content_type: string; content_sha256: string; fingerprints: TechnologyFingerprint[]; first_seen_at: Stamp; last_seen_at: Stamp }
+type Website = { id: string; service_id: string; url: string; status_code: number; title: string; server: string; content_type: string; content_sha256: string; fingerprints: TechnologyFingerprint[]; discovered_paths: string[]; first_seen_at: Stamp; last_seen_at: Stamp }
 type Finding = { id: string; scope_id: string; task_id: string; asset_id: string; observation_id: string; evidence_id: string; detector: string; rule_id: string; title: string; description: string; severity: number; state: number; fingerprint: string; first_seen_at: Stamp; last_seen_at: Stamp }
 type Schedule = { id: string; scope_id: string; policy_id: string; interval_seconds: number; enabled: boolean; next_run_at: Stamp; last_task_id: string; created_at: Stamp }
 type AssetChange = { id: string; schedule_id: string; task_id: string; asset_id: string; kind: number; detected_at: Stamp }
@@ -252,7 +252,7 @@ function WebsiteTable({ websites }: { websites: Website[] }) {
   return <TableContainer><Table size="lg">
     <TableHead><TableRow><TableHeader>URL</TableHeader><TableHeader>Status</TableHeader><TableHeader>Title</TableHeader><TableHeader>Technology evidence</TableHeader><TableHeader>Last observed</TableHeader></TableRow></TableHead>
     <TableBody>{websites.map((website) => <TableRow key={website.id}>
-      <TableCell><strong>{website.url}</strong><code>{shortId(website.content_sha256)}</code></TableCell>
+      <TableCell><strong>{website.url}</strong><code>{shortId(website.content_sha256)} · {website.discovered_paths.length} crawled paths</code></TableCell>
       <TableCell><Tag type={website.status_code < 400 ? 'green' : 'red'}>{website.status_code}</Tag></TableCell>
       <TableCell>{website.title || 'Untitled response'}</TableCell>
       <TableCell>{website.fingerprints.length > 0

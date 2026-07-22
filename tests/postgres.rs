@@ -66,6 +66,10 @@ impl WebsiteProbe for TestWebsite {
         true
     }
 
+    fn supports_crawl(&self) -> bool {
+        true
+    }
+
     async fn fetch(
         &self,
         _address: IpAddr,
@@ -77,7 +81,7 @@ impl WebsiteProbe for TestWebsite {
             "/" => (
                 "Index of /",
                 "text/html",
-                b"<title>Index of /</title><meta name=\"generator\" content=\"WordPress 6.8\"><a href=\"../\">Parent Directory</a>".to_vec(),
+                b"<title>Index of /</title><meta name=\"generator\" content=\"WordPress 6.8\"><a href=\"../\">Parent Directory</a><a href=\"/about\">About</a>".to_vec(),
             ),
             "/.git/HEAD" => ("", "text/plain", b"ref: refs/heads/main\n".to_vec()),
             "/.DS_Store" => (
@@ -85,6 +89,7 @@ impl WebsiteProbe for TestWebsite {
                 "application/octet-stream",
                 b"\0\0\0\x01Bud1test".to_vec(),
             ),
+            "/about" => ("About", "text/html", b"about evidence".to_vec()),
             _ => panic!("unexpected path {path}"),
         };
         Ok(WebSnapshot {
@@ -288,6 +293,7 @@ async fn persists_scope_task_events_audit_and_outbox() {
     assert_eq!(websites[0].title, "Index of /");
     assert_eq!(websites[0].fingerprints[0].name, "WordPress");
     assert_eq!(websites[0].fingerprints[0].version, "6.8");
+    assert_eq!(websites[0].discovered_paths, ["/about"]);
     let service_report = service
         .get_task_report(Request::new(GetTaskReportRequest {
             context: Some(context("service-report")),
@@ -369,7 +375,7 @@ async fn persists_scope_task_events_audit_and_outbox() {
         .unwrap();
     assert_eq!(outbox_count, 20);
     assert_eq!(asset_count, 5);
-    assert_eq!(observation_count, 12);
+    assert_eq!(observation_count, 13);
     let report = restarted
         .get_task_report(Request::new(GetTaskReportRequest {
             context: Some(context("report")),

@@ -259,6 +259,7 @@ message Website {
   google.protobuf.Timestamp first_seen_at = 9;
   google.protobuf.Timestamp last_seen_at = 10;
   repeated TechnologyFingerprint fingerprints = 11;
+  repeated string discovered_paths = 12;
 }
 
 message TechnologyFingerprint {

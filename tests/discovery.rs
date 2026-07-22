@@ -104,6 +104,7 @@ struct TestWebsite;
 struct DirectoryWebsite;
 struct CyclingDirectoryWebsite(AtomicUsize);
 struct CyclingExposureWebsite(AtomicUsize);
+struct BoundedCrawlerWebsite;
 struct ChangingWebsite(AtomicUsize);
 struct FailingWebsite(AtomicUsize);
 
@@ -240,6 +241,36 @@ impl WebsiteProbe for CyclingExposureWebsite {
             title: String::new(),
             server: "test".to_owned(),
             content_type: content_type.to_owned(),
+            body,
+        })
+    }
+}
+
+#[async_trait]
+impl WebsiteProbe for BoundedCrawlerWebsite {
+    fn supports_crawl(&self) -> bool {
+        true
+    }
+
+    async fn fetch(
+        &self,
+        _address: IpAddr,
+        port: u16,
+        server_name: &str,
+        path: &str,
+    ) -> Result<WebSnapshot, String> {
+        let body = match path {
+            "/" => b"<title>Root</title><a href=\"/login\">Login</a><a href='/docs/start'>Docs</a><a href=\"https://outside.example/\">Outside</a><a href=\"/search?q=x\">Query</a><a href=\"/../admin\">Traversal</a>".to_vec(),
+            "/login" => b"login evidence".to_vec(),
+            "/docs/start" => b"documentation evidence".to_vec(),
+            _ => panic!("crawler fetched unexpected path {path}"),
+        };
+        Ok(WebSnapshot {
+            url: format!("http://{server_name}:{port}{path}"),
+            status_code: 200,
+            title: if path == "/" { "Root" } else { "" }.to_owned(),
+            server: "test".to_owned(),
+            content_type: "text/html".to_owned(),
             body,
         })
     }
@@ -1115,6 +1146,79 @@ async fn detects_resolves_and_reopens_fixed_http_exposure_probes() {
             );
         }
     }
+}
+
+#[tokio::test]
+async fn crawls_only_bounded_same_origin_paths_and_retains_evidence() {
+    let repository: Arc<dyn Repository> = Arc::new(MemoryRepository::default());
+    let service = CyberEdgeService::new(repository.clone(), Arc::new(Allow));
+    let scope = service
+        .create_scope(Request::new(CreateScopeRequest {
+            context: Some(context("crawler-scope")),
+            name: "Bounded crawler".to_owned(),
+            authorization_ref: "authorization:local-test".to_owned(),
+            targets: vec![ScopeTarget {
+                kind: TargetKind::Ip.into(),
+                value: "127.0.0.1".to_owned(),
+            }],
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let task = service
+        .start_scan(Request::new(StartScanRequest {
+            context: Some(context("crawler-task")),
+            scope_id: scope.id.clone(),
+            policy_id: "policy_service_baseline".to_owned(),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    DiscoveryWorker::new(repository, Arc::new(Resolver))
+        .with_port_connector(Arc::new(OpenPort), vec![80])
+        .with_website_probe(Arc::new(BoundedCrawlerWebsite))
+        .run_once()
+        .await
+        .unwrap();
+
+    let websites = service
+        .search_websites(Request::new(SearchWebsitesRequest {
+            context: Some(context("crawler-websites")),
+            scope_id: scope.id,
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .websites;
+    assert_eq!(websites[0].discovered_paths, ["/docs/start", "/login"]);
+    let report = service
+        .get_task_report(Request::new(GetTaskReportRequest {
+            context: Some(context("crawler-report")),
+            task_id: task.id,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(
+        report
+            .observations
+            .iter()
+            .filter(|observation| observation.observation_type == "http.crawl")
+            .count(),
+        2
+    );
+    assert!(
+        report
+            .evidence
+            .iter()
+            .any(|evidence| evidence.content == b"login evidence")
+    );
+    assert!(
+        report
+            .evidence
+            .iter()
+            .any(|evidence| evidence.content == b"documentation evidence")
+    );
 }
 
 #[tokio::test]

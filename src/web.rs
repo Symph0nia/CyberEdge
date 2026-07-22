@@ -266,6 +266,7 @@ fn website_json(website: Website) -> Value {
             "id": fingerprint.id, "name": fingerprint.name, "version": fingerprint.version,
             "detector": fingerprint.detector, "rule_id": fingerprint.rule_id,
             "evidence_id": fingerprint.evidence_id})).collect::<Vec<_>>(),
+        "discovered_paths": website.discovered_paths,
         "first_seen_at": timestamp(website.first_seen_at),
         "last_seen_at": timestamp(website.last_seen_at)})
 }

@@ -42,6 +42,8 @@ The system HTTP adapter additionally probes only `/.git/HEAD` and `/.DS_Store`. 
 
 Website `fingerprints` are structured, versioned detector projections tied to the root response Evidence. Current rules require an explicit WordPress generator or both WordPress asset families, and Grafana boot data plus a build/title marker. The `server` response header remains an unverified hint and is never promoted into this list by itself.
 
+The system crawler follows at most 16 root-page links at depth one. Only same-origin absolute paths without queries, traversal segments, encoded traversal, or control characters are accepted. Fixed exposure-probe paths are excluded from crawler input. Each fetched page becomes an `http.crawl` Observation with bounded response Evidence; failed pages become `http.crawl_error` and do not widen Scope.
+
 Do not grant `scan.active` to passive discovery Skills. Keep active grants in a separate Skill binding and verify the Scope before invocation.
 
 ## Native runtime

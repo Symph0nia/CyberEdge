@@ -99,6 +99,10 @@ pub trait WebsiteProbe: Send + Sync {
         false
     }
 
+    fn supports_crawl(&self) -> bool {
+        false
+    }
+
     async fn fetch(
         &self,
         address: IpAddr,
@@ -116,6 +120,10 @@ impl WebsiteProbe for SystemWebsiteProbe {
         true
     }
 
+    fn supports_crawl(&self) -> bool {
+        true
+    }
+
     async fn fetch(
         &self,
         address: IpAddr,
@@ -123,7 +131,7 @@ impl WebsiteProbe for SystemWebsiteProbe {
         server_name: &str,
         path: &str,
     ) -> Result<WebSnapshot, String> {
-        if !HTTP_PROBE_PATHS.contains(&path) {
+        if !HTTP_PROBE_PATHS.contains(&path) && !safe_crawl_path(path) {
             return Err("HTTP probe path is not allowed".to_owned());
         }
         install_crypto_provider();
@@ -639,25 +647,47 @@ impl DiscoveryWorker {
                 )];
             }
         };
+        let crawl_paths = root
+            .website
+            .as_ref()
+            .map(|website| website.discovered_paths.clone())
+            .unwrap_or_default();
         let mut records = vec![root];
-        if !probe.supports_path_probes() {
-            return records;
+        if probe.supports_path_probes() {
+            for path in &HTTP_PROBE_PATHS[1..] {
+                let record = match probe.fetch(address, port, server_name, path).await {
+                    Ok(snapshot) => {
+                        http_exposure_record(task_id, scope_id, address, port, path, snapshot)
+                    }
+                    Err(error) => record(
+                        task_id,
+                        scope_id,
+                        TargetKind::Ip,
+                        &address.to_string(),
+                        "http.exposure_probe_error",
+                        json!({"address": address, "port": port, "path": path, "error": error}),
+                    ),
+                };
+                records.push(record);
+            }
         }
-        for path in &HTTP_PROBE_PATHS[1..] {
-            let record = match probe.fetch(address, port, server_name, path).await {
-                Ok(snapshot) => {
-                    http_exposure_record(task_id, scope_id, address, port, path, snapshot)
-                }
-                Err(error) => record(
-                    task_id,
-                    scope_id,
-                    TargetKind::Ip,
-                    &address.to_string(),
-                    "http.exposure_probe_error",
-                    json!({"address": address, "port": port, "path": path, "error": error}),
-                ),
-            };
-            records.push(record);
+        if probe.supports_crawl() {
+            for path in crawl_paths {
+                let record = match probe.fetch(address, port, server_name, &path).await {
+                    Ok(snapshot) => {
+                        http_crawl_record(task_id, scope_id, address, port, &path, snapshot)
+                    }
+                    Err(error) => record(
+                        task_id,
+                        scope_id,
+                        TargetKind::Ip,
+                        &address.to_string(),
+                        "http.crawl_error",
+                        json!({"address": address, "port": port, "path": path, "error": error}),
+                    ),
+                };
+                records.push(record);
+            }
         }
         records
     }
@@ -1150,6 +1180,7 @@ fn website_record(
         first_seen_at: Some(timestamp),
         last_seen_at: Some(timestamp),
         fingerprints: technology_fingerprints(&snapshot.body, &evidence_id, &content_sha256),
+        discovered_paths: discovered_paths(&snapshot.body),
     };
     let evidence_media_type = website.content_type.clone();
     let (finding_evaluation, finding) = directory_listing_detection(
@@ -1263,6 +1294,124 @@ fn product_version(body: &str, product: &str) -> Option<String> {
         .take(32)
         .collect::<String>();
     (!version.is_empty()).then_some(version)
+}
+
+fn discovered_paths(body: &[u8]) -> Vec<String> {
+    const MAX_CRAWL_PATHS: usize = 16;
+    let html = String::from_utf8_lossy(body);
+    let lowered = html.to_ascii_lowercase();
+    let mut paths = BTreeSet::new();
+    let mut offset = 0;
+    while let Some(relative) = lowered[offset..].find("href") {
+        let start = offset + relative + "href".len();
+        let suffix = &html[start..];
+        let Some(equals) = suffix.find('=') else {
+            break;
+        };
+        if !suffix[..equals].chars().all(char::is_whitespace) {
+            offset = start;
+            continue;
+        }
+        let value = suffix[equals + 1..].trim_start();
+        let Some(quote) = value
+            .chars()
+            .next()
+            .filter(|value| matches!(value, '\'' | '"'))
+        else {
+            offset = start + equals + 1;
+            continue;
+        };
+        let value = &value[quote.len_utf8()..];
+        let Some(end) = value.find(quote) else {
+            break;
+        };
+        let path = value[..end].split('#').next().unwrap_or_default();
+        if safe_crawl_path(path) && path != "/" && !HTTP_PROBE_PATHS.contains(&path) {
+            paths.insert(path.to_owned());
+            if paths.len() == MAX_CRAWL_PATHS {
+                break;
+            }
+        }
+        offset = html.len() - value.len() + end + quote.len_utf8();
+    }
+    paths.into_iter().collect()
+}
+
+fn safe_crawl_path(path: &str) -> bool {
+    let lowered = path.to_ascii_lowercase();
+    path.len() > 1
+        && path.len() <= 256
+        && path.starts_with('/')
+        && !path.starts_with("//")
+        && !path.contains(['?', '#', '\\'])
+        && !path.split('/').any(|segment| matches!(segment, "." | ".."))
+        && !lowered.contains("%2e")
+        && !lowered.contains("%2f")
+        && !lowered.contains("%5c")
+        && !path.chars().any(char::is_control)
+}
+
+fn http_crawl_record(
+    task_id: &str,
+    scope_id: &str,
+    address: IpAddr,
+    port: u16,
+    path: &str,
+    snapshot: WebSnapshot,
+) -> DiscoveryRecord {
+    let timestamp = now();
+    let value = address.to_string();
+    let asset_id = stable_id(
+        "asset",
+        format!("{scope_id}:{}:{value}", i32::from(TargetKind::Ip)).as_bytes(),
+    );
+    let service_id = stable_id("service", format!("{asset_id}:tcp:{port}").as_bytes());
+    let sha256 = hex_hash(&snapshot.body);
+    let evidence_id = format!("evidence_{sha256}");
+    let payload = json!({
+        "address": address, "port": port, "url": snapshot.url, "path": path,
+        "status_code": snapshot.status_code, "title": snapshot.title,
+        "content_type": snapshot.content_type, "content_sha256": sha256,
+    });
+    DiscoveryRecord {
+        asset: Asset {
+            id: asset_id.clone(),
+            scope_id: scope_id.to_owned(),
+            kind: TargetKind::Ip.into(),
+            value,
+            first_seen_at: Some(timestamp),
+            last_seen_at: Some(timestamp),
+        },
+        service: Some(Service {
+            id: service_id,
+            asset_id: asset_id.clone(),
+            transport: "tcp".to_owned(),
+            port: u32::from(port),
+            service_hint: service_hint(port).to_owned(),
+            first_seen_at: Some(timestamp),
+            last_seen_at: Some(timestamp),
+        }),
+        certificate: None,
+        website: None,
+        observation: Observation {
+            id: format!("observation_{}", Uuid::now_v7()),
+            task_id: task_id.to_owned(),
+            asset_id,
+            observation_type: "http.crawl".to_owned(),
+            value_json: payload.to_string(),
+            evidence_id: evidence_id.clone(),
+            observed_at: Some(timestamp),
+        },
+        evidence: Evidence {
+            id: evidence_id,
+            media_type: snapshot.content_type,
+            sha256,
+            content: snapshot.body,
+            created_at: Some(timestamp),
+        },
+        finding_evaluations: Vec::new(),
+        findings: Vec::new(),
+    }
 }
 
 fn http_exposure_record(
@@ -1606,5 +1755,25 @@ mod detector_tests {
 
         let grafana = detect(b"<title>Grafana</title><script>window.grafanaBootData={}</script>");
         assert_eq!(grafana[0].name, "Grafana");
+    }
+
+    #[test]
+    fn bounds_crawl_paths_to_safe_same_origin_links() {
+        let mut html = String::from(
+            r#"<a href="/login">login</a><a HREF='/docs/start'>docs</a>
+               <a href="https://outside.example/">outside</a><a href="//outside.example/">outside</a>
+               <a href="/search?q=secret">query</a><a href="/../admin">traversal</a>
+               <a href="/%2e%2e/admin">encoded</a><a href="/.git/HEAD">fixed probe</a>"#,
+        );
+        for index in 0..20 {
+            html.push_str(&format!(r#"<a href="/page/{index}">page</a>"#));
+        }
+        let paths = discovered_paths(html.as_bytes());
+        assert_eq!(paths.len(), 16);
+        assert!(paths.contains(&"/login".to_owned()));
+        assert!(paths.contains(&"/docs/start".to_owned()));
+        assert!(!paths.iter().any(|path| path.contains("outside")));
+        assert!(!paths.iter().any(|path| path.contains("admin")));
+        assert!(!paths.contains(&"/.git/HEAD".to_owned()));
     }
 }

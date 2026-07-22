@@ -614,7 +614,8 @@ impl Repository for PostgresRepository {
         let rows = sqlx::query(
             "SELECT websites.id, websites.service_id, websites.url, websites.status_code,
                     websites.title, websites.server, websites.content_type,
-                    websites.content_sha256, websites.fingerprints, websites.first_seen_at_seconds,
+                    websites.content_sha256, websites.fingerprints, websites.discovered_paths,
+                    websites.first_seen_at_seconds,
                     websites.first_seen_at_nanos, websites.last_seen_at_seconds,
                     websites.last_seen_at_nanos
              FROM websites
@@ -974,15 +975,17 @@ impl Repository for PostgresRepository {
                 sqlx::query(
                     "INSERT INTO websites
                      (id, service_id, url, status_code, title, server, content_type,
-                      content_sha256, fingerprints, first_seen_at_seconds, first_seen_at_nanos,
+                      content_sha256, fingerprints, discovered_paths,
+                      first_seen_at_seconds, first_seen_at_nanos,
                       last_seen_at_seconds, last_seen_at_nanos)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
                      ON CONFLICT (service_id) DO UPDATE SET
                        url = EXCLUDED.url, status_code = EXCLUDED.status_code,
                        title = EXCLUDED.title, server = EXCLUDED.server,
                        content_type = EXCLUDED.content_type,
                        content_sha256 = EXCLUDED.content_sha256,
                        fingerprints = EXCLUDED.fingerprints,
+                       discovered_paths = EXCLUDED.discovered_paths,
                        last_seen_at_seconds = EXCLUDED.last_seen_at_seconds,
                        last_seen_at_nanos = EXCLUDED.last_seen_at_nanos",
                 )
@@ -995,6 +998,7 @@ impl Repository for PostgresRepository {
                 .bind(&website.content_type)
                 .bind(&website.content_sha256)
                 .bind(technology_fingerprints_json(&website.fingerprints))
+                .bind(json!(website.discovered_paths))
                 .bind(first_seen.seconds)
                 .bind(first_seen.nanos)
                 .bind(last_seen.seconds)
@@ -1296,7 +1300,8 @@ impl Repository for PostgresRepository {
         .collect();
         let websites = sqlx::query(
             "SELECT id, service_id, url, status_code, title, server, content_type,
-                    content_sha256, fingerprints, first_seen_at_seconds, first_seen_at_nanos,
+                    content_sha256, fingerprints, discovered_paths,
+                    first_seen_at_seconds, first_seen_at_nanos,
                     last_seen_at_seconds, last_seen_at_nanos FROM websites
              ORDER BY last_seen_at_seconds DESC, last_seen_at_nanos DESC LIMIT 100",
         )
@@ -1885,6 +1890,13 @@ fn website_from_row(row: &sqlx::postgres::PgRow) -> Website {
         content_type: row.get("content_type"),
         content_sha256: row.get("content_sha256"),
         fingerprints: technology_fingerprints_from_row(row),
+        discovered_paths: row
+            .get::<serde_json::Value, _>("discovered_paths")
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|value| value.as_str().map(str::to_owned))
+            .collect(),
         first_seen_at: Some(prost_types::Timestamp {
             seconds: row.get("first_seen_at_seconds"),
             nanos: row.get("first_seen_at_nanos"),
