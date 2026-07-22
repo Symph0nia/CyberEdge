@@ -1,0 +1,9 @@
+.env
+.DS_Store
+coverage/
+dist/
+node_modules/
+target/
+*.tsbuildinfo
+web/dist/
+web/node_modules/

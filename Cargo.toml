@@ -1,0 +1,15 @@
+[package]
+name = "cyberedge"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97.1"
+
+[dependencies]
+axum = "0.8.9"
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal"] }
+
+[profile.release]
+lto = "thin"
+strip = "symbols"
+
