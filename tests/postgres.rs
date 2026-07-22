@@ -62,19 +62,38 @@ impl CertificateProbe for TestCertificate {
 
 #[async_trait]
 impl WebsiteProbe for TestWebsite {
+    fn supports_path_probes(&self) -> bool {
+        true
+    }
+
     async fn fetch(
         &self,
         _address: IpAddr,
         port: u16,
         server_name: &str,
+        path: &str,
     ) -> Result<WebSnapshot, String> {
+        let (title, content_type, body) = match path {
+            "/" => (
+                "Index of /",
+                "text/html",
+                b"<title>Index of /</title><a href=\"../\">Parent Directory</a>".to_vec(),
+            ),
+            "/.git/HEAD" => ("", "text/plain", b"ref: refs/heads/main\n".to_vec()),
+            "/.DS_Store" => (
+                "",
+                "application/octet-stream",
+                b"\0\0\0\x01Bud1test".to_vec(),
+            ),
+            _ => panic!("unexpected path {path}"),
+        };
         Ok(WebSnapshot {
-            url: format!("https://{server_name}:{port}/"),
+            url: format!("https://{server_name}:{port}{path}"),
             status_code: 200,
-            title: "Index of /".to_owned(),
+            title: title.to_owned(),
             server: "test".to_owned(),
-            content_type: "text/html".to_owned(),
-            body: b"<title>Index of /</title><a href=\"../\">Parent Directory</a>".to_vec(),
+            content_type: content_type.to_owned(),
+            body,
         })
     }
 }
@@ -86,6 +105,7 @@ impl WebsiteProbe for ChangingWebsite {
         _address: IpAddr,
         port: u16,
         server_name: &str,
+        _path: &str,
     ) -> Result<WebSnapshot, String> {
         let version = self.0.fetch_add(1, Ordering::SeqCst) + 1;
         Ok(WebSnapshot {
@@ -106,6 +126,7 @@ impl WebsiteProbe for CyclingDirectoryWebsite {
         _address: IpAddr,
         port: u16,
         server_name: &str,
+        _path: &str,
     ) -> Result<WebSnapshot, String> {
         let exposed = self.0.fetch_add(1, Ordering::SeqCst) != 1;
         let (title, body) = if exposed {
@@ -276,7 +297,7 @@ async fn persists_scope_task_events_audit_and_outbox() {
     assert_eq!(service_report.services.len(), 1);
     assert_eq!(service_report.certificates.len(), 1);
     assert_eq!(service_report.websites.len(), 1);
-    assert_eq!(service_report.findings.len(), 2);
+    assert_eq!(service_report.findings.len(), 4);
     assert_eq!(
         service_report
             .findings
@@ -285,6 +306,8 @@ async fn persists_scope_task_events_audit_and_outbox() {
             .collect::<std::collections::BTreeSet<_>>(),
         std::collections::BTreeSet::from([
             "http-directory-listing-v1",
+            "http-exposed-ds-store-v1",
+            "http-exposed-git-head-v1",
             "tls-certificate-expired-v1"
         ])
     );
@@ -342,9 +365,9 @@ async fn persists_scope_task_events_audit_and_outbox() {
         .fetch_one(&pool)
         .await
         .unwrap();
-    assert_eq!(outbox_count, 18);
+    assert_eq!(outbox_count, 20);
     assert_eq!(asset_count, 5);
-    assert_eq!(observation_count, 10);
+    assert_eq!(observation_count, 12);
     let report = restarted
         .get_task_report(Request::new(GetTaskReportRequest {
             context: Some(context("report")),
@@ -399,7 +422,7 @@ async fn persists_scope_task_events_audit_and_outbox() {
         .unwrap()
         .into_inner()
         .findings;
-    assert_eq!(findings.len(), 3);
+    assert_eq!(findings.len(), 5);
 
     let monitor_scope = restarted
         .create_scope(Request::new(CreateScopeRequest {

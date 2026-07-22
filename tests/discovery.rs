@@ -103,6 +103,7 @@ struct CyclingCertificate {
 struct TestWebsite;
 struct DirectoryWebsite;
 struct CyclingDirectoryWebsite(AtomicUsize);
+struct CyclingExposureWebsite(AtomicUsize);
 struct ChangingWebsite(AtomicUsize);
 struct FailingWebsite(AtomicUsize);
 
@@ -142,6 +143,7 @@ impl WebsiteProbe for TestWebsite {
         _address: IpAddr,
         port: u16,
         _server_name: &str,
+        _path: &str,
     ) -> Result<WebSnapshot, String> {
         Ok(WebSnapshot {
             url: format!("https://127.0.0.1:{port}/"),
@@ -161,6 +163,7 @@ impl WebsiteProbe for DirectoryWebsite {
         _address: IpAddr,
         port: u16,
         server_name: &str,
+        _path: &str,
     ) -> Result<WebSnapshot, String> {
         Ok(WebSnapshot {
             url: format!("http://{server_name}:{port}/"),
@@ -181,6 +184,7 @@ impl WebsiteProbe for CyclingDirectoryWebsite {
         _address: IpAddr,
         port: u16,
         server_name: &str,
+        _path: &str,
     ) -> Result<WebSnapshot, String> {
         let exposed = self.0.fetch_add(1, Ordering::SeqCst) != 1;
         let (title, body) = if exposed {
@@ -203,12 +207,50 @@ impl WebsiteProbe for CyclingDirectoryWebsite {
 }
 
 #[async_trait]
+impl WebsiteProbe for CyclingExposureWebsite {
+    fn supports_path_probes(&self) -> bool {
+        true
+    }
+
+    async fn fetch(
+        &self,
+        _address: IpAddr,
+        port: u16,
+        server_name: &str,
+        path: &str,
+    ) -> Result<WebSnapshot, String> {
+        let request = self.0.fetch_add(1, Ordering::SeqCst);
+        let exposed = request / 3 != 1;
+        let (status_code, content_type, body) = match (path, exposed) {
+            ("/", _) => (200, "text/html", b"<title>Application</title>".to_vec()),
+            ("/.git/HEAD", true) => (200, "text/plain", b"ref: refs/heads/main\n".to_vec()),
+            ("/.DS_Store", true) => (
+                200,
+                "application/octet-stream",
+                b"\0\0\0\x01Bud1test".to_vec(),
+            ),
+            (_, false) => (404, "text/plain", b"not found".to_vec()),
+            _ => panic!("unexpected path {path}"),
+        };
+        Ok(WebSnapshot {
+            url: format!("http://{server_name}:{port}{path}"),
+            status_code,
+            title: String::new(),
+            server: "test".to_owned(),
+            content_type: content_type.to_owned(),
+            body,
+        })
+    }
+}
+
+#[async_trait]
 impl WebsiteProbe for ChangingWebsite {
     async fn fetch(
         &self,
         _address: IpAddr,
         port: u16,
         server_name: &str,
+        _path: &str,
     ) -> Result<WebSnapshot, String> {
         let version = self.0.fetch_add(1, Ordering::SeqCst) + 1;
         Ok(WebSnapshot {
@@ -229,6 +271,7 @@ impl WebsiteProbe for FailingWebsite {
         _address: IpAddr,
         port: u16,
         server_name: &str,
+        _path: &str,
     ) -> Result<WebSnapshot, String> {
         if self.0.fetch_add(1, Ordering::SeqCst) > 0 {
             return Err("HTTP timeout".to_owned());
@@ -984,6 +1027,95 @@ async fn resolves_and_reopens_builtin_finding_after_successful_reevaluation() {
 }
 
 #[tokio::test]
+async fn detects_resolves_and_reopens_fixed_http_exposure_probes() {
+    let repository: Arc<dyn Repository> = Arc::new(MemoryRepository::default());
+    let service = CyberEdgeService::new(repository.clone(), Arc::new(Allow));
+    let scope = service
+        .create_scope(Request::new(CreateScopeRequest {
+            context: Some(context("exposure-probe-scope")),
+            name: "HTTP exposure probes".to_owned(),
+            authorization_ref: "authorization:local-test".to_owned(),
+            targets: vec![ScopeTarget {
+                kind: TargetKind::Ip.into(),
+                value: "127.0.0.1".to_owned(),
+            }],
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let worker = DiscoveryWorker::new(repository, Arc::new(Resolver))
+        .with_port_connector(Arc::new(OpenPort), vec![80])
+        .with_website_probe(Arc::new(CyclingExposureWebsite(AtomicUsize::new(0))));
+    let mut finding_ids = std::collections::BTreeSet::new();
+
+    for (index, expected_state) in [
+        FindingState::Open,
+        FindingState::Resolved,
+        FindingState::Open,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let task = service
+            .start_scan(Request::new(StartScanRequest {
+                context: Some(context(&format!("exposure-probe-task-{index}"))),
+                scope_id: scope.id.clone(),
+                policy_id: "policy_service_baseline".to_owned(),
+            }))
+            .await
+            .unwrap()
+            .into_inner();
+        worker.run_once().await.unwrap();
+        let findings = service
+            .search_findings(Request::new(SearchFindingsRequest {
+                context: Some(context(&format!("exposure-probe-search-{index}"))),
+                scope_id: scope.id.clone(),
+            }))
+            .await
+            .unwrap()
+            .into_inner()
+            .findings;
+        assert_eq!(findings.len(), 2);
+        assert!(
+            findings
+                .iter()
+                .all(|finding| finding.state == i32::from(expected_state))
+        );
+        let current_ids = findings
+            .iter()
+            .map(|finding| finding.id.clone())
+            .collect::<std::collections::BTreeSet<_>>();
+        if finding_ids.is_empty() {
+            finding_ids = current_ids.clone();
+        }
+        assert_eq!(current_ids, finding_ids);
+        if index == 0 {
+            let report = service
+                .get_task_report(Request::new(GetTaskReportRequest {
+                    context: Some(context("exposure-probe-report")),
+                    task_id: task.id,
+                }))
+                .await
+                .unwrap()
+                .into_inner();
+            assert_eq!(report.findings.len(), 2);
+            assert!(
+                report
+                    .evidence
+                    .iter()
+                    .any(|evidence| { evidence.content.starts_with(b"ref: refs/heads/") })
+            );
+            assert!(
+                report
+                    .evidence
+                    .iter()
+                    .any(|evidence| { evidence.content.starts_with(b"\0\0\0\x01Bud1") })
+            );
+        }
+    }
+}
+
+#[tokio::test]
 async fn retains_tls_certificate_as_inventory_and_der_evidence() {
     let certificate = rcgen::generate_simple_self_signed(vec!["localhost".to_owned()]).unwrap();
     let der = certificate.cert.der().to_vec();
@@ -1177,7 +1309,7 @@ async fn system_website_probe_collects_local_response_without_redirecting() {
             .unwrap();
     });
     let snapshot = SystemWebsiteProbe
-        .fetch(address.ip(), address.port(), "127.0.0.1")
+        .fetch(address.ip(), address.port(), "127.0.0.1", "/")
         .await
         .unwrap();
     assert_eq!(snapshot.status_code, 302);

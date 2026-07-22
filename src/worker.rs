@@ -95,11 +95,16 @@ pub struct WebSnapshot {
 
 #[async_trait]
 pub trait WebsiteProbe: Send + Sync {
+    fn supports_path_probes(&self) -> bool {
+        false
+    }
+
     async fn fetch(
         &self,
         address: IpAddr,
         port: u16,
         server_name: &str,
+        path: &str,
     ) -> Result<WebSnapshot, String>;
 }
 
@@ -107,12 +112,20 @@ pub struct SystemWebsiteProbe;
 
 #[async_trait]
 impl WebsiteProbe for SystemWebsiteProbe {
+    fn supports_path_probes(&self) -> bool {
+        true
+    }
+
     async fn fetch(
         &self,
         address: IpAddr,
         port: u16,
         server_name: &str,
+        path: &str,
     ) -> Result<WebSnapshot, String> {
+        if !HTTP_PROBE_PATHS.contains(&path) {
+            return Err("HTTP probe path is not allowed".to_owned());
+        }
         install_crypto_provider();
         let scheme = if matches!(port, 443 | 8443) {
             "https"
@@ -124,7 +137,7 @@ impl WebsiteProbe for SystemWebsiteProbe {
         } else {
             server_name.to_owned()
         };
-        let url = format!("{scheme}://{host}:{port}/");
+        let url = format!("{scheme}://{host}:{port}{path}");
         let mut builder = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(5))
             .redirect(reqwest::redirect::Policy::none())
@@ -565,8 +578,8 @@ impl DiscoveryWorker {
                         );
                     }
                     if matches!(port, 80 | 443 | 8080 | 8443) {
-                        records.push(
-                            self.discover_website(task_id, scope_id, address, port, server_name)
+                        records.extend(
+                            self.discover_websites(task_id, scope_id, address, port, server_name)
                                 .await,
                         );
                     }
@@ -595,35 +608,58 @@ impl DiscoveryWorker {
         records
     }
 
-    async fn discover_website(
+    async fn discover_websites(
         &self,
         task_id: &str,
         scope_id: &str,
         address: IpAddr,
         port: u16,
         server_name: &str,
-    ) -> DiscoveryRecord {
+    ) -> Vec<DiscoveryRecord> {
         let Some(probe) = &self.website_probe else {
-            return record(
+            return vec![record(
                 task_id,
                 scope_id,
                 TargetKind::Ip,
                 &address.to_string(),
                 "http.error",
                 json!({"address": address, "port": port, "error": "website probe unavailable"}),
-            );
+            )];
         };
-        match probe.fetch(address, port, server_name).await {
+        let root = match probe.fetch(address, port, server_name, "/").await {
             Ok(snapshot) => website_record(task_id, scope_id, address, port, snapshot),
-            Err(error) => record(
-                task_id,
-                scope_id,
-                TargetKind::Ip,
-                &address.to_string(),
-                "http.error",
-                json!({"address": address, "port": port, "error": error}),
-            ),
+            Err(error) => {
+                return vec![record(
+                    task_id,
+                    scope_id,
+                    TargetKind::Ip,
+                    &address.to_string(),
+                    "http.error",
+                    json!({"address": address, "port": port, "error": error}),
+                )];
+            }
+        };
+        let mut records = vec![root];
+        if !probe.supports_path_probes() {
+            return records;
         }
+        for path in &HTTP_PROBE_PATHS[1..] {
+            let record = match probe.fetch(address, port, server_name, path).await {
+                Ok(snapshot) => {
+                    http_exposure_record(task_id, scope_id, address, port, path, snapshot)
+                }
+                Err(error) => record(
+                    task_id,
+                    scope_id,
+                    TargetKind::Ip,
+                    &address.to_string(),
+                    "http.exposure_probe_error",
+                    json!({"address": address, "port": port, "path": path, "error": error}),
+                ),
+            };
+            records.push(record);
+        }
+        records
     }
 
     async fn discover_certificate(
@@ -1171,6 +1207,151 @@ fn website_record(
     }
 }
 
+fn http_exposure_record(
+    task_id: &str,
+    scope_id: &str,
+    address: IpAddr,
+    port: u16,
+    path: &str,
+    snapshot: WebSnapshot,
+) -> DiscoveryRecord {
+    let timestamp = now();
+    let value = address.to_string();
+    let asset_id = stable_id(
+        "asset",
+        format!("{scope_id}:{}:{value}", i32::from(TargetKind::Ip)).as_bytes(),
+    );
+    let service_id = stable_id("service", format!("{asset_id}:tcp:{port}").as_bytes());
+    let content_sha256 = hex_hash(&snapshot.body);
+    let evidence_id = format!("evidence_{content_sha256}");
+    let observation_id = format!("observation_{}", Uuid::now_v7());
+    let (evaluation, finding) = http_exposure_detection(
+        task_id,
+        scope_id,
+        &asset_id,
+        &service_id,
+        &observation_id,
+        &evidence_id,
+        path,
+        &snapshot,
+        timestamp,
+    );
+    let payload = json!({
+        "address": address, "port": port, "url": snapshot.url, "path": path,
+        "status_code": snapshot.status_code, "content_type": snapshot.content_type,
+        "content_sha256": content_sha256,
+    });
+    DiscoveryRecord {
+        asset: Asset {
+            id: asset_id.clone(),
+            scope_id: scope_id.to_owned(),
+            kind: TargetKind::Ip.into(),
+            value,
+            first_seen_at: Some(timestamp),
+            last_seen_at: Some(timestamp),
+        },
+        service: Some(Service {
+            id: service_id,
+            asset_id: asset_id.clone(),
+            transport: "tcp".to_owned(),
+            port: u32::from(port),
+            service_hint: service_hint(port).to_owned(),
+            first_seen_at: Some(timestamp),
+            last_seen_at: Some(timestamp),
+        }),
+        certificate: None,
+        website: None,
+        observation: Observation {
+            id: observation_id,
+            task_id: task_id.to_owned(),
+            asset_id,
+            observation_type: "http.exposure_probe".to_owned(),
+            value_json: payload.to_string(),
+            evidence_id: evidence_id.clone(),
+            observed_at: Some(timestamp),
+        },
+        evidence: Evidence {
+            id: evidence_id,
+            media_type: snapshot.content_type,
+            sha256: content_sha256,
+            content: snapshot.body,
+            created_at: Some(timestamp),
+        },
+        finding_evaluations: vec![evaluation],
+        findings: finding.into_iter().collect(),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn http_exposure_detection(
+    task_id: &str,
+    scope_id: &str,
+    asset_id: &str,
+    service_id: &str,
+    observation_id: &str,
+    evidence_id: &str,
+    path: &str,
+    snapshot: &WebSnapshot,
+    timestamp: prost_types::Timestamp,
+) -> (FindingEvaluation, Option<Finding>) {
+    let (rule_id, title, severity, matched) = match path {
+        "/.git/HEAD" => {
+            let value = String::from_utf8_lossy(&snapshot.body);
+            let value = value.trim();
+            let detached_head = matches!(value.len(), 40 | 64)
+                && value.bytes().all(|byte| byte.is_ascii_hexdigit());
+            (
+                "http-exposed-git-head-v1",
+                "Git repository metadata exposed",
+                FindingSeverity::Medium,
+                snapshot.status_code == 200 && (value.starts_with("ref: refs/") || detached_head),
+            )
+        }
+        "/.DS_Store" => (
+            "http-exposed-ds-store-v1",
+            "DS_Store metadata exposed",
+            FindingSeverity::Low,
+            snapshot.status_code == 200 && snapshot.body.starts_with(b"\0\0\0\x01Bud1"),
+        ),
+        _ => unreachable!("only fixed exposure probe paths reach the detector"),
+    };
+    let detector = "cyberedge-http";
+    let fingerprint = hex_hash(format!("{rule_id}:{service_id}").as_bytes());
+    let evaluation = FindingEvaluation {
+        asset_id: asset_id.to_owned(),
+        detector,
+        rule_id,
+        fingerprint: fingerprint.clone(),
+    };
+    if !matched {
+        return (evaluation, None);
+    }
+    let finding = Finding {
+        id: stable_id(
+            "finding",
+            format!("{scope_id}:{detector}:{rule_id}:{asset_id}:{fingerprint}").as_bytes(),
+        ),
+        scope_id: scope_id.to_owned(),
+        task_id: task_id.to_owned(),
+        asset_id: asset_id.to_owned(),
+        observation_id: observation_id.to_owned(),
+        evidence_id: evidence_id.to_owned(),
+        detector: detector.to_owned(),
+        rule_id: rule_id.to_owned(),
+        title: title.to_owned(),
+        description: format!(
+            "The fixed HTTP probe at {} returned content matching {}.",
+            snapshot.url, rule_id
+        ),
+        severity: severity.into(),
+        state: FindingState::Open.into(),
+        fingerprint,
+        first_seen_at: Some(timestamp),
+        last_seen_at: Some(timestamp),
+    };
+    (evaluation, Some(finding))
+}
+
 fn directory_listing_detection(
     task_id: &str,
     scope_id: &str,
@@ -1226,6 +1407,7 @@ fn directory_listing_detection(
 }
 
 const MAX_WEB_BODY_BYTES: usize = 1_048_576;
+const HTTP_PROBE_PATHS: &[&str] = &["/", "/.git/HEAD", "/.DS_Store"];
 
 fn html_title(body: &[u8]) -> String {
     let text = String::from_utf8_lossy(body);

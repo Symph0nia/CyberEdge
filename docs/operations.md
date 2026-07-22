@@ -38,6 +38,8 @@ The service baseline also runs the built-in `cyberedge-http/http-directory-listi
 
 Successful TLS probes evaluate `cyberedge-tls/tls-certificate-expired-v1` and `cyberedge-tls/tls-certificate-expiring-v1`. The latter uses a fixed 30-day window. Findings are keyed to the service endpoint rather than a certificate hash, so replacing the certificate resolves the existing endpoint condition instead of leaving a stale finding. The retained DER certificate is the supporting Evidence.
 
+The system HTTP adapter additionally probes only `/.git/HEAD` and `/.DS_Store`. Findings require exact Git HEAD or DS_Store magic signatures; a generic `200` response is insufficient. Redirects remain disabled and the one-megabyte response limit still applies. The RPC contract cannot supply paths, so this does not create an arbitrary URL scanner. Secret-bearing paths such as `/.env` are deliberately excluded from retained Evidence.
+
 Do not grant `scan.active` to passive discovery Skills. Keep active grants in a separate Skill binding and verify the Scope before invocation.
 
 ## Native runtime
