@@ -9,8 +9,8 @@ use cyberedge::proto::{
     CancelTaskRequest, CreateScheduleRequest, CreateScopeRequest, ErrorDetail, GetEvidenceRequest,
     GetScopeRequest, GetTaskReportRequest, GetTaskRequest, InvocationContext, ScopeTarget,
     SearchAssetChangesRequest, SearchAssetsRequest, SearchAuditRequest, SearchCertificatesRequest,
-    SearchObservationsRequest, SearchSchedulesRequest, SearchServicesRequest,
-    SearchWebsitesRequest, StartScanRequest, TargetKind, WatchTaskRequest,
+    SearchExposureChangesRequest, SearchObservationsRequest, SearchSchedulesRequest,
+    SearchServicesRequest, SearchWebsitesRequest, StartScanRequest, TargetKind, WatchTaskRequest,
     cyber_edge_client::CyberEdgeClient,
 };
 use hyper_util::rt::TokioIo;
@@ -71,6 +71,9 @@ enum Command {
         scope_id: String,
     },
     SearchAssetChanges {
+        schedule_id: String,
+    },
+    SearchExposureChanges {
         schedule_id: String,
     },
     SearchAssets {
@@ -249,6 +252,30 @@ async fn run() -> Result<(), Value> {
                         "id": change.id, "schedule_id": change.schedule_id,
                         "task_id": change.task_id, "asset_id": change.asset_id,
                         "kind": change.kind, "detected_at": timestamp_json(change.detected_at)
+                    })
+                })
+                .collect::<Vec<_>>();
+            emit(json!({"changes": values}));
+        }
+        Command::SearchExposureChanges { schedule_id } => {
+            let values = client
+                .search_exposure_changes(SearchExposureChangesRequest {
+                    context,
+                    schedule_id,
+                })
+                .await
+                .map_err(rpc_error)?
+                .into_inner()
+                .changes
+                .into_iter()
+                .map(|change| {
+                    json!({
+                        "id": change.id, "schedule_id": change.schedule_id,
+                        "task_id": change.task_id, "resource_kind": change.resource_kind,
+                        "resource_id": change.resource_id, "kind": change.kind,
+                        "previous_fingerprint": change.previous_fingerprint,
+                        "current_fingerprint": change.current_fingerprint,
+                        "detected_at": timestamp_json(change.detected_at)
                     })
                 })
                 .collect::<Vec<_>>();

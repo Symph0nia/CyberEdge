@@ -14,7 +14,9 @@ use tower_http::{
 };
 
 use crate::{
-    proto::{Asset, AssetChange, Certificate, Schedule, Scope, Service, Task, Website},
+    proto::{
+        Asset, AssetChange, Certificate, ExposureChange, Schedule, Scope, Service, Task, Website,
+    },
     repository::Repository,
 };
 
@@ -41,6 +43,7 @@ pub fn read_only_router(repository: Arc<dyn Repository>, dist: PathBuf) -> Route
         .route("/api/v1/scopes/{scope_id}/services", get(services))
         .route("/api/v1/scopes/{scope_id}/certificates", get(certificates))
         .route("/api/v1/scopes/{scope_id}/websites", get(websites))
+        .route("/api/v1/schedules/{schedule_id}/exposure-changes", get(exposure_changes))
         .route("/api/v1/tasks/{task_id}/observations", get(observations))
         .route("/api/v1/evidence/{evidence_id}", get(evidence))
         .route("/api/{*path}", any(api_not_found))
@@ -73,6 +76,7 @@ async fn overview(State(state): State<WebState>) -> Result<Json<Value>, WebError
         "counts": {"scopes": model.scope_count, "tasks": model.task_count,
             "assets": model.asset_count, "schedules": model.schedule_count,
             "asset_changes": model.asset_change_count,
+            "exposure_changes": model.exposure_change_count,
             "services": model.service_count,
             "certificates": model.certificate_count,
             "websites": model.website_count,
@@ -83,6 +87,7 @@ async fn overview(State(state): State<WebState>) -> Result<Json<Value>, WebError
         "assets": model.assets.into_iter().map(asset_json).collect::<Vec<_>>(),
         "schedules": model.schedules.into_iter().map(schedule_json).collect::<Vec<_>>(),
         "asset_changes": model.asset_changes.into_iter().map(asset_change_json).collect::<Vec<_>>(),
+        "exposure_changes": model.exposure_changes.into_iter().map(exposure_change_json).collect::<Vec<_>>(),
         "services": model.services.into_iter().map(service_json).collect::<Vec<_>>(),
         "certificates": model.certificates.into_iter().map(certificate_json).collect::<Vec<_>>(),
         "websites": model.websites.into_iter().map(website_json).collect::<Vec<_>>(),
@@ -170,6 +175,20 @@ async fn websites(
     ))
 }
 
+async fn exposure_changes(
+    State(state): State<WebState>,
+    Path(schedule_id): Path<String>,
+) -> Result<Json<Value>, WebError> {
+    let values = state
+        .repository
+        .search_exposure_changes(&schedule_id)
+        .await
+        .map_err(WebError)?;
+    Ok(Json(
+        json!({"changes": values.into_iter().map(exposure_change_json).collect::<Vec<_>>() }),
+    ))
+}
+
 async fn evidence(
     State(state): State<WebState>,
     Path(evidence_id): Path<String>,
@@ -236,6 +255,14 @@ fn schedule_json(schedule: Schedule) -> Value {
 fn asset_change_json(change: AssetChange) -> Value {
     json!({"id": change.id, "schedule_id": change.schedule_id, "task_id": change.task_id,
         "asset_id": change.asset_id, "kind": change.kind,
+        "detected_at": timestamp(change.detected_at)})
+}
+
+fn exposure_change_json(change: ExposureChange) -> Value {
+    json!({"id": change.id, "schedule_id": change.schedule_id, "task_id": change.task_id,
+        "resource_kind": change.resource_kind, "resource_id": change.resource_id,
+        "kind": change.kind, "previous_fingerprint": change.previous_fingerprint,
+        "current_fingerprint": change.current_fingerprint,
         "detected_at": timestamp(change.detected_at)})
 }
 

@@ -24,7 +24,7 @@ CyberEdge copies neither repository's code, database shape, Web workflow, nor op
 | File exposure and host collision checks | Finding and Evidence | 4 | Not implemented |
 | Nuclei and custom PoC execution | Finding scanner adapter | 4 | Not implemented; no online PoC editor will be added |
 | Domain and IP asset change monitoring | Monitor asset baseline and diff | 2 | Implemented |
-| Website and service change monitoring | Observation diff | 3 | Not implemented |
+| Website and service change monitoring | Observation diff | 3 | Implemented with coverage-aware exposure changes |
 | GitHub leak and CVE monitoring | Threat intelligence adapters | 4 | Not implemented |
 | ICP and enterprise relationship lookup | Organization Asset adapter | 4 | Not implemented |
 | Notifications | Event sink adapters | 3 | Not implemented |

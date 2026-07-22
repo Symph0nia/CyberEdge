@@ -18,9 +18,10 @@ type Certificate = { id: string; service_id: string; sha256: string; subject: st
 type Website = { id: string; service_id: string; url: string; status_code: number; title: string; server: string; content_type: string; content_sha256: string; first_seen_at: Stamp; last_seen_at: Stamp }
 type Schedule = { id: string; scope_id: string; policy_id: string; interval_seconds: number; enabled: boolean; next_run_at: Stamp; last_task_id: string; created_at: Stamp }
 type AssetChange = { id: string; schedule_id: string; task_id: string; asset_id: string; kind: number; detected_at: Stamp }
+type ExposureChange = { id: string; schedule_id: string; task_id: string; resource_kind: string; resource_id: string; kind: number; previous_fingerprint: string; current_fingerprint: string; detected_at: Stamp }
 type AuditEvent = { id: string; request_id: string; operation: string; agent_id: string; skill_name: string; skill_version: string; resource_id: string; occurred_at: Stamp }
 type Overview = {
-  counts: { scopes: number; tasks: number; assets: number; services: number; certificates: number; websites: number; schedules: number; asset_changes: number; observations: number; evidence: number }
+  counts: { scopes: number; tasks: number; assets: number; services: number; certificates: number; websites: number; schedules: number; asset_changes: number; exposure_changes: number; observations: number; evidence: number }
   scopes: Scope[]
   tasks: Task[]
   assets: Asset[]
@@ -29,6 +30,7 @@ type Overview = {
   websites: Website[]
   schedules: Schedule[]
   asset_changes: AssetChange[]
+  exposure_changes: ExposureChange[]
   audit_events: AuditEvent[]
 }
 
@@ -135,6 +137,8 @@ function App() {
               <ScheduleTable schedules={data.schedules} />
               <div className="subsection-heading"><p className="section-label">Detected drift</p><h3>Asset changes</h3><span>{formatNumber(data.counts.asset_changes)} recorded</span></div>
               <ChangeTable changes={data.asset_changes} assets={data.assets} />
+              <div className="subsection-heading"><p className="section-label">Exposure drift</p><h3>Service and website changes</h3><span>{formatNumber(data.counts.exposure_changes)} recorded</span></div>
+              <ExposureChangeTable changes={data.exposure_changes} />
             </section>
 
             <section id="audit" className="data-section" aria-labelledby="audit-title">
@@ -270,6 +274,20 @@ function ChangeTable({ changes, assets }: { changes: AssetChange[]; assets: Asse
       <TableCell><Tag type={change.kind === 1 ? 'green' : 'red'}>{change.kind === 1 ? 'Appeared' : 'Disappeared'}</Tag></TableCell>
       <TableCell><strong>{assetNames.get(change.asset_id) ?? 'Retained asset'}</strong><code>{change.asset_id}</code></TableCell>
       <TableCell><code>{shortId(change.schedule_id)}</code></TableCell>
+      <TableCell>{formatTime(change.detected_at)}</TableCell>
+    </TableRow>)}</TableBody>
+  </Table></TableContainer>
+}
+
+function ExposureChangeTable({ changes }: { changes: ExposureChange[] }) {
+  if (changes.length === 0) return <Empty text="No service or website changes have been detected." />
+  const labels: Record<number, string> = { 1: 'Appeared', 2: 'Disappeared', 3: 'Modified' }
+  return <TableContainer><Table size="lg">
+    <TableHead><TableRow><TableHeader>Resource</TableHeader><TableHeader>Change</TableHeader><TableHeader>Fingerprint</TableHeader><TableHeader>Detected</TableHeader></TableRow></TableHead>
+    <TableBody>{changes.map((change) => <TableRow key={change.id}>
+      <TableCell><strong>{change.resource_kind}</strong><code>{change.resource_id}</code></TableCell>
+      <TableCell><Tag type={change.kind === 2 ? 'red' : change.kind === 3 ? 'blue' : 'green'}>{labels[change.kind] ?? 'Unknown'}</Tag></TableCell>
+      <TableCell><code>{shortId(change.current_fingerprint || change.previous_fingerprint)}</code></TableCell>
       <TableCell>{formatTime(change.detected_at)}</TableCell>
     </TableRow>)}</TableBody>
   </Table></TableContainer>

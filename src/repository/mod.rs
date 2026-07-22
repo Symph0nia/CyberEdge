@@ -2,10 +2,12 @@ mod memory;
 mod postgres;
 
 use async_trait::async_trait;
+use sha2::{Digest, Sha256};
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::proto::{
-    Asset, AssetChange, AuditEvent, Certificate, Evidence, InvocationContext, Observation,
-    Schedule, Scope, Service, Task, TaskEvent, Website,
+    Asset, AssetChange, AuditEvent, Certificate, Evidence, ExposureChange, InvocationContext,
+    Observation, Schedule, Scope, Service, Task, TaskEvent, Website,
 };
 
 pub use memory::MemoryRepository;
@@ -52,6 +54,7 @@ pub struct ReadOverview {
     pub assets: Vec<Asset>,
     pub schedules: Vec<Schedule>,
     pub asset_changes: Vec<AssetChange>,
+    pub exposure_changes: Vec<ExposureChange>,
     pub services: Vec<Service>,
     pub certificates: Vec<Certificate>,
     pub websites: Vec<Website>,
@@ -60,6 +63,7 @@ pub struct ReadOverview {
     pub asset_count: i64,
     pub schedule_count: i64,
     pub asset_change_count: i64,
+    pub exposure_change_count: i64,
     pub service_count: i64,
     pub certificate_count: i64,
     pub website_count: i64,
@@ -113,6 +117,11 @@ pub trait Repository: Send + Sync {
         &self,
         schedule_id: &str,
     ) -> Result<Vec<AssetChange>, RepositoryError>;
+
+    async fn search_exposure_changes(
+        &self,
+        schedule_id: &str,
+    ) -> Result<Vec<ExposureChange>, RepositoryError>;
 
     async fn enqueue_due_schedules(
         &self,
@@ -169,4 +178,105 @@ pub trait Repository: Send + Sync {
     async fn read_overview(&self) -> Result<ReadOverview, RepositoryError>;
 
     async fn search_audit(&self) -> Result<Vec<AuditEvent>, RepositoryError>;
+}
+
+#[derive(Clone)]
+struct ExposureState {
+    resource_kind: &'static str,
+    fingerprint: String,
+}
+
+fn exposure_snapshot<'a>(
+    observations: impl IntoIterator<Item = &'a Observation>,
+) -> BTreeMap<String, ExposureState> {
+    observations
+        .into_iter()
+        .filter_map(|observation| {
+            let value = serde_json::from_str::<serde_json::Value>(&observation.value_json).ok()?;
+            let fingerprint = digest(&serde_json::to_vec(&value).ok()?);
+            let (resource_kind, resource_id) = match observation.observation_type.as_str() {
+                "tcp.open" => {
+                    let port = value.get("port")?.as_u64()?;
+                    let service_id = content_id(
+                        "service",
+                        format!("{}:tcp:{port}", observation.asset_id).as_bytes(),
+                    );
+                    ("service", service_id)
+                }
+                "http.response" => {
+                    let port = value.get("port")?.as_u64()?;
+                    let service_id = content_id(
+                        "service",
+                        format!("{}:tcp:{port}", observation.asset_id).as_bytes(),
+                    );
+                    ("website", content_id("website", service_id.as_bytes()))
+                }
+                _ => return None,
+            };
+            Some((
+                resource_id,
+                ExposureState {
+                    resource_kind,
+                    fingerprint,
+                },
+            ))
+        })
+        .collect()
+}
+
+fn exposure_changes(
+    task: &Task,
+    previous: &BTreeMap<String, ExposureState>,
+    current: &BTreeMap<String, ExposureState>,
+    timestamp: prost_types::Timestamp,
+    include_disappeared: bool,
+) -> Vec<ExposureChange> {
+    let keys = previous
+        .keys()
+        .chain(current.keys())
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    keys.into_iter()
+        .filter_map(|resource_id| {
+            let before = previous.get(&resource_id);
+            let after = current.get(&resource_id);
+            let kind = match (before, after) {
+                (None, Some(_)) => crate::proto::ExposureChangeKind::Appeared,
+                (Some(_), None) if include_disappeared => {
+                    crate::proto::ExposureChangeKind::Disappeared
+                }
+                (Some(before), Some(after)) if before.fingerprint != after.fingerprint => {
+                    crate::proto::ExposureChangeKind::Modified
+                }
+                _ => return None,
+            };
+            let state = after.or(before).expect("change has one state");
+            Some(ExposureChange {
+                id: format!("exposure_change_{}", uuid::Uuid::now_v7()),
+                schedule_id: task.schedule_id.clone(),
+                task_id: task.id.clone(),
+                resource_kind: state.resource_kind.to_owned(),
+                resource_id,
+                kind: kind.into(),
+                previous_fingerprint: before
+                    .map(|state| state.fingerprint.clone())
+                    .unwrap_or_default(),
+                current_fingerprint: after
+                    .map(|state| state.fingerprint.clone())
+                    .unwrap_or_default(),
+                detected_at: Some(timestamp),
+            })
+        })
+        .collect()
+}
+
+fn content_id(prefix: &str, value: &[u8]) -> String {
+    format!("{prefix}_{}", &digest(value)[..32])
+}
+
+fn digest(value: &[u8]) -> String {
+    Sha256::digest(value)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }

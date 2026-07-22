@@ -21,6 +21,8 @@ Use `cyberedge-agent`; this machine bridge is not a human CLI.
 4. Correlate Website records with `http.response` Observations and TaskReport Evidence.
 5. Describe `server` as a header-derived hint, never as verified product identity.
 
+For recurring monitoring, create a Schedule with the same active policy and call `search_exposure_changes` using its `schedule_id`. Treat `APPEARED`, `DISAPPEARED`, and `MODIFIED` as deterministic diffs between successful Task snapshots. Collection errors suppress disappearance events.
+
 The server probes only open `80`, `443`, `8080`, and `8443`, never follows redirects, enforces a five-second request timeout and rejects response bodies over 1 MiB. `http.error` means collection failed; it does not prove that no website exists.
 
 ```json

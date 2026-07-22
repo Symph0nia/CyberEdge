@@ -8,11 +8,11 @@ use tokio::sync::RwLock;
 
 use super::{
     ClaimedTask, DiscoveryRecord, Mutation, MutationResult, ReadOverview, Repository,
-    RepositoryError,
+    RepositoryError, exposure_changes, exposure_snapshot,
 };
 use crate::proto::{
-    Asset, AssetChange, AssetChangeKind, AuditEvent, Certificate, Evidence, Observation, Schedule,
-    Scope, Service, Task, TaskEvent, TaskState, Website,
+    Asset, AssetChange, AssetChangeKind, AuditEvent, Certificate, Evidence, ExposureChange,
+    Observation, Schedule, Scope, Service, Task, TaskEvent, TaskState, Website,
 };
 
 #[derive(Default)]
@@ -26,6 +26,7 @@ struct State {
     observations: HashMap<String, Observation>,
     evidence: HashMap<String, Evidence>,
     asset_changes: Vec<AssetChange>,
+    exposure_changes: Vec<ExposureChange>,
     services: HashMap<String, Service>,
     certificates: HashMap<String, Certificate>,
     websites: HashMap<String, Website>,
@@ -171,6 +172,22 @@ impl Repository for MemoryRepository {
         }
         Ok(state
             .asset_changes
+            .iter()
+            .filter(|change| change.schedule_id == schedule_id)
+            .cloned()
+            .collect())
+    }
+
+    async fn search_exposure_changes(
+        &self,
+        schedule_id: &str,
+    ) -> Result<Vec<ExposureChange>, RepositoryError> {
+        let state = self.state.read().await;
+        if !state.schedules.contains_key(schedule_id) {
+            return Err(RepositoryError::NotFound("schedule"));
+        }
+        Ok(state
+            .exposure_changes
             .iter()
             .filter(|change| change.schedule_id == schedule_id)
             .cloned()
@@ -436,10 +453,12 @@ impl Repository for MemoryRepository {
             .iter()
             .map(|record| record.asset.id.clone())
             .collect::<BTreeSet<_>>();
+        let current_exposure = exposure_snapshot(records.iter().map(|record| &record.observation));
         let complete_coverage = records
             .iter()
             .all(|record| !record.observation.observation_type.ends_with(".error"));
         let previous_assets = previous_memory_assets(&state, &task);
+        let previous_exposure = previous_memory_exposure(&state, &task);
         finish_memory_task(&mut state, task_id, TaskState::Completed, timestamp)?;
         for record in records {
             state.assets.insert(record.asset.id.clone(), record.asset);
@@ -470,6 +489,15 @@ impl Repository for MemoryRepository {
                 complete_coverage,
             ));
         }
+        if let Some(previous_exposure) = previous_exposure {
+            state.exposure_changes.extend(exposure_changes(
+                &task,
+                &previous_exposure,
+                &current_exposure,
+                timestamp,
+                complete_coverage,
+            ));
+        }
         Ok(())
     }
 
@@ -490,6 +518,7 @@ impl Repository for MemoryRepository {
             assets: state.assets.values().cloned().collect(),
             schedules: state.schedules.values().cloned().collect(),
             asset_changes: state.asset_changes.clone(),
+            exposure_changes: state.exposure_changes.clone(),
             services: state.services.values().cloned().collect(),
             certificates: state.certificates.values().cloned().collect(),
             websites: state.websites.values().cloned().collect(),
@@ -498,6 +527,7 @@ impl Repository for MemoryRepository {
             asset_count: state.assets.len() as i64,
             schedule_count: state.schedules.len() as i64,
             asset_change_count: state.asset_changes.len() as i64,
+            exposure_change_count: state.exposure_changes.len() as i64,
             service_count: state.services.len() as i64,
             certificate_count: state.certificates.len() as i64,
             website_count: state.websites.len() as i64,
@@ -579,6 +609,37 @@ fn previous_memory_assets(state: &State, task: &Task) -> Option<BTreeSet<String>
             .map(|observation| observation.asset_id.clone())
             .collect(),
     )
+}
+
+fn previous_memory_exposure(
+    state: &State,
+    task: &Task,
+) -> Option<std::collections::BTreeMap<String, super::ExposureState>> {
+    if task.schedule_id.is_empty() {
+        return None;
+    }
+    let previous_id = state
+        .tasks
+        .values()
+        .filter(|candidate| {
+            candidate.id != task.id
+                && candidate.schedule_id == task.schedule_id
+                && candidate.state == i32::from(TaskState::Completed)
+        })
+        .max_by_key(|candidate| {
+            candidate
+                .updated_at
+                .map(|value| (value.seconds, value.nanos))
+                .unwrap_or_default()
+        })?
+        .id
+        .as_str();
+    Some(exposure_snapshot(
+        state
+            .observations
+            .values()
+            .filter(|observation| observation.task_id == previous_id),
+    ))
 }
 
 fn asset_changes(

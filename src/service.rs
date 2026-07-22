@@ -20,10 +20,10 @@ use crate::proto::{
     InvocationContext, Schedule, Scope, ScopeTarget, SearchAssetChangesRequest,
     SearchAssetChangesResponse, SearchAssetsRequest, SearchAssetsResponse, SearchAuditRequest,
     SearchAuditResponse, SearchCertificatesRequest, SearchCertificatesResponse,
-    SearchObservationsRequest, SearchObservationsResponse, SearchSchedulesRequest,
-    SearchSchedulesResponse, SearchServicesRequest, SearchServicesResponse, SearchWebsitesRequest,
-    SearchWebsitesResponse, StartScanRequest, TargetKind, Task, TaskEvent, TaskReport, TaskState,
-    WatchTaskRequest,
+    SearchExposureChangesRequest, SearchExposureChangesResponse, SearchObservationsRequest,
+    SearchObservationsResponse, SearchSchedulesRequest, SearchSchedulesResponse,
+    SearchServicesRequest, SearchServicesResponse, SearchWebsitesRequest, SearchWebsitesResponse,
+    StartScanRequest, TargetKind, Task, TaskEvent, TaskReport, TaskState, WatchTaskRequest,
     cyber_edge_server::{CyberEdge, CyberEdgeServer},
 };
 use crate::{
@@ -243,6 +243,21 @@ impl CyberEdge for CyberEdgeService {
             .await
             .map_err(repository_status)?;
         Ok(Response::new(SearchAssetChangesResponse { changes }))
+    }
+
+    async fn search_exposure_changes(
+        &self,
+        request: Request<SearchExposureChangesRequest>,
+    ) -> Result<Response<SearchExposureChangesResponse>, Status> {
+        let request = request.into_inner();
+        let context = validate_context(request.context.as_ref())?;
+        self.authorize(context, "monitor.read")?;
+        let changes = self
+            .repository
+            .search_exposure_changes(&request.schedule_id)
+            .await
+            .map_err(repository_status)?;
+        Ok(Response::new(SearchExposureChangesResponse { changes }))
     }
 
     async fn watch_task(

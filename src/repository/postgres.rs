@@ -6,11 +6,11 @@ use sqlx::{PgConnection, PgPool, Row, postgres::PgPoolOptions};
 
 use super::{
     ClaimedTask, DiscoveryRecord, Mutation, MutationResult, ReadOverview, Repository,
-    RepositoryError,
+    RepositoryError, exposure_changes, exposure_snapshot,
 };
 use crate::proto::{
-    Asset, AssetChange, AssetChangeKind, AuditEvent, Certificate, Evidence, Observation, Schedule,
-    Scope, ScopeTarget, Service, Task, TaskEvent, TaskState, Website,
+    Asset, AssetChange, AssetChangeKind, AuditEvent, Certificate, Evidence, ExposureChange,
+    Observation, Schedule, Scope, ScopeTarget, Service, Task, TaskEvent, TaskState, Website,
 };
 
 pub struct PostgresRepository {
@@ -263,6 +263,31 @@ impl Repository for PostgresRepository {
         .fetch_all(&self.pool)
         .await?;
         Ok(rows.iter().map(asset_change_from_row).collect())
+    }
+
+    async fn search_exposure_changes(
+        &self,
+        schedule_id: &str,
+    ) -> Result<Vec<ExposureChange>, RepositoryError> {
+        let exists = sqlx::query("SELECT 1 FROM schedules WHERE id = $1")
+            .bind(schedule_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .is_some();
+        if !exists {
+            return Err(RepositoryError::NotFound("schedule"));
+        }
+        let rows = sqlx::query(
+            "SELECT id, schedule_id, task_id, resource_kind, resource_id, kind,
+                    previous_fingerprint, current_fingerprint,
+                    detected_at_seconds, detected_at_nanos
+             FROM exposure_changes WHERE schedule_id = $1
+             ORDER BY detected_at_seconds DESC, detected_at_nanos DESC, id",
+        )
+        .bind(schedule_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.iter().map(exposure_change_from_row).collect())
     }
 
     async fn enqueue_due_schedules(
@@ -626,13 +651,14 @@ impl Repository for PostgresRepository {
             .iter()
             .map(|record| record.asset.id.clone())
             .collect::<BTreeSet<_>>();
+        let current_exposure = exposure_snapshot(records.iter().map(|record| &record.observation));
         let complete_coverage = records
             .iter()
             .all(|record| !record.observation.observation_type.ends_with(".error"));
-        let previous_assets = if task.schedule_id.is_empty() {
+        let previous_task_id = if task.schedule_id.is_empty() {
             None
         } else {
-            let previous_task_id = sqlx::query_scalar::<_, String>(
+            sqlx::query_scalar::<_, String>(
                 "SELECT id FROM tasks
                  WHERE schedule_id = $1 AND id <> $2 AND state = $3
                  ORDER BY updated_at_seconds DESC, updated_at_nanos DESC LIMIT 1",
@@ -641,20 +667,35 @@ impl Repository for PostgresRepository {
             .bind(task_id)
             .bind(i32::from(TaskState::Completed))
             .fetch_optional(&mut *tx)
-            .await?;
-            match previous_task_id {
-                Some(previous_task_id) => Some(
-                    sqlx::query_scalar::<_, String>(
-                        "SELECT DISTINCT asset_id FROM observations WHERE task_id = $1",
-                    )
-                    .bind(previous_task_id)
-                    .fetch_all(&mut *tx)
-                    .await?
-                    .into_iter()
-                    .collect::<BTreeSet<_>>(),
-                ),
-                None => None,
+            .await?
+        };
+        let previous_assets = match &previous_task_id {
+            Some(previous_task_id) => Some(
+                sqlx::query_scalar::<_, String>(
+                    "SELECT DISTINCT asset_id FROM observations WHERE task_id = $1",
+                )
+                .bind(previous_task_id)
+                .fetch_all(&mut *tx)
+                .await?
+                .into_iter()
+                .collect::<BTreeSet<_>>(),
+            ),
+            None => None,
+        };
+        let previous_exposure = match &previous_task_id {
+            Some(previous_task_id) => {
+                let rows = sqlx::query(
+                    "SELECT id, task_id, asset_id, observation_type, value_json::text AS value_json,
+                            evidence_id, observed_at_seconds, observed_at_nanos
+                     FROM observations WHERE task_id = $1",
+                )
+                .bind(previous_task_id)
+                .fetch_all(&mut *tx)
+                .await?;
+                let observations = rows.iter().map(observation_from_row).collect::<Vec<_>>();
+                Some(exposure_snapshot(observations.iter()))
             }
+            None => None,
         };
         for record in records {
             let evidence_at = record
@@ -851,6 +892,46 @@ impl Repository for PostgresRepository {
                 .await?;
             }
         }
+        if let Some(previous_exposure) = previous_exposure {
+            for change in exposure_changes(
+                &task,
+                &previous_exposure,
+                &current_exposure,
+                timestamp,
+                complete_coverage,
+            ) {
+                sqlx::query(
+                    "INSERT INTO exposure_changes
+                     (id, schedule_id, task_id, resource_kind, resource_id, kind,
+                      previous_fingerprint, current_fingerprint,
+                      detected_at_seconds, detected_at_nanos)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+                )
+                .bind(&change.id)
+                .bind(&change.schedule_id)
+                .bind(&change.task_id)
+                .bind(&change.resource_kind)
+                .bind(&change.resource_id)
+                .bind(change.kind)
+                .bind(&change.previous_fingerprint)
+                .bind(&change.current_fingerprint)
+                .bind(timestamp.seconds)
+                .bind(timestamp.nanos)
+                .execute(&mut *tx)
+                .await?;
+                insert_outbox(
+                    &mut tx,
+                    "schedule",
+                    &task.schedule_id,
+                    None,
+                    "monitor.exposure_changed",
+                    json!({"change_id": change.id, "task_id": task.id,
+                        "resource_kind": change.resource_kind, "resource_id": change.resource_id,
+                        "kind": change.kind}),
+                )
+                .await?;
+            }
+        }
         finish_task(&mut tx, task_id, TaskState::Completed, timestamp).await?;
         tx.commit().await?;
         Ok(())
@@ -920,6 +1001,17 @@ impl Repository for PostgresRepository {
         .iter()
         .map(asset_change_from_row)
         .collect();
+        let exposure_changes = sqlx::query(
+            "SELECT id, schedule_id, task_id, resource_kind, resource_id, kind,
+                    previous_fingerprint, current_fingerprint,
+                    detected_at_seconds, detected_at_nanos FROM exposure_changes
+             ORDER BY detected_at_seconds DESC, detected_at_nanos DESC LIMIT 100",
+        )
+        .fetch_all(&self.pool)
+        .await?
+        .iter()
+        .map(exposure_change_from_row)
+        .collect();
         let services = sqlx::query(
             "SELECT id, asset_id, transport, port, service_hint,
                     first_seen_at_seconds, first_seen_at_nanos,
@@ -975,6 +1067,9 @@ impl Repository for PostgresRepository {
         let asset_change_count = sqlx::query_scalar("SELECT COUNT(*) FROM asset_changes")
             .fetch_one(&self.pool)
             .await?;
+        let exposure_change_count = sqlx::query_scalar("SELECT COUNT(*) FROM exposure_changes")
+            .fetch_one(&self.pool)
+            .await?;
         let service_count = sqlx::query_scalar("SELECT COUNT(*) FROM services")
             .fetch_one(&self.pool)
             .await?;
@@ -991,6 +1086,7 @@ impl Repository for PostgresRepository {
             assets,
             schedules,
             asset_changes,
+            exposure_changes,
             services,
             certificates,
             websites,
@@ -999,6 +1095,7 @@ impl Repository for PostgresRepository {
             asset_count,
             schedule_count,
             asset_change_count,
+            exposure_change_count,
             service_count,
             certificate_count,
             website_count,
@@ -1348,6 +1445,23 @@ fn asset_change_from_row(row: &sqlx::postgres::PgRow) -> AssetChange {
         task_id: row.get("task_id"),
         asset_id: row.get("asset_id"),
         kind: row.get("kind"),
+        detected_at: Some(prost_types::Timestamp {
+            seconds: row.get("detected_at_seconds"),
+            nanos: row.get("detected_at_nanos"),
+        }),
+    }
+}
+
+fn exposure_change_from_row(row: &sqlx::postgres::PgRow) -> ExposureChange {
+    ExposureChange {
+        id: row.get("id"),
+        schedule_id: row.get("schedule_id"),
+        task_id: row.get("task_id"),
+        resource_kind: row.get("resource_kind"),
+        resource_id: row.get("resource_id"),
+        kind: row.get("kind"),
+        previous_fingerprint: row.get("previous_fingerprint"),
+        current_fingerprint: row.get("current_fingerprint"),
         detected_at: Some(prost_types::Timestamp {
             seconds: row.get("detected_at_seconds"),
             nanos: row.get("detected_at_nanos"),

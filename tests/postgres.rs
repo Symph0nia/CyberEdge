@@ -11,11 +11,12 @@ use cyberedge::{
     Authorizer, CertificateProbe, CyberEdgeService, DiscoveryWorker, DnsResolver, PortConnector,
     PostgresRepository, Repository, WebSnapshot, WebsiteProbe,
     proto::{
-        AssetChangeKind, CreateScheduleRequest, CreateScopeRequest, GetTaskReportRequest,
-        GetTaskRequest, InvocationContext, ScopeTarget, SearchAssetChangesRequest,
-        SearchAuditRequest, SearchCertificatesRequest, SearchSchedulesRequest,
-        SearchServicesRequest, SearchWebsitesRequest, StartScanRequest, TargetKind,
-        WatchTaskRequest, cyber_edge_server::CyberEdge,
+        AssetChangeKind, CreateScheduleRequest, CreateScopeRequest, ExposureChangeKind,
+        GetTaskReportRequest, GetTaskRequest, InvocationContext, ScopeTarget,
+        SearchAssetChangesRequest, SearchAuditRequest, SearchCertificatesRequest,
+        SearchExposureChangesRequest, SearchSchedulesRequest, SearchServicesRequest,
+        SearchWebsitesRequest, StartScanRequest, TargetKind, WatchTaskRequest,
+        cyber_edge_server::CyberEdge,
     },
 };
 use sqlx::PgPool;
@@ -29,6 +30,7 @@ struct Resolver(AtomicUsize);
 struct OpenConnector;
 struct TestCertificate(Vec<u8>);
 struct TestWebsite;
+struct ChangingWebsite(AtomicUsize);
 
 #[async_trait]
 impl DnsResolver for Resolver {
@@ -72,6 +74,26 @@ impl WebsiteProbe for TestWebsite {
             server: "test".to_owned(),
             content_type: "text/html".to_owned(),
             body: b"<title>Postgres Test</title>".to_vec(),
+        })
+    }
+}
+
+#[async_trait]
+impl WebsiteProbe for ChangingWebsite {
+    async fn fetch(
+        &self,
+        _address: IpAddr,
+        port: u16,
+        server_name: &str,
+    ) -> Result<WebSnapshot, String> {
+        let version = self.0.fetch_add(1, Ordering::SeqCst) + 1;
+        Ok(WebSnapshot {
+            url: format!("http://{server_name}:{port}/"),
+            status_code: 200,
+            title: format!("Version {version}"),
+            server: "test".to_owned(),
+            content_type: "text/html".to_owned(),
+            body: format!("version {version}").into_bytes(),
         })
     }
 }
@@ -305,6 +327,61 @@ async fn persists_scope_task_events_audit_and_outbox() {
         .into_inner()
         .schedules;
     assert_eq!(schedules[0].last_task_id, latest_scheduled_tasks[0].id);
+
+    let monitor_scope = restarted
+        .create_scope(Request::new(CreateScopeRequest {
+            context: Some(context("exposure-scope")),
+            name: "Exposure monitor".to_owned(),
+            authorization_ref: "authorization:postgres-test".to_owned(),
+            targets: vec![ScopeTarget {
+                kind: TargetKind::Ip.into(),
+                value: "127.0.0.1".to_owned(),
+            }],
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let monitor_schedule = restarted
+        .create_schedule(Request::new(CreateScheduleRequest {
+            context: Some(context("exposure-schedule")),
+            scope_id: monitor_scope.id,
+            policy_id: "policy_service_baseline".to_owned(),
+            interval_seconds: 60,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let monitor_worker =
+        DiscoveryWorker::new(repository.clone(), Arc::new(Resolver(AtomicUsize::new(0))))
+            .with_port_connector(Arc::new(OpenConnector), vec![443])
+            .with_website_probe(Arc::new(ChangingWebsite(AtomicUsize::new(0))));
+    repository
+        .enqueue_due_schedules(monitor_schedule.next_run_at.unwrap())
+        .await
+        .unwrap();
+    monitor_worker.run_once().await.unwrap();
+    let next = repository
+        .search_schedules(&monitor_schedule.scope_id)
+        .await
+        .unwrap()[0]
+        .next_run_at
+        .unwrap();
+    repository.enqueue_due_schedules(next).await.unwrap();
+    monitor_worker.run_once().await.unwrap();
+    let exposure_changes = restarted
+        .search_exposure_changes(Request::new(SearchExposureChangesRequest {
+            context: Some(context("exposure-changes")),
+            schedule_id: monitor_schedule.id,
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .changes;
+    assert_eq!(exposure_changes.len(), 1);
+    assert_eq!(
+        exposure_changes[0].kind,
+        i32::from(ExposureChangeKind::Modified)
+    );
 }
 
 fn context(suffix: &str) -> InvocationContext {
@@ -320,7 +397,7 @@ fn context(suffix: &str) -> InvocationContext {
 async fn reset(pool: &PgPool) {
     sqlx::query(
         "TRUNCATE observations, evidence, websites, certificates, services, assets, outbox_events, audit_events,
-         idempotency_keys, asset_changes, task_events, tasks, schedules, scope_targets, scopes
+         idempotency_keys, exposure_changes, asset_changes, task_events, tasks, schedules, scope_targets, scopes
          RESTART IDENTITY CASCADE",
     )
     .execute(pool)

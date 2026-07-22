@@ -12,12 +12,12 @@ use cyberedge::{
     DnsResolver, MemoryRepository, PortConnector, Repository, SystemCertificateProbe,
     SystemPortConnector, SystemWebsiteProbe, WebSnapshot, WebsiteProbe,
     proto::{
-        AssetChangeKind, CreateScheduleRequest, CreateScopeRequest, GetEvidenceRequest,
-        GetTaskReportRequest, InvocationContext, ScopeTarget, SearchAssetChangesRequest,
-        SearchAssetsRequest, SearchAuditRequest, SearchCertificatesRequest,
-        SearchObservationsRequest, SearchSchedulesRequest, SearchServicesRequest,
-        SearchWebsitesRequest, StartScanRequest, TargetKind, TaskState,
-        cyber_edge_server::CyberEdge,
+        AssetChangeKind, CreateScheduleRequest, CreateScopeRequest, ExposureChangeKind,
+        GetEvidenceRequest, GetTaskReportRequest, InvocationContext, ScopeTarget,
+        SearchAssetChangesRequest, SearchAssetsRequest, SearchAuditRequest,
+        SearchCertificatesRequest, SearchExposureChangesRequest, SearchObservationsRequest,
+        SearchSchedulesRequest, SearchServicesRequest, SearchWebsitesRequest, StartScanRequest,
+        TargetKind, TaskState, cyber_edge_server::CyberEdge,
     },
 };
 use sha2::{Digest, Sha256};
@@ -95,6 +95,8 @@ impl PortConnector for OpenPort {
 
 struct TestCertificate(Vec<u8>);
 struct TestWebsite;
+struct ChangingWebsite(AtomicUsize);
+struct FailingWebsite(AtomicUsize);
 
 #[async_trait]
 impl CertificateProbe for TestCertificate {
@@ -124,6 +126,48 @@ impl WebsiteProbe for TestWebsite {
             server: "test-server".to_owned(),
             content_type: "text/html".to_owned(),
             body: b"<title>CyberEdge Test</title>".to_vec(),
+        })
+    }
+}
+
+#[async_trait]
+impl WebsiteProbe for ChangingWebsite {
+    async fn fetch(
+        &self,
+        _address: IpAddr,
+        port: u16,
+        server_name: &str,
+    ) -> Result<WebSnapshot, String> {
+        let version = self.0.fetch_add(1, Ordering::SeqCst) + 1;
+        Ok(WebSnapshot {
+            url: format!("http://{server_name}:{port}/"),
+            status_code: 200,
+            title: format!("Version {version}"),
+            server: "test".to_owned(),
+            content_type: "text/html".to_owned(),
+            body: format!("<title>Version {version}</title>").into_bytes(),
+        })
+    }
+}
+
+#[async_trait]
+impl WebsiteProbe for FailingWebsite {
+    async fn fetch(
+        &self,
+        _address: IpAddr,
+        port: u16,
+        server_name: &str,
+    ) -> Result<WebSnapshot, String> {
+        if self.0.fetch_add(1, Ordering::SeqCst) > 0 {
+            return Err("HTTP timeout".to_owned());
+        }
+        Ok(WebSnapshot {
+            url: format!("http://{server_name}:{port}/"),
+            status_code: 200,
+            title: "Available".to_owned(),
+            server: String::new(),
+            content_type: "text/html".to_owned(),
+            body: b"available".to_vec(),
         })
     }
 }
@@ -475,6 +519,131 @@ async fn monitoring_does_not_report_disappearance_when_coverage_fails() {
             .search_asset_changes(&schedule.id)
             .await
             .unwrap()
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn monitoring_records_modified_website_without_reopening_service() {
+    let repository: Arc<dyn Repository> = Arc::new(MemoryRepository::default());
+    let service = CyberEdgeService::new(repository.clone(), Arc::new(Allow));
+    let scope = service
+        .create_scope(Request::new(CreateScopeRequest {
+            context: Some(context("website-monitor-scope")),
+            name: "Website monitor".to_owned(),
+            authorization_ref: "authorization:local-test".to_owned(),
+            targets: vec![ScopeTarget {
+                kind: TargetKind::Ip.into(),
+                value: "127.0.0.1".to_owned(),
+            }],
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let schedule = service
+        .create_schedule(Request::new(CreateScheduleRequest {
+            context: Some(context("website-monitor-schedule")),
+            scope_id: scope.id,
+            policy_id: "policy_service_baseline".to_owned(),
+            interval_seconds: 60,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let worker = DiscoveryWorker::new(repository.clone(), Arc::new(Resolver))
+        .with_port_connector(Arc::new(OpenPort), vec![80])
+        .with_website_probe(Arc::new(ChangingWebsite(AtomicUsize::new(0))));
+    repository
+        .enqueue_due_schedules(schedule.next_run_at.unwrap())
+        .await
+        .unwrap();
+    worker.run_once().await.unwrap();
+    assert!(
+        repository
+            .search_exposure_changes(&schedule.id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let next = repository
+        .search_schedules(&schedule.scope_id)
+        .await
+        .unwrap()[0]
+        .next_run_at
+        .unwrap();
+    repository.enqueue_due_schedules(next).await.unwrap();
+    worker.run_once().await.unwrap();
+
+    let changes = service
+        .search_exposure_changes(Request::new(SearchExposureChangesRequest {
+            context: Some(context("website-monitor-changes")),
+            schedule_id: schedule.id,
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .changes;
+    assert_eq!(changes.len(), 1);
+    assert_eq!(changes[0].resource_kind, "website");
+    assert_eq!(changes[0].kind, i32::from(ExposureChangeKind::Modified));
+    assert!(!changes[0].previous_fingerprint.is_empty());
+    assert!(!changes[0].current_fingerprint.is_empty());
+}
+
+#[tokio::test]
+async fn monitoring_does_not_report_website_disappeared_after_http_error() {
+    let repository: Arc<dyn Repository> = Arc::new(MemoryRepository::default());
+    let service = CyberEdgeService::new(repository.clone(), Arc::new(Allow));
+    let scope = service
+        .create_scope(Request::new(CreateScopeRequest {
+            context: Some(context("website-error-scope")),
+            name: "Website error coverage".to_owned(),
+            authorization_ref: "authorization:local-test".to_owned(),
+            targets: vec![ScopeTarget {
+                kind: TargetKind::Ip.into(),
+                value: "127.0.0.1".to_owned(),
+            }],
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let schedule = service
+        .create_schedule(Request::new(CreateScheduleRequest {
+            context: Some(context("website-error-schedule")),
+            scope_id: scope.id,
+            policy_id: "policy_service_baseline".to_owned(),
+            interval_seconds: 60,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let worker = DiscoveryWorker::new(repository.clone(), Arc::new(Resolver))
+        .with_port_connector(Arc::new(OpenPort), vec![80])
+        .with_website_probe(Arc::new(FailingWebsite(AtomicUsize::new(0))));
+    repository
+        .enqueue_due_schedules(schedule.next_run_at.unwrap())
+        .await
+        .unwrap();
+    worker.run_once().await.unwrap();
+    let next = repository
+        .search_schedules(&schedule.scope_id)
+        .await
+        .unwrap()[0]
+        .next_run_at
+        .unwrap();
+    repository.enqueue_due_schedules(next).await.unwrap();
+    worker.run_once().await.unwrap();
+
+    assert!(
+        service
+            .search_exposure_changes(Request::new(SearchExposureChangesRequest {
+                context: Some(context("website-error-changes")),
+                schedule_id: schedule.id,
+            }))
+            .await
+            .unwrap()
+            .into_inner()
+            .changes
             .is_empty()
     );
 }

@@ -16,6 +16,7 @@ service CyberEdge {
   rpc CreateSchedule(CreateScheduleRequest) returns (Schedule);
   rpc SearchSchedules(SearchSchedulesRequest) returns (SearchSchedulesResponse);
   rpc SearchAssetChanges(SearchAssetChangesRequest) returns (SearchAssetChangesResponse);
+  rpc SearchExposureChanges(SearchExposureChangesRequest) returns (SearchExposureChangesResponse);
   rpc SearchAssets(SearchAssetsRequest) returns (SearchAssetsResponse);
   rpc SearchServices(SearchServicesRequest) returns (SearchServicesResponse);
   rpc SearchCertificates(SearchCertificatesRequest) returns (SearchCertificatesResponse);
@@ -164,6 +165,32 @@ message SearchAssetChangesRequest {
 }
 
 message SearchAssetChangesResponse { repeated AssetChange changes = 1; }
+
+enum ExposureChangeKind {
+  EXPOSURE_CHANGE_KIND_UNSPECIFIED = 0;
+  EXPOSURE_CHANGE_KIND_APPEARED = 1;
+  EXPOSURE_CHANGE_KIND_DISAPPEARED = 2;
+  EXPOSURE_CHANGE_KIND_MODIFIED = 3;
+}
+
+message ExposureChange {
+  string id = 1;
+  string schedule_id = 2;
+  string task_id = 3;
+  string resource_kind = 4;
+  string resource_id = 5;
+  ExposureChangeKind kind = 6;
+  string previous_fingerprint = 7;
+  string current_fingerprint = 8;
+  google.protobuf.Timestamp detected_at = 9;
+}
+
+message SearchExposureChangesRequest {
+  InvocationContext context = 1;
+  string schedule_id = 2;
+}
+
+message SearchExposureChangesResponse { repeated ExposureChange changes = 1; }
 
 message TaskEvent {
   string task_id = 1;
