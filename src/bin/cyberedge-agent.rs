@@ -573,6 +573,7 @@ fn website_json(value: cyberedge::proto::Website) -> Value {
             "detector": fingerprint.detector, "rule_id": fingerprint.rule_id,
             "evidence_id": fingerprint.evidence_id})).collect::<Vec<_>>(),
         "discovered_paths": value.discovered_paths,
+        "screenshot_evidence_id": value.screenshot_evidence_id,
         "first_seen_at": timestamp_json(value.first_seen_at),
         "last_seen_at": timestamp_json(value.last_seen_at)})
 }

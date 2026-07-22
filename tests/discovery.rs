@@ -9,8 +9,8 @@ use std::{
 use async_trait::async_trait;
 use cyberedge::{
     Authorizer, CertificateProbe, CertificateSource, CyberEdgeService, DiscoveryWorker,
-    DnsResolver, MemoryRepository, PortConnector, Repository, SystemCertificateProbe,
-    SystemPortConnector, SystemWebsiteProbe, WebSnapshot, WebsiteProbe,
+    DnsResolver, MemoryRepository, PortConnector, Repository, ScreenshotProbe,
+    SystemCertificateProbe, SystemPortConnector, SystemWebsiteProbe, WebSnapshot, WebsiteProbe,
     proto::{
         AssetChangeKind, CreateScheduleRequest, CreateScopeRequest, ExposureChangeKind,
         FindingSeverity, FindingState, GetEvidenceRequest, GetTaskReportRequest, InvocationContext,
@@ -101,6 +101,7 @@ struct CyclingCertificate {
     calls: AtomicUsize,
 }
 struct TestWebsite;
+struct TestScreenshot;
 struct DirectoryWebsite;
 struct CyclingDirectoryWebsite(AtomicUsize);
 struct CyclingExposureWebsite(AtomicUsize);
@@ -156,6 +157,14 @@ impl WebsiteProbe for TestWebsite {
                 b"<title>CyberEdge Test</title><meta name=\"generator\" content=\"WordPress 6.8\">"
                     .to_vec(),
         })
+    }
+}
+
+#[async_trait]
+impl ScreenshotProbe for TestScreenshot {
+    async fn capture(&self, html: &[u8]) -> Result<Vec<u8>, String> {
+        assert!(String::from_utf8_lossy(html).contains("CyberEdge Test"));
+        Ok(b"\x89PNG\r\n\x1a\ncyberedge-test".to_vec())
     }
 }
 
@@ -1252,7 +1261,8 @@ async fn retains_tls_certificate_as_inventory_and_der_evidence() {
     let worker = DiscoveryWorker::new(repository, Arc::new(Resolver))
         .with_port_connector(Arc::new(OpenPort), vec![443])
         .with_certificate_probe(Arc::new(TestCertificate(der.clone())))
-        .with_website_probe(Arc::new(TestWebsite));
+        .with_website_probe(Arc::new(TestWebsite))
+        .with_screenshot_probe(Arc::new(TestScreenshot));
     assert!(worker.run_once().await.unwrap());
 
     let certificates = service
@@ -1284,6 +1294,7 @@ async fn retains_tls_certificate_as_inventory_and_der_evidence() {
     assert_eq!(websites[0].fingerprints.len(), 1);
     assert_eq!(websites[0].fingerprints[0].name, "WordPress");
     assert_eq!(websites[0].fingerprints[0].version, "6.8");
+    assert!(!websites[0].screenshot_evidence_id.is_empty());
     let report = service
         .get_task_report(Request::new(GetTaskReportRequest {
             context: Some(context("tls-report")),
@@ -1299,6 +1310,13 @@ async fn retains_tls_certificate_as_inventory_and_der_evidence() {
         report.websites[0].fingerprints[0].evidence_id,
         format!("evidence_{}", report.websites[0].content_sha256)
     );
+    let screenshot = report
+        .evidence
+        .iter()
+        .find(|evidence| evidence.id == report.websites[0].screenshot_evidence_id)
+        .unwrap();
+    assert_eq!(screenshot.media_type, "image/png");
+    assert!(screenshot.content.starts_with(b"\x89PNG\r\n\x1a\n"));
     let evidence = report
         .evidence
         .iter()

@@ -9,7 +9,7 @@ use std::{
 use async_trait::async_trait;
 use cyberedge::{
     Authorizer, CertificateProbe, CyberEdgeService, DiscoveryWorker, DnsResolver, PortConnector,
-    PostgresRepository, Repository, WebSnapshot, WebsiteProbe,
+    PostgresRepository, Repository, ScreenshotProbe, WebSnapshot, WebsiteProbe,
     proto::{
         AssetChangeKind, CreateScheduleRequest, CreateScopeRequest, ExposureChangeKind,
         FindingSeverity, FindingState, GetTaskReportRequest, GetTaskRequest, InvocationContext,
@@ -30,6 +30,7 @@ struct Resolver(AtomicUsize);
 struct OpenConnector;
 struct TestCertificate(Vec<u8>);
 struct TestWebsite;
+struct TestScreenshot;
 struct ChangingWebsite(AtomicUsize);
 struct CyclingDirectoryWebsite(AtomicUsize);
 
@@ -100,6 +101,14 @@ impl WebsiteProbe for TestWebsite {
             content_type: content_type.to_owned(),
             body,
         })
+    }
+}
+
+#[async_trait]
+impl ScreenshotProbe for TestScreenshot {
+    async fn capture(&self, html: &[u8]) -> Result<Vec<u8>, String> {
+        assert!(String::from_utf8_lossy(html).contains("Index of /"));
+        Ok(b"\x89PNG\r\n\x1a\npostgres-test".to_vec())
     }
 }
 
@@ -220,7 +229,8 @@ async fn persists_scope_task_events_audit_and_outbox() {
     let worker = DiscoveryWorker::new(repository.clone(), Arc::new(Resolver(AtomicUsize::new(0))))
         .with_port_connector(Arc::new(OpenConnector), vec![443])
         .with_certificate_probe(Arc::new(TestCertificate(certificate.der().to_vec())))
-        .with_website_probe(Arc::new(TestWebsite));
+        .with_website_probe(Arc::new(TestWebsite))
+        .with_screenshot_probe(Arc::new(TestScreenshot));
     assert!(worker.run_once().await.unwrap());
     assert!(worker.run_once().await.unwrap());
     let next = repository.search_schedules(&scope.id).await.unwrap()[0]
@@ -294,6 +304,7 @@ async fn persists_scope_task_events_audit_and_outbox() {
     assert_eq!(websites[0].fingerprints[0].name, "WordPress");
     assert_eq!(websites[0].fingerprints[0].version, "6.8");
     assert_eq!(websites[0].discovered_paths, ["/about"]);
+    assert!(!websites[0].screenshot_evidence_id.is_empty());
     let service_report = service
         .get_task_report(Request::new(GetTaskReportRequest {
             context: Some(context("service-report")),
@@ -375,7 +386,7 @@ async fn persists_scope_task_events_audit_and_outbox() {
         .unwrap();
     assert_eq!(outbox_count, 20);
     assert_eq!(asset_count, 5);
-    assert_eq!(observation_count, 13);
+    assert_eq!(observation_count, 14);
     let report = restarted
         .get_task_report(Request::new(GetTaskReportRequest {
             context: Some(context("report")),

@@ -260,6 +260,7 @@ message Website {
   google.protobuf.Timestamp last_seen_at = 10;
   repeated TechnologyFingerprint fingerprints = 11;
   repeated string discovered_paths = 12;
+  string screenshot_evidence_id = 13;
 }
 
 message TechnologyFingerprint {

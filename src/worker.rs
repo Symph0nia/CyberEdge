@@ -1,6 +1,8 @@
 use std::{
     collections::BTreeSet,
     net::{IpAddr, SocketAddr},
+    path::PathBuf,
+    process::Stdio,
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -197,6 +199,87 @@ impl WebsiteProbe for SystemWebsiteProbe {
 }
 
 #[async_trait]
+pub trait ScreenshotProbe: Send + Sync {
+    async fn capture(&self, html: &[u8]) -> Result<Vec<u8>, String>;
+}
+
+pub struct SystemScreenshotProbe {
+    binary: PathBuf,
+}
+
+impl SystemScreenshotProbe {
+    pub fn new(binary: impl Into<PathBuf>) -> Self {
+        Self {
+            binary: binary.into(),
+        }
+    }
+}
+
+#[async_trait]
+impl ScreenshotProbe for SystemScreenshotProbe {
+    async fn capture(&self, html: &[u8]) -> Result<Vec<u8>, String> {
+        if html.len() > MAX_WEB_BODY_BYTES {
+            return Err("HTML evidence exceeds screenshot input limit".to_owned());
+        }
+        let token = Uuid::now_v7();
+        let html_path = std::env::temp_dir().join(format!("cyberedge-{token}.html"));
+        let png_path = std::env::temp_dir().join(format!("cyberedge-{token}.png"));
+        let profile_path = std::env::temp_dir().join(format!("cyberedge-chromium-{token}"));
+        let mut offline_html = br#"<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'">"#.to_vec();
+        offline_html.extend_from_slice(html);
+        tokio::fs::write(&html_path, offline_html)
+            .await
+            .map_err(|error| error.to_string())?;
+        let file_url = format!("file://{}", html_path.display());
+        let mut command = tokio::process::Command::new(&self.binary);
+        command
+            .kill_on_drop(true)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .env("HOME", std::env::temp_dir())
+            .args([
+                "--headless=new",
+                "--disable-gpu",
+                "--disable-javascript",
+                "--disable-extensions",
+                "--disable-crash-reporter",
+                "--disable-crashpad",
+                "--disable-breakpad",
+                "--no-first-run",
+                "--no-default-browser-check",
+                "--host-resolver-rules=MAP * ~NOTFOUND",
+                "--window-size=1440,900",
+            ])
+            .arg(format!("--user-data-dir={}", profile_path.display()))
+            .arg(format!("--screenshot={}", png_path.display()))
+            .arg(file_url);
+        let result = tokio::time::timeout(std::time::Duration::from_secs(15), command.status())
+            .await
+            .map_err(|_| "screenshot renderer timed out".to_owned())
+            .and_then(|result| result.map_err(|error| error.to_string()));
+        let screenshot = match result {
+            Ok(status) if status.success() => tokio::fs::read(&png_path)
+                .await
+                .map_err(|error| error.to_string()),
+            Ok(status) => Err(format!("screenshot renderer exited with {status}")),
+            Err(error) => Err(error),
+        };
+        let _ = tokio::fs::remove_file(&html_path).await;
+        let _ = tokio::fs::remove_file(&png_path).await;
+        let _ = tokio::fs::remove_dir_all(&profile_path).await;
+        let screenshot = screenshot?;
+        if !screenshot.starts_with(b"\x89PNG\r\n\x1a\n") {
+            return Err("screenshot renderer did not produce PNG".to_owned());
+        }
+        if screenshot.len() > MAX_SCREENSHOT_BYTES {
+            return Err("screenshot exceeds evidence limit".to_owned());
+        }
+        Ok(screenshot)
+    }
+}
+
+#[async_trait]
 pub trait CertificateProbe: Send + Sync {
     async fn leaf_certificate(
         &self,
@@ -386,6 +469,7 @@ pub struct DiscoveryWorker {
     port_connector: Option<Arc<dyn PortConnector>>,
     certificate_probe: Option<Arc<dyn CertificateProbe>>,
     website_probe: Option<Arc<dyn WebsiteProbe>>,
+    screenshot_probe: Option<Arc<dyn ScreenshotProbe>>,
     service_ports: Vec<u16>,
 }
 
@@ -398,6 +482,7 @@ impl DiscoveryWorker {
             port_connector: None,
             certificate_probe: None,
             website_probe: None,
+            screenshot_probe: None,
             service_ports: Vec::new(),
         }
     }
@@ -409,6 +494,11 @@ impl DiscoveryWorker {
 
     pub fn with_website_probe(mut self, probe: Arc<dyn WebsiteProbe>) -> Self {
         self.website_probe = Some(probe);
+        self
+    }
+
+    pub fn with_screenshot_probe(mut self, probe: Arc<dyn ScreenshotProbe>) -> Self {
+        self.screenshot_probe = Some(probe);
         self
     }
 
@@ -652,7 +742,30 @@ impl DiscoveryWorker {
             .as_ref()
             .map(|website| website.discovered_paths.clone())
             .unwrap_or_default();
+        let screenshot_input = root.website.as_ref().and_then(|website| {
+            (website.status_code < 300 && website.content_type.contains("html"))
+                .then(|| root.evidence.content.clone())
+        });
         let mut records = vec![root];
+        if let (Some(renderer), Some(html)) = (&self.screenshot_probe, screenshot_input) {
+            match renderer.capture(&html).await {
+                Ok(png) => {
+                    let screenshot = screenshot_record(task_id, scope_id, address, port, png);
+                    if let Some(website) = records[0].website.as_mut() {
+                        website.screenshot_evidence_id = screenshot.evidence.id.clone();
+                    }
+                    records.push(screenshot);
+                }
+                Err(error) => records.push(record(
+                    task_id,
+                    scope_id,
+                    TargetKind::Ip,
+                    &address.to_string(),
+                    "http.screenshot_error",
+                    json!({"address": address, "port": port, "error": error}),
+                )),
+            }
+        }
         if probe.supports_path_probes() {
             for path in &HTTP_PROBE_PATHS[1..] {
                 let record = match probe.fetch(address, port, server_name, path).await {
@@ -1181,6 +1294,7 @@ fn website_record(
         last_seen_at: Some(timestamp),
         fingerprints: technology_fingerprints(&snapshot.body, &evidence_id, &content_sha256),
         discovered_paths: discovered_paths(&snapshot.body),
+        screenshot_evidence_id: String::new(),
     };
     let evidence_media_type = website.content_type.clone();
     let (finding_evaluation, finding) = directory_listing_detection(
@@ -1414,6 +1528,67 @@ fn http_crawl_record(
     }
 }
 
+fn screenshot_record(
+    task_id: &str,
+    scope_id: &str,
+    address: IpAddr,
+    port: u16,
+    png: Vec<u8>,
+) -> DiscoveryRecord {
+    let timestamp = now();
+    let value = address.to_string();
+    let asset_id = stable_id(
+        "asset",
+        format!("{scope_id}:{}:{value}", i32::from(TargetKind::Ip)).as_bytes(),
+    );
+    let service_id = stable_id("service", format!("{asset_id}:tcp:{port}").as_bytes());
+    let sha256 = hex_hash(&png);
+    let evidence_id = format!("evidence_{sha256}");
+    let payload = json!({
+        "address": address, "port": port, "media_type": "image/png",
+        "content_sha256": sha256, "rendering": "offline-html-evidence",
+    });
+    DiscoveryRecord {
+        asset: Asset {
+            id: asset_id.clone(),
+            scope_id: scope_id.to_owned(),
+            kind: TargetKind::Ip.into(),
+            value,
+            first_seen_at: Some(timestamp),
+            last_seen_at: Some(timestamp),
+        },
+        service: Some(Service {
+            id: service_id,
+            asset_id: asset_id.clone(),
+            transport: "tcp".to_owned(),
+            port: u32::from(port),
+            service_hint: service_hint(port).to_owned(),
+            first_seen_at: Some(timestamp),
+            last_seen_at: Some(timestamp),
+        }),
+        certificate: None,
+        website: None,
+        observation: Observation {
+            id: format!("observation_{}", Uuid::now_v7()),
+            task_id: task_id.to_owned(),
+            asset_id,
+            observation_type: "http.screenshot".to_owned(),
+            value_json: payload.to_string(),
+            evidence_id: evidence_id.clone(),
+            observed_at: Some(timestamp),
+        },
+        evidence: Evidence {
+            id: evidence_id,
+            media_type: "image/png".to_owned(),
+            sha256,
+            content: png,
+            created_at: Some(timestamp),
+        },
+        finding_evaluations: Vec::new(),
+        findings: Vec::new(),
+    }
+}
+
 fn http_exposure_record(
     task_id: &str,
     scope_id: &str,
@@ -1614,6 +1789,7 @@ fn directory_listing_detection(
 }
 
 const MAX_WEB_BODY_BYTES: usize = 1_048_576;
+const MAX_SCREENSHOT_BYTES: usize = 10 * 1_048_576;
 const HTTP_PROBE_PATHS: &[&str] = &["/", "/.git/HEAD", "/.DS_Store"];
 
 fn html_title(body: &[u8]) -> String {

@@ -44,6 +44,10 @@ Website `fingerprints` are structured, versioned detector projections tied to th
 
 The system crawler follows at most 16 root-page links at depth one. Only same-origin absolute paths without queries, traversal segments, encoded traversal, or control characters are accepted. Fixed exposure-probe paths are excluded from crawler input. Each fetched page becomes an `http.crawl` Observation with bounded response Evidence; failed pages become `http.crawl_error` and do not widen Scope.
 
+Set `CYBEREDGE_SCREENSHOTS_ENABLED=true` to explicitly enable the screenshot adapter on a sandbox-capable host and optionally set `CYBEREDGE_CHROMIUM_BIN` (default `/usr/bin/chromium`). It renders only the already-retained root HTML from a temporary local file, with the Chromium sandbox intact, JavaScript disabled, a deny-all network resolver rule, and a deny-all CSP except inline styles/data images. It never navigates Chromium to the target URL. Rendering is limited to 15 seconds and 10 MiB of PNG output; the result becomes `http.screenshot` Evidence and `Website.screenshot_evidence_id`. Temporary HTML, PNG, and browser-profile files are removed after each attempt. Rendering failure records `http.screenshot_error` without failing the website observation.
+
+The core container intentionally contains no Chromium. Docker's default seccomp profile prevents Chromium's namespace sandbox, and CyberEdge will not compensate with `--no-sandbox` or `SYS_ADMIN`. Containerized rendering requires the planned isolated renderer sidecar with no network or database credentials; until then, leave screenshots disabled in the core Compose deployment.
+
 Do not grant `scan.active` to passive discovery Skills. Keep active grants in a separate Skill binding and verify the Scope before invocation.
 
 ## Native runtime

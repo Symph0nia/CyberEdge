@@ -615,7 +615,7 @@ impl Repository for PostgresRepository {
             "SELECT websites.id, websites.service_id, websites.url, websites.status_code,
                     websites.title, websites.server, websites.content_type,
                     websites.content_sha256, websites.fingerprints, websites.discovered_paths,
-                    websites.first_seen_at_seconds,
+                    websites.screenshot_evidence_id, websites.first_seen_at_seconds,
                     websites.first_seen_at_nanos, websites.last_seen_at_seconds,
                     websites.last_seen_at_nanos
              FROM websites
@@ -976,9 +976,9 @@ impl Repository for PostgresRepository {
                     "INSERT INTO websites
                      (id, service_id, url, status_code, title, server, content_type,
                       content_sha256, fingerprints, discovered_paths,
-                      first_seen_at_seconds, first_seen_at_nanos,
+                      screenshot_evidence_id, first_seen_at_seconds, first_seen_at_nanos,
                       last_seen_at_seconds, last_seen_at_nanos)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
                      ON CONFLICT (service_id) DO UPDATE SET
                        url = EXCLUDED.url, status_code = EXCLUDED.status_code,
                        title = EXCLUDED.title, server = EXCLUDED.server,
@@ -986,6 +986,7 @@ impl Repository for PostgresRepository {
                        content_sha256 = EXCLUDED.content_sha256,
                        fingerprints = EXCLUDED.fingerprints,
                        discovered_paths = EXCLUDED.discovered_paths,
+                       screenshot_evidence_id = EXCLUDED.screenshot_evidence_id,
                        last_seen_at_seconds = EXCLUDED.last_seen_at_seconds,
                        last_seen_at_nanos = EXCLUDED.last_seen_at_nanos",
                 )
@@ -999,6 +1000,7 @@ impl Repository for PostgresRepository {
                 .bind(&website.content_sha256)
                 .bind(technology_fingerprints_json(&website.fingerprints))
                 .bind(json!(website.discovered_paths))
+                .bind(&website.screenshot_evidence_id)
                 .bind(first_seen.seconds)
                 .bind(first_seen.nanos)
                 .bind(last_seen.seconds)
@@ -1301,7 +1303,7 @@ impl Repository for PostgresRepository {
         let websites = sqlx::query(
             "SELECT id, service_id, url, status_code, title, server, content_type,
                     content_sha256, fingerprints, discovered_paths,
-                    first_seen_at_seconds, first_seen_at_nanos,
+                    screenshot_evidence_id, first_seen_at_seconds, first_seen_at_nanos,
                     last_seen_at_seconds, last_seen_at_nanos FROM websites
              ORDER BY last_seen_at_seconds DESC, last_seen_at_nanos DESC LIMIT 100",
         )
@@ -1897,6 +1899,7 @@ fn website_from_row(row: &sqlx::postgres::PgRow) -> Website {
             .flatten()
             .filter_map(|value| value.as_str().map(str::to_owned))
             .collect(),
+        screenshot_evidence_id: row.get("screenshot_evidence_id"),
         first_seen_at: Some(prost_types::Timestamp {
             seconds: row.get("first_seen_at_seconds"),
             nanos: row.get("first_seen_at_nanos"),

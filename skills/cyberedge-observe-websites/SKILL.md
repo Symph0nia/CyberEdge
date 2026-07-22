@@ -20,7 +20,8 @@ Use `cyberedge-agent`; this machine bridge is not a human CLI.
 3. Call `search_websites` for the same Scope.
 4. Correlate Website records and every `fingerprints[].evidence_id` with `http.response` Observations and TaskReport Evidence.
 5. Review `discovered_paths` and correlate `http.crawl` Observations with their retained Evidence.
-6. Treat `server` only as a header-derived hint. Treat a structured fingerprint as verified only for its versioned detector rule; do not infer additional products or versions.
+6. If `screenshot_evidence_id` is present, treat it as an offline rendering of retained HTML, not proof of live browser behavior.
+7. Treat `server` only as a header-derived hint. Treat a structured fingerprint as verified only for its versioned detector rule; do not infer additional products or versions.
 
 For recurring monitoring, create a Schedule with the same active policy and call `search_exposure_changes` using its `schedule_id`. Treat `APPEARED`, `DISAPPEARED`, and `MODIFIED` as deterministic diffs between successful Task snapshots. Collection errors suppress disappearance events.
 

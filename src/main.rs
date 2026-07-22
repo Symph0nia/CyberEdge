@@ -9,7 +9,8 @@ use std::{
 use cyberedge::{
     BASELINE_SERVICE_PORTS, CrtShSource, CyberEdgeService, DiscoveryWorker, NotificationDispatcher,
     PostgresRepository, Repository, StaticAuthorizer, SystemCertificateProbe, SystemDnsResolver,
-    SystemPortConnector, SystemWebsiteProbe, WebhookSink, serve_read_only_web,
+    SystemPortConnector, SystemScreenshotProbe, SystemWebsiteProbe, WebhookSink,
+    serve_read_only_web,
 };
 use tokio::{net::UnixListener, signal};
 use tokio_stream::wrappers::UnixListenerStream;
@@ -31,7 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     })?;
     let repository = Arc::new(PostgresRepository::connect(&database_url).await?);
     let authorizer = Arc::new(StaticAuthorizer::load(policy_path)?);
-    let discovery = DiscoveryWorker::new(repository.clone(), Arc::new(SystemDnsResolver))
+    let mut discovery = DiscoveryWorker::new(repository.clone(), Arc::new(SystemDnsResolver))
         .with_certificate_source(Arc::new(CrtShSource::new()?))
         .with_port_connector(
             Arc::new(SystemPortConnector),
@@ -39,6 +40,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .with_certificate_probe(Arc::new(SystemCertificateProbe::new()))
         .with_website_probe(Arc::new(SystemWebsiteProbe));
+    if env::var("CYBEREDGE_SCREENSHOTS_ENABLED").is_ok_and(|value| value == "true" || value == "1")
+    {
+        let binary =
+            env::var("CYBEREDGE_CHROMIUM_BIN").unwrap_or_else(|_| "/usr/bin/chromium".to_owned());
+        discovery = discovery.with_screenshot_probe(Arc::new(SystemScreenshotProbe::new(binary)));
+    }
     let scheduler_repository = repository.clone();
     let scheduler = tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
