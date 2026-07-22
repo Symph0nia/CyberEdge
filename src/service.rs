@@ -10,16 +10,16 @@ use std::{
 use async_stream::try_stream;
 use bytes::Bytes;
 use prost::Message;
-use tokio::sync::{Mutex, broadcast};
 use tokio_stream::Stream;
 use tonic::{Code, Request, Response, Status};
 use uuid::Uuid;
 
 use crate::proto::{
     CancelTaskRequest, CreateScopeRequest, ErrorDetail, GetEvidenceRequest, GetScopeRequest,
-    GetTaskRequest, HealthResponse, InvocationContext, Scope, ScopeTarget, SearchAssetsRequest,
-    SearchAssetsResponse, SearchObservationsRequest, SearchObservationsResponse, StartScanRequest,
-    TargetKind, Task, TaskEvent, TaskState, WatchTaskRequest,
+    GetTaskReportRequest, GetTaskRequest, HealthResponse, InvocationContext, Scope, ScopeTarget,
+    SearchAssetsRequest, SearchAssetsResponse, SearchAuditRequest, SearchAuditResponse,
+    SearchObservationsRequest, SearchObservationsResponse, StartScanRequest, TargetKind, Task,
+    TaskEvent, TaskReport, TaskState, WatchTaskRequest,
     cyber_edge_server::{CyberEdge, CyberEdgeServer},
 };
 use crate::{
@@ -27,35 +27,10 @@ use crate::{
     repository::{Mutation, Repository, RepositoryError},
 };
 
-#[derive(Default)]
-struct EventBus {
-    senders: Mutex<HashMap<String, broadcast::Sender<TaskEvent>>>,
-}
-
-impl EventBus {
-    async fn subscribe(&self, task_id: &str) -> broadcast::Receiver<TaskEvent> {
-        self.sender(task_id).await.subscribe()
-    }
-
-    async fn publish(&self, event: TaskEvent) {
-        let _ = self.sender(&event.task_id).await.send(event);
-    }
-
-    async fn sender(&self, task_id: &str) -> broadcast::Sender<TaskEvent> {
-        self.senders
-            .lock()
-            .await
-            .entry(task_id.to_owned())
-            .or_insert_with(|| broadcast::channel(128).0)
-            .clone()
-    }
-}
-
 #[derive(Clone)]
 pub struct CyberEdgeService {
     repository: Arc<dyn Repository>,
     authorizer: Arc<dyn Authorizer>,
-    event_bus: Arc<EventBus>,
 }
 
 impl CyberEdgeService {
@@ -63,7 +38,6 @@ impl CyberEdgeService {
         Self {
             repository,
             authorizer,
-            event_bus: Arc::new(EventBus::default()),
         }
     }
 
@@ -155,6 +129,12 @@ impl CyberEdge for CyberEdgeService {
             fingerprint: semantic_request.encode_to_vec(),
         };
         required("policy_id", &request.policy_id)?;
+        if request.policy_id != "policy_passive_dns" {
+            return Err(invalid(
+                "POLICY_UNSUPPORTED",
+                "only policy_passive_dns is supported",
+            ));
+        }
 
         let timestamp = now();
         let task = Task {
@@ -176,9 +156,6 @@ impl CyberEdge for CyberEdgeService {
             .create_task(&mutation, task, event)
             .await
             .map_err(repository_status)?;
-        if let Some(event) = result.event {
-            self.event_bus.publish(event).await;
-        }
         Ok(Response::new(result.value))
     }
 
@@ -202,30 +179,32 @@ impl CyberEdge for CyberEdgeService {
         let request = request.into_inner();
         let context = validate_context(request.context.as_ref())?;
         self.authorize(context, "task.read")?;
-        let mut receiver = self.event_bus.subscribe(&request.task_id).await;
-        let backlog = self
-            .repository
-            .task_events(&request.task_id, request.after_sequence)
+        self.repository
+            .get_task(&request.task_id)
             .await
             .map_err(repository_status)?;
+        let repository = self.repository.clone();
+        let task_id = request.task_id;
         let mut last_sequence = request.after_sequence;
 
         let stream = try_stream! {
-            for event in backlog {
-                last_sequence = last_sequence.max(event.sequence);
-                yield event;
-            }
+            let mut interval = tokio::time::interval(std::time::Duration::from_millis(250));
             loop {
-                match receiver.recv().await {
-                    Ok(event) if event.sequence > last_sequence => {
-                        last_sequence = event.sequence;
-                        yield event;
+                interval.tick().await;
+                let events = repository
+                    .task_events(&task_id, last_sequence)
+                    .await
+                    .map_err(repository_status)?;
+                for event in events {
+                    last_sequence = event.sequence;
+                    let terminal = matches!(
+                        event.event_type.as_str(),
+                        "task.completed" | "task.failed" | "task.canceled"
+                    );
+                    yield event;
+                    if terminal {
+                        return;
                     }
-                    Ok(_) => {}
-                    Err(broadcast::error::RecvError::Lagged(_)) => {
-                        Err(internal("TASK_EVENT_LAGGED", "task event consumer lagged"))?;
-                    }
-                    Err(broadcast::error::RecvError::Closed) => break,
                 }
             }
         };
@@ -259,9 +238,6 @@ impl CyberEdge for CyberEdgeService {
             .cancel_task(&mutation, &request.task_id, event)
             .await
             .map_err(repository_status)?;
-        if let Some(event) = result.event {
-            self.event_bus.publish(event).await;
-        }
         Ok(Response::new(result.value))
     }
 
@@ -308,6 +284,83 @@ impl CyberEdge for CyberEdgeService {
             .await
             .map_err(repository_status)?;
         Ok(Response::new(evidence))
+    }
+
+    async fn get_task_report(
+        &self,
+        request: Request<GetTaskReportRequest>,
+    ) -> Result<Response<TaskReport>, Status> {
+        let request = request.into_inner();
+        let context = validate_context(request.context.as_ref())?;
+        self.authorize(context, "report.read")?;
+        let task = self
+            .repository
+            .get_task(&request.task_id)
+            .await
+            .map_err(repository_status)?;
+        if task.state != i32::from(TaskState::Completed) {
+            return Err(failed_precondition(
+                "REPORT_NOT_READY",
+                "task is not completed",
+            ));
+        }
+        let scope = self
+            .repository
+            .get_scope(&task.scope_id)
+            .await
+            .map_err(repository_status)?;
+        let observations = self
+            .repository
+            .search_observations(&task.id)
+            .await
+            .map_err(repository_status)?;
+        let asset_ids = observations
+            .iter()
+            .map(|value| value.asset_id.as_str())
+            .collect::<std::collections::HashSet<_>>();
+        let assets = self
+            .repository
+            .search_assets(&scope.id)
+            .await
+            .map_err(repository_status)?
+            .into_iter()
+            .filter(|asset| asset_ids.contains(asset.id.as_str()))
+            .collect();
+        let mut evidence_ids = std::collections::HashSet::new();
+        let mut evidence = Vec::new();
+        for observation in &observations {
+            if evidence_ids.insert(observation.evidence_id.clone()) {
+                evidence.push(
+                    self.repository
+                        .get_evidence(&observation.evidence_id)
+                        .await
+                        .map_err(repository_status)?,
+                );
+            }
+        }
+        Ok(Response::new(TaskReport {
+            task: Some(task),
+            scope: Some(scope),
+            assets,
+            observations,
+            evidence,
+            generated_at: Some(now()),
+        }))
+    }
+
+    async fn search_audit(
+        &self,
+        request: Request<SearchAuditRequest>,
+    ) -> Result<Response<SearchAuditResponse>, Status> {
+        let request = request.into_inner();
+        let context = validate_context(request.context.as_ref())?;
+        self.authorize(context, "audit.read")?;
+        let events = self
+            .repository
+            .search_audit()
+            .await
+            .map_err(repository_status)?;
+        Ok(Response::new(SearchAuditResponse { events }))
     }
 }
 

@@ -38,7 +38,11 @@ pub struct StaticAuthorizer {
 impl StaticAuthorizer {
     pub fn load(path: impl AsRef<Path>) -> Result<Self, PolicyError> {
         let source = fs::read_to_string(path)?;
-        let policy: PolicyFile = toml::from_str(&source)?;
+        Self::from_toml(&source)
+    }
+
+    pub fn from_toml(source: &str) -> Result<Self, PolicyError> {
+        let policy: PolicyFile = toml::from_str(source)?;
         Ok(Self {
             grants: policy.grants,
         })
@@ -56,5 +60,33 @@ impl Authorizer for StaticAuthorizer {
                     .is_none_or(|version| version == &context.skill_version)
                 && grant.capabilities.contains(capability)
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn binds_capability_to_agent_skill_and_version() {
+        let policy = StaticAuthorizer::from_toml(
+            r#"[[grants]]
+agent_id = "agent-a"
+skill_name = "discovery"
+skill_version = "1.0.0"
+capabilities = ["scan.passive"]"#,
+        )
+        .unwrap();
+        let mut context = InvocationContext {
+            request_id: "req".to_owned(),
+            idempotency_key: "idem".to_owned(),
+            agent_id: "agent-a".to_owned(),
+            skill_name: "discovery".to_owned(),
+            skill_version: "1.0.0".to_owned(),
+        };
+        assert!(policy.authorize(&context, "scan.passive"));
+        context.skill_version = "1.0.1".to_owned();
+        assert!(!policy.authorize(&context, "scan.passive"));
+        assert!(!policy.authorize(&context, "scan.active"));
     }
 }

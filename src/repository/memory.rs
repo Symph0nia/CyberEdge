@@ -1,10 +1,16 @@
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use async_trait::async_trait;
 use tokio::sync::RwLock;
 
-use super::{Mutation, MutationResult, Repository, RepositoryError};
-use crate::proto::{Asset, Evidence, Observation, Scope, Task, TaskEvent, TaskState};
+use super::{
+    ClaimedTask, DiscoveryRecord, Mutation, MutationResult, ReadOverview, Repository,
+    RepositoryError,
+};
+use crate::proto::{Asset, AuditEvent, Evidence, Observation, Scope, Task, TaskEvent, TaskState};
 
 #[derive(Default)]
 struct State {
@@ -15,6 +21,7 @@ struct State {
     assets: HashMap<String, Asset>,
     observations: HashMap<String, Observation>,
     evidence: HashMap<String, Evidence>,
+    audits: Vec<AuditEvent>,
 }
 
 #[derive(Default)]
@@ -43,6 +50,7 @@ impl Repository for MemoryRepository {
             mutation.key(),
             (mutation.fingerprint.clone(), scope.id.clone()),
         );
+        state.audits.push(audit_event(mutation, "scope", &scope.id));
         Ok(MutationResult {
             value: scope,
             event: None,
@@ -83,6 +91,7 @@ impl Repository for MemoryRepository {
             mutation.key(),
             (mutation.fingerprint.clone(), task.id.clone()),
         );
+        state.audits.push(audit_event(mutation, "task", &task.id));
         Ok(MutationResult {
             value: task,
             event: Some(event),
@@ -159,6 +168,7 @@ impl Repository for MemoryRepository {
             mutation.key(),
             (mutation.fingerprint.clone(), task_id.to_owned()),
         );
+        state.audits.push(audit_event(mutation, "task", task_id));
         Ok(MutationResult {
             value: task,
             event: Some(event),
@@ -203,6 +213,144 @@ impl Repository for MemoryRepository {
             .cloned()
             .ok_or(RepositoryError::NotFound("evidence"))
     }
+
+    async fn claim_task(
+        &self,
+        timestamp: prost_types::Timestamp,
+    ) -> Result<Option<ClaimedTask>, RepositoryError> {
+        let mut state = self.state.write().await;
+        let Some(task_id) = state
+            .tasks
+            .values()
+            .filter(|task| task.state == i32::from(TaskState::Queued))
+            .min_by_key(|task| {
+                task.created_at
+                    .map(|value| (value.seconds, value.nanos))
+                    .unwrap_or_default()
+            })
+            .map(|task| task.id.clone())
+        else {
+            return Ok(None);
+        };
+        let task = state.tasks.get_mut(&task_id).expect("selected task exists");
+        task.state = TaskState::Running.into();
+        task.updated_at = Some(timestamp);
+        let task = task.clone();
+        state.events.get_mut(&task_id).unwrap().push(TaskEvent {
+            task_id,
+            sequence: 2,
+            event_type: "task.running".to_owned(),
+            occurred_at: Some(timestamp),
+        });
+        let scope = state.scopes[&task.scope_id].clone();
+        Ok(Some(ClaimedTask { task, scope }))
+    }
+
+    async fn complete_task(
+        &self,
+        task_id: &str,
+        records: Vec<DiscoveryRecord>,
+        timestamp: prost_types::Timestamp,
+    ) -> Result<(), RepositoryError> {
+        let mut state = self.state.write().await;
+        finish_memory_task(&mut state, task_id, TaskState::Completed, timestamp)?;
+        for record in records {
+            state.assets.insert(record.asset.id.clone(), record.asset);
+            state
+                .observations
+                .insert(record.observation.id.clone(), record.observation);
+            state
+                .evidence
+                .insert(record.evidence.id.clone(), record.evidence);
+        }
+        Ok(())
+    }
+
+    async fn fail_task(
+        &self,
+        task_id: &str,
+        timestamp: prost_types::Timestamp,
+    ) -> Result<(), RepositoryError> {
+        let mut state = self.state.write().await;
+        finish_memory_task(&mut state, task_id, TaskState::Failed, timestamp)
+    }
+
+    async fn read_overview(&self) -> Result<ReadOverview, RepositoryError> {
+        let state = self.state.read().await;
+        Ok(ReadOverview {
+            scopes: state.scopes.values().cloned().collect(),
+            tasks: state.tasks.values().cloned().collect(),
+            assets: state.assets.values().cloned().collect(),
+            scope_count: state.scopes.len() as i64,
+            task_count: state.tasks.len() as i64,
+            asset_count: state.assets.len() as i64,
+            observation_count: state.observations.len() as i64,
+            evidence_count: state.evidence.len() as i64,
+            audit_events: state.audits.iter().rev().take(50).cloned().collect(),
+        })
+    }
+
+    async fn search_audit(&self) -> Result<Vec<AuditEvent>, RepositoryError> {
+        Ok(self
+            .state
+            .read()
+            .await
+            .audits
+            .iter()
+            .rev()
+            .take(200)
+            .cloned()
+            .collect())
+    }
+}
+
+fn audit_event(mutation: &Mutation, resource_kind: &str, resource_id: &str) -> AuditEvent {
+    let duration = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+    AuditEvent {
+        id: format!("audit_{}", uuid::Uuid::now_v7()),
+        request_id: mutation.context.request_id.clone(),
+        operation: mutation.operation.to_owned(),
+        agent_id: mutation.context.agent_id.clone(),
+        skill_name: mutation.context.skill_name.clone(),
+        skill_version: mutation.context.skill_version.clone(),
+        resource_kind: resource_kind.to_owned(),
+        resource_id: resource_id.to_owned(),
+        occurred_at: Some(prost_types::Timestamp {
+            seconds: duration.as_secs() as i64,
+            nanos: duration.subsec_nanos() as i32,
+        }),
+    }
+}
+
+fn finish_memory_task(
+    state: &mut State,
+    task_id: &str,
+    target: TaskState,
+    timestamp: prost_types::Timestamp,
+) -> Result<(), RepositoryError> {
+    let task = state
+        .tasks
+        .get_mut(task_id)
+        .ok_or(RepositoryError::NotFound("task"))?;
+    if task.state != i32::from(TaskState::Running) {
+        return Err(RepositoryError::TerminalTask);
+    }
+    task.state = target.into();
+    task.updated_at = Some(timestamp);
+    let events = state.events.get_mut(task_id).unwrap();
+    events.push(TaskEvent {
+        task_id: task_id.to_owned(),
+        sequence: events.len() as u64 + 1,
+        event_type: format!(
+            "task.{}",
+            target
+                .as_str_name()
+                .to_ascii_lowercase()
+                .replace("task_state_", "")
+        ),
+        occurred_at: Some(timestamp),
+    });
+    Ok(())
 }
 
 fn ensure_same(stored: &[u8], current: &[u8]) -> Result<(), RepositoryError> {

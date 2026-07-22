@@ -1,0 +1,35 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: cyberedge
+      POSTGRES_USER: cyberedge
+      POSTGRES_PASSWORD: ${CYBEREDGE_DB_PASSWORD:-cyberedge}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cyberedge -d cyberedge"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  cyberedge:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://cyberedge:${CYBEREDGE_DB_PASSWORD:-cyberedge}@postgres/cyberedge
+      CYBEREDGE_AGENT_POLICY: /etc/cyberedge/agents.toml
+      CYBEREDGE_RPC_SOCKET: /tmp/cyberedge.sock
+      CYBEREDGE_WEB_BIND: 0.0.0.0:8080
+      CYBEREDGE_WEB_DIST: /opt/cyberedge/web
+    volumes:
+      - ./config/agents.example.toml:/etc/cyberedge/agents.toml:ro
+    ports:
+      - 127.0.0.1:8080:8080
+    restart: unless-stopped
+
+volumes:
+  postgres-data:

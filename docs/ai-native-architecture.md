@@ -2,6 +2,8 @@
 
 状态：Accepted baseline
 
+实现状态：第一阶段 vertical slice 已覆盖 Scope、passive DNS Task、Asset/Observation/Evidence、确定性 TaskReport、Agent mutation audit、UDS/mTLS、AI machine bridge 与只读 Web。Finding、Monitor、Schedule、OIDC、只读 RBAC、字段脱敏和独立事件投影属于后续阶段，本文中的完整产品条目不表示已经实现。
+
 ## 1. 产品定义
 
 CyberEdge 是面向 AI Agent 的外部攻击面发现、验证与持续监控引擎。
@@ -149,7 +151,10 @@ service CyberEdge {
   rpc WatchTask(WatchTaskRequest) returns (stream TaskEvent);
   rpc CancelTask(CancelTaskRequest) returns (Task);
   rpc SearchAssets(SearchAssetsRequest) returns (SearchAssetsResponse);
-  rpc SearchFindings(SearchFindingsRequest) returns (SearchFindingsResponse);
+  rpc SearchObservations(SearchObservationsRequest) returns (SearchObservationsResponse);
+  rpc GetEvidence(GetEvidenceRequest) returns (Evidence);
+  rpc GetTaskReport(GetTaskReportRequest) returns (TaskReport);
+  rpc SearchAudit(SearchAuditRequest) returns (SearchAuditResponse);
 }
 ```
 
@@ -216,6 +221,8 @@ AI Agent 不能因为“知道命令”就拥有执行权限。
 - `evidence.read`
 - `monitor.manage`
 - `system.read`
+- `report.read`
+- `audit.read`
 
 每次 `invoke` 必须同时满足：
 
@@ -344,6 +351,6 @@ Agent
 
 - Scope 由 AI 创建，但必须引用人类提供的授权声明。
 - AI 可以在 capability 允许时调用 `task.cancel`。
-- Evidence 首版使用本地 content-addressed storage，后续可替换为 S3-compatible object storage。
+- Evidence 首版使用 PostgreSQL content-addressed storage，后续可替换为 S3-compatible object storage。
 - Skill 使用 `SKILL.md` 描述工作流，并提供宿主无关的 machine-readable manifest。
 - CyberEdge 生成确定性报告数据包，AI 负责自然语言解释与最终报告。

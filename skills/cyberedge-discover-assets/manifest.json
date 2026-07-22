@@ -10,7 +10,9 @@
     "task.read",
     "task.cancel",
     "asset.read",
-    "evidence.read"
+    "evidence.read",
+    "report.read",
+    "audit.read"
   ],
   "rpc_allowlist": [
     "CreateScope",
@@ -21,6 +23,8 @@
     "CancelTask",
     "SearchAssets",
     "SearchObservations",
-    "GetEvidence"
+    "GetEvidence",
+    "GetTaskReport",
+    "SearchAudit"
   ]
 }

@@ -5,7 +5,7 @@ description: Create an authorized CyberEdge scope, run passive asset discovery, 
 
 # Discover CyberEdge Assets
 
-Use only the CyberEdge gRPC contract in `proto/cyberedge/v1/cyberedge.proto`. Do not access the database, invoke scanners, or edit the read-only Web.
+Use `cyberedge-agent` as the machine bridge to the CyberEdge gRPC contract. Send exactly one JSON envelope on stdin and parse JSON Lines from stdout. Do not pass human-oriented flags, access the database, invoke scanners, or edit the read-only Web.
 
 ## Preconditions
 
@@ -20,8 +20,17 @@ Use only the CyberEdge gRPC contract in `proto/cyberedge/v1/cyberedge.proto`. Do
 2. Call `StartScan` with capability `scan.passive` and policy `policy_passive_dns`.
 3. Call `WatchTask` from sequence `0`; on reconnect, continue after the last accepted sequence.
 4. Stop when the task reaches `completed`, `failed`, or `canceled`.
-5. Query assets, observations, and evidence through protocol read methods.
-6. Report only facts linked to evidence. Separate errors and coverage gaps from confirmed absence.
+5. Call `GetTaskReport` after `task.completed` to retrieve the deterministic report bundle.
+6. Use `SearchAudit` when the requester needs invocation provenance.
+7. Report only facts linked to evidence. Separate errors and coverage gaps from confirmed absence.
+
+Use snake-case action names. Every envelope includes `request_id`, `idempotency_key`, `agent_id`, `skill_name`, and `skill_version`. Example:
+
+```json
+{"request_id":"req_...","idempotency_key":"idem_...","agent_id":"agent_...","skill_name":"cyberedge-discover-assets","skill_version":"0.1.0","action":"start_scan","scope_id":"scope_...","policy_id":"policy_passive_dns"}
+```
+
+Set `CYBEREDGE_RPC_SOCKET` only when the service does not use `/tmp/cyberedge.sock`.
 
 ## Failure handling
 

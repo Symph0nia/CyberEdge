@@ -12,12 +12,13 @@ The new product is an external attack surface management platform built around a
 - Optional read-only enterprise Web projection
 - Scanner processes isolated behind typed adapters
 
-See [the architecture baseline](docs/architecture.md) for the design boundaries.
+See [the accepted product architecture](docs/ai-native-architecture.md), [implementation architecture](docs/architecture.md), and [operations guide](docs/operations.md).
 
 ## Development
 
 ```bash
 cargo test
+cd web && npm run build
 DATABASE_URL=postgres://... \
 CYBEREDGE_AGENT_POLICY=config/agents.example.toml \
 cargo run
@@ -25,4 +26,10 @@ cargo run
 
 The local RPC server listens on `unix:///tmp/cyberedge.sock` by default. Set `CYBEREDGE_RPC_SOCKET` to use another socket path.
 
-The current foundation implements PostgreSQL persistence and migrations, capability-gated Scope and Task RPCs, durable events, audit/outbox records, typed errors, idempotent mutations, and a validated discovery Skill. Scanner execution and the Web read model are the next implementation layer.
+The first vertical slice implements PostgreSQL persistence and migrations, capability-gated Scope and Task RPCs, durable Task execution, passive DNS discovery, Asset/Observation/Evidence retention, audit/outbox records, typed errors, idempotent mutations, a JSON machine bridge, local UDS and remote mTLS transports, and an optional strictly read-only Web projection.
+
+For a local self-hosted deployment:
+
+```bash
+docker compose up --build -d
+```

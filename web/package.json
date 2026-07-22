@@ -8,10 +8,13 @@
     "dev": "vite"
   },
   "dependencies": {
+    "@carbon/icons-react": "^11.84.0",
+    "@carbon/react": "^1.112.0",
+    "@carbon/styles": "^1.111.0",
     "@vitejs/plugin-react": "6.0.4",
-    "vite": "8.1.5",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "vite": "8.1.5"
   },
   "devDependencies": {
     "@types/react": "^19.2.0",

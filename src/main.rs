@@ -1,9 +1,17 @@
-use std::{env, io, os::unix::fs::FileTypeExt, path::Path, sync::Arc};
+use std::{
+    env, io,
+    os::unix::fs::FileTypeExt,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
-use cyberedge::{CyberEdgeService, PostgresRepository, StaticAuthorizer};
+use cyberedge::{
+    CyberEdgeService, DiscoveryWorker, PostgresRepository, StaticAuthorizer, SystemDnsResolver,
+    serve_read_only_web,
+};
 use tokio::{net::UnixListener, signal};
 use tokio_stream::wrappers::UnixListenerStream;
-use tonic::transport::Server;
+use tonic::transport::{Certificate, Identity, Server, ServerTlsConfig};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -13,26 +21,85 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "DATABASE_URL is required for persistent runtime",
         )
     })?;
-    let socket_path =
-        env::var("CYBEREDGE_RPC_SOCKET").unwrap_or_else(|_| "/tmp/cyberedge.sock".to_owned());
     let policy_path = env::var("CYBEREDGE_AGENT_POLICY").map_err(|_| {
         io::Error::new(
             io::ErrorKind::InvalidInput,
             "CYBEREDGE_AGENT_POLICY is required",
         )
     })?;
-    prepare_socket(Path::new(&socket_path))?;
-
     let repository = Arc::new(PostgresRepository::connect(&database_url).await?);
     let authorizer = Arc::new(StaticAuthorizer::load(policy_path)?);
-    let listener = UnixListener::bind(&socket_path)?;
-    println!("CyberEdge RPC listening on unix://{socket_path}");
-    Server::builder()
-        .add_service(CyberEdgeService::new(repository, authorizer).server())
-        .serve_with_incoming_shutdown(UnixListenerStream::new(listener), shutdown_signal())
-        .await?;
+    let discovery = DiscoveryWorker::new(repository.clone(), Arc::new(SystemDnsResolver));
+    let worker = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_millis(500));
+        loop {
+            interval.tick().await;
+            if let Err(error) = discovery.run_once().await {
+                eprintln!("discovery worker error: {error}");
+            }
+        }
+    });
+    let web = match env::var("CYBEREDGE_WEB_BIND") {
+        Ok(value) => {
+            let address = value.parse()?;
+            let dist = PathBuf::from(
+                env::var("CYBEREDGE_WEB_DIST").unwrap_or_else(|_| "web/dist".to_owned()),
+            );
+            let repository = repository.clone();
+            Some(tokio::spawn(async move {
+                if let Err(error) = serve_read_only_web(repository, address, dist).await {
+                    eprintln!("read-only web error: {error}");
+                }
+            }))
+        }
+        Err(env::VarError::NotPresent) => None,
+        Err(error) => return Err(error.into()),
+    };
+    let service = CyberEdgeService::new(repository, authorizer).server();
+    if let Ok(value) = env::var("CYBEREDGE_RPC_ADDR") {
+        let address = value.parse()?;
+        let identity = Identity::from_pem(
+            required_file("CYBEREDGE_TLS_CERT")?,
+            required_file("CYBEREDGE_TLS_KEY")?,
+        );
+        let client_ca = Certificate::from_pem(required_file("CYBEREDGE_TLS_CLIENT_CA")?);
+        println!("CyberEdge RPC listening with mTLS on https://{address}");
+        Server::builder()
+            .tls_config(
+                ServerTlsConfig::new()
+                    .identity(identity)
+                    .client_ca_root(client_ca),
+            )?
+            .add_service(service)
+            .serve_with_shutdown(address, shutdown_signal())
+            .await?;
+    } else {
+        let socket_path =
+            env::var("CYBEREDGE_RPC_SOCKET").unwrap_or_else(|_| "/tmp/cyberedge.sock".to_owned());
+        prepare_socket(Path::new(&socket_path))?;
+        let listener = UnixListener::bind(&socket_path)?;
+        println!("CyberEdge RPC listening on unix://{socket_path}");
+        Server::builder()
+            .add_service(service)
+            .serve_with_incoming_shutdown(UnixListenerStream::new(listener), shutdown_signal())
+            .await?;
+    }
+    worker.abort();
+    if let Some(web) = web {
+        web.abort();
+    }
 
     Ok(())
+}
+
+fn required_file(variable: &str) -> io::Result<Vec<u8>> {
+    let path = env::var(variable).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{variable} is required for mTLS"),
+        )
+    })?;
+    std::fs::read(path)
 }
 
 fn prepare_socket(path: &Path) -> io::Result<()> {

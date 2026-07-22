@@ -1,0 +1,7 @@
+.git
+.env
+target
+web/dist
+web/node_modules
+design-system
+coverage

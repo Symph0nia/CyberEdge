@@ -113,7 +113,7 @@ async fn streams_and_cancels_task() {
         .start_scan(Request::new(StartScanRequest {
             context: Some(context()),
             scope_id: scope.id,
-            policy_id: "policy_passive".to_owned(),
+            policy_id: "policy_passive_dns".to_owned(),
         }))
         .await
         .unwrap()

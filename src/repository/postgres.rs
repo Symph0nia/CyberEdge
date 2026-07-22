@@ -2,8 +2,13 @@ use async_trait::async_trait;
 use serde_json::json;
 use sqlx::{PgConnection, PgPool, Row, postgres::PgPoolOptions};
 
-use super::{Mutation, MutationResult, Repository, RepositoryError};
-use crate::proto::{Asset, Evidence, Observation, Scope, ScopeTarget, Task, TaskEvent, TaskState};
+use super::{
+    ClaimedTask, DiscoveryRecord, Mutation, MutationResult, ReadOverview, Repository,
+    RepositoryError,
+};
+use crate::proto::{
+    Asset, AuditEvent, Evidence, Observation, Scope, ScopeTarget, Task, TaskEvent, TaskState,
+};
 
 pub struct PostgresRepository {
     pool: PgPool,
@@ -293,6 +298,283 @@ impl Repository for PostgresRepository {
         .ok_or(RepositoryError::NotFound("evidence"))?;
         Ok(evidence_from_row(&row))
     }
+
+    async fn claim_task(
+        &self,
+        timestamp: prost_types::Timestamp,
+    ) -> Result<Option<ClaimedTask>, RepositoryError> {
+        let mut tx = self.pool.begin().await?;
+        let task_id = sqlx::query_scalar::<_, String>(
+            "SELECT id FROM tasks WHERE state = $1 ORDER BY created_at_seconds, created_at_nanos
+             FOR UPDATE SKIP LOCKED LIMIT 1",
+        )
+        .bind(i32::from(TaskState::Queued))
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some(task_id) = task_id else {
+            tx.commit().await?;
+            return Ok(None);
+        };
+        sqlx::query(
+            "UPDATE tasks SET state = $2, updated_at_seconds = $3, updated_at_nanos = $4
+             WHERE id = $1",
+        )
+        .bind(&task_id)
+        .bind(i32::from(TaskState::Running))
+        .bind(timestamp.seconds)
+        .bind(timestamp.nanos)
+        .execute(&mut *tx)
+        .await?;
+        let event = TaskEvent {
+            task_id: task_id.clone(),
+            sequence: 2,
+            event_type: "task.running".to_owned(),
+            occurred_at: Some(timestamp),
+        };
+        insert_task_event(&mut tx, &event).await?;
+        insert_outbox(
+            &mut tx,
+            "task",
+            &task_id,
+            Some(2),
+            "task.running",
+            json!({"task_id": task_id}),
+        )
+        .await?;
+        let task = fetch_task(&mut tx, &task_id).await?;
+        let scope = fetch_scope(&mut tx, &task.scope_id).await?;
+        tx.commit().await?;
+        Ok(Some(ClaimedTask { task, scope }))
+    }
+
+    async fn complete_task(
+        &self,
+        task_id: &str,
+        records: Vec<DiscoveryRecord>,
+        timestamp: prost_types::Timestamp,
+    ) -> Result<(), RepositoryError> {
+        let mut tx = self.pool.begin().await?;
+        ensure_running(&mut tx, task_id).await?;
+        for record in records {
+            let evidence_at = record
+                .evidence
+                .created_at
+                .expect("evidence timestamp exists");
+            sqlx::query(
+                "INSERT INTO evidence
+                 (id, media_type, sha256, content, created_at_seconds, created_at_nanos)
+                 VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (sha256) DO NOTHING",
+            )
+            .bind(&record.evidence.id)
+            .bind(&record.evidence.media_type)
+            .bind(&record.evidence.sha256)
+            .bind(&record.evidence.content)
+            .bind(evidence_at.seconds)
+            .bind(evidence_at.nanos)
+            .execute(&mut *tx)
+            .await?;
+            let first_seen = record.asset.first_seen_at.expect("asset timestamp exists");
+            let last_seen = record.asset.last_seen_at.expect("asset timestamp exists");
+            sqlx::query(
+                "INSERT INTO assets
+                 (id, scope_id, kind, value, first_seen_at_seconds, first_seen_at_nanos,
+                  last_seen_at_seconds, last_seen_at_nanos)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                 ON CONFLICT (scope_id, kind, value) DO UPDATE SET
+                   last_seen_at_seconds = EXCLUDED.last_seen_at_seconds,
+                   last_seen_at_nanos = EXCLUDED.last_seen_at_nanos",
+            )
+            .bind(&record.asset.id)
+            .bind(&record.asset.scope_id)
+            .bind(record.asset.kind)
+            .bind(&record.asset.value)
+            .bind(first_seen.seconds)
+            .bind(first_seen.nanos)
+            .bind(last_seen.seconds)
+            .bind(last_seen.nanos)
+            .execute(&mut *tx)
+            .await?;
+            let observed_at = record
+                .observation
+                .observed_at
+                .expect("observation timestamp exists");
+            let value_json =
+                serde_json::from_str::<serde_json::Value>(&record.observation.value_json)
+                    .unwrap_or_else(|_| json!({"raw": record.observation.value_json}));
+            sqlx::query(
+                "INSERT INTO observations
+                 (id, task_id, asset_id, observation_type, value_json, evidence_id,
+                  observed_at_seconds, observed_at_nanos)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+            )
+            .bind(&record.observation.id)
+            .bind(&record.observation.task_id)
+            .bind(&record.observation.asset_id)
+            .bind(&record.observation.observation_type)
+            .bind(value_json)
+            .bind(&record.observation.evidence_id)
+            .bind(observed_at.seconds)
+            .bind(observed_at.nanos)
+            .execute(&mut *tx)
+            .await?;
+        }
+        finish_task(&mut tx, task_id, TaskState::Completed, timestamp).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn fail_task(
+        &self,
+        task_id: &str,
+        timestamp: prost_types::Timestamp,
+    ) -> Result<(), RepositoryError> {
+        let mut tx = self.pool.begin().await?;
+        ensure_running(&mut tx, task_id).await?;
+        finish_task(&mut tx, task_id, TaskState::Failed, timestamp).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn read_overview(&self) -> Result<ReadOverview, RepositoryError> {
+        let scope_ids = sqlx::query_scalar::<_, String>(
+            "SELECT id FROM scopes ORDER BY created_at_seconds DESC, created_at_nanos DESC LIMIT 20",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        let mut scopes = Vec::with_capacity(scope_ids.len());
+        for scope_id in scope_ids {
+            let mut connection = self.pool.acquire().await?;
+            scopes.push(fetch_scope(&mut connection, &scope_id).await?);
+        }
+        let tasks = sqlx::query(
+            "SELECT id, scope_id, policy_id, state, created_at_seconds, created_at_nanos,
+                    updated_at_seconds, updated_at_nanos FROM tasks
+             ORDER BY created_at_seconds DESC, created_at_nanos DESC LIMIT 50",
+        )
+        .fetch_all(&self.pool)
+        .await?
+        .iter()
+        .map(task_from_row)
+        .collect();
+        let assets = sqlx::query(
+            "SELECT id, scope_id, kind, value, first_seen_at_seconds, first_seen_at_nanos,
+                    last_seen_at_seconds, last_seen_at_nanos FROM assets
+             ORDER BY last_seen_at_seconds DESC, last_seen_at_nanos DESC LIMIT 100",
+        )
+        .fetch_all(&self.pool)
+        .await?
+        .iter()
+        .map(asset_from_row)
+        .collect();
+        let observation_count = sqlx::query_scalar("SELECT COUNT(*) FROM observations")
+            .fetch_one(&self.pool)
+            .await?;
+        let evidence_count = sqlx::query_scalar("SELECT COUNT(*) FROM evidence")
+            .fetch_one(&self.pool)
+            .await?;
+        let scope_count = sqlx::query_scalar("SELECT COUNT(*) FROM scopes")
+            .fetch_one(&self.pool)
+            .await?;
+        let task_count = sqlx::query_scalar("SELECT COUNT(*) FROM tasks")
+            .fetch_one(&self.pool)
+            .await?;
+        let asset_count = sqlx::query_scalar("SELECT COUNT(*) FROM assets")
+            .fetch_one(&self.pool)
+            .await?;
+        let audit_events = fetch_audit(&self.pool, 50).await?;
+        Ok(ReadOverview {
+            scopes,
+            tasks,
+            assets,
+            scope_count,
+            task_count,
+            asset_count,
+            observation_count,
+            evidence_count,
+            audit_events,
+        })
+    }
+
+    async fn search_audit(&self) -> Result<Vec<AuditEvent>, RepositoryError> {
+        fetch_audit(&self.pool, 200).await
+    }
+}
+
+async fn fetch_audit(pool: &PgPool, limit: i64) -> Result<Vec<AuditEvent>, RepositoryError> {
+    let rows = sqlx::query(
+        "SELECT id, request_id, operation, agent_id, skill_name, skill_version,
+                resource_kind, resource_id, EXTRACT(EPOCH FROM occurred_at)::bigint AS occurred_at_seconds
+         FROM audit_events ORDER BY occurred_at DESC LIMIT $1",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .iter()
+        .map(|row| AuditEvent {
+            id: row.get("id"),
+            request_id: row.get("request_id"),
+            operation: row.get("operation"),
+            agent_id: row.get("agent_id"),
+            skill_name: row.get("skill_name"),
+            skill_version: row.get("skill_version"),
+            resource_kind: row.get("resource_kind"),
+            resource_id: row.get("resource_id"),
+            occurred_at: Some(prost_types::Timestamp {
+                seconds: row.get("occurred_at_seconds"),
+                nanos: 0,
+            }),
+        })
+        .collect())
+}
+
+async fn ensure_running(
+    connection: &mut PgConnection,
+    task_id: &str,
+) -> Result<(), RepositoryError> {
+    let task = fetch_task_for_update(connection, task_id).await?;
+    if task.state != i32::from(TaskState::Running) {
+        return Err(RepositoryError::TerminalTask);
+    }
+    Ok(())
+}
+
+async fn finish_task(
+    connection: &mut PgConnection,
+    task_id: &str,
+    state: TaskState,
+    timestamp: prost_types::Timestamp,
+) -> Result<(), RepositoryError> {
+    sqlx::query(
+        "UPDATE tasks SET state = $2, updated_at_seconds = $3, updated_at_nanos = $4 WHERE id = $1",
+    )
+    .bind(task_id)
+    .bind(i32::from(state))
+    .bind(timestamp.seconds)
+    .bind(timestamp.nanos)
+    .execute(&mut *connection)
+    .await?;
+    let event_type = match state {
+        TaskState::Completed => "task.completed",
+        TaskState::Failed => "task.failed",
+        _ => unreachable!("only terminal worker states are valid"),
+    };
+    let event = TaskEvent {
+        task_id: task_id.to_owned(),
+        sequence: 3,
+        event_type: event_type.to_owned(),
+        occurred_at: Some(timestamp),
+    };
+    insert_task_event(connection, &event).await?;
+    insert_outbox(
+        connection,
+        "task",
+        task_id,
+        Some(3),
+        event_type,
+        json!({"task_id": task_id, "state": i32::from(state)}),
+    )
+    .await
 }
 
 async fn lock_idempotency(
