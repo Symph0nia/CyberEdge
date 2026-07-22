@@ -258,6 +258,16 @@ message Website {
   string content_sha256 = 8;
   google.protobuf.Timestamp first_seen_at = 9;
   google.protobuf.Timestamp last_seen_at = 10;
+  repeated TechnologyFingerprint fingerprints = 11;
+}
+
+message TechnologyFingerprint {
+  string id = 1;
+  string name = 2;
+  string version = 3;
+  string detector = 4;
+  string rule_id = 5;
+  string evidence_id = 6;
 }
 
 message SearchWebsitesRequest {

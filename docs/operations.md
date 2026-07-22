@@ -40,6 +40,8 @@ Successful TLS probes evaluate `cyberedge-tls/tls-certificate-expired-v1` and `c
 
 The system HTTP adapter additionally probes only `/.git/HEAD` and `/.DS_Store`. Findings require exact Git HEAD or DS_Store magic signatures; a generic `200` response is insufficient. Redirects remain disabled and the one-megabyte response limit still applies. The RPC contract cannot supply paths, so this does not create an arbitrary URL scanner. Secret-bearing paths such as `/.env` are deliberately excluded from retained Evidence.
 
+Website `fingerprints` are structured, versioned detector projections tied to the root response Evidence. Current rules require an explicit WordPress generator or both WordPress asset families, and Grafana boot data plus a build/title marker. The `server` response header remains an unverified hint and is never promoted into this list by itself.
+
 Do not grant `scan.active` to passive discovery Skills. Keep active grants in a separate Skill binding and verify the Scope before invocation.
 
 ## Native runtime

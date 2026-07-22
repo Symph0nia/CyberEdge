@@ -77,7 +77,7 @@ impl WebsiteProbe for TestWebsite {
             "/" => (
                 "Index of /",
                 "text/html",
-                b"<title>Index of /</title><a href=\"../\">Parent Directory</a>".to_vec(),
+                b"<title>Index of /</title><meta name=\"generator\" content=\"WordPress 6.8\"><a href=\"../\">Parent Directory</a>".to_vec(),
             ),
             "/.git/HEAD" => ("", "text/plain", b"ref: refs/heads/main\n".to_vec()),
             "/.DS_Store" => (
@@ -286,6 +286,8 @@ async fn persists_scope_task_events_audit_and_outbox() {
         .websites;
     assert_eq!(websites.len(), 1);
     assert_eq!(websites[0].title, "Index of /");
+    assert_eq!(websites[0].fingerprints[0].name, "WordPress");
+    assert_eq!(websites[0].fingerprints[0].version, "6.8");
     let service_report = service
         .get_task_report(Request::new(GetTaskReportRequest {
             context: Some(context("service-report")),

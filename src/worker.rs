@@ -24,7 +24,7 @@ use x509_parser::{extensions::GeneralName, parse_x509_certificate};
 use crate::{
     proto::{
         Asset, Certificate, Evidence, Finding, FindingSeverity, FindingState, Observation,
-        ScopeTarget, Service, TargetKind, Website,
+        ScopeTarget, Service, TargetKind, TechnologyFingerprint, Website,
     },
     repository::{DiscoveryRecord, FindingEvaluation, Repository, RepositoryError},
 };
@@ -1149,6 +1149,7 @@ fn website_record(
         content_sha256: content_sha256.clone(),
         first_seen_at: Some(timestamp),
         last_seen_at: Some(timestamp),
+        fingerprints: technology_fingerprints(&snapshot.body, &evidence_id, &content_sha256),
     };
     let evidence_media_type = website.content_type.clone();
     let (finding_evaluation, finding) = directory_listing_detection(
@@ -1205,6 +1206,63 @@ fn website_record(
         finding_evaluations: vec![finding_evaluation],
         findings: finding.into_iter().collect(),
     }
+}
+
+fn technology_fingerprints(
+    body: &[u8],
+    evidence_id: &str,
+    content_sha256: &str,
+) -> Vec<TechnologyFingerprint> {
+    let body = String::from_utf8_lossy(body).to_ascii_lowercase();
+    let mut matches = Vec::new();
+    let wordpress_generator = generator_tag(&body, "wordpress");
+    let wordpress = wordpress_generator.is_some()
+        || body.contains("/wp-content/") && body.contains("/wp-includes/");
+    if wordpress {
+        let version = wordpress_generator
+            .and_then(|tag| product_version(tag, "wordpress"))
+            .unwrap_or_default();
+        matches.push(("WordPress", version, "http-wordpress-v1"));
+    }
+    let grafana = body.contains("window.grafanabootdata")
+        && (body.contains("public/build/") || body.contains("<title>grafana"));
+    if grafana {
+        matches.push(("Grafana", String::new(), "http-grafana-v1"));
+    }
+    matches
+        .into_iter()
+        .map(|(name, version, rule_id)| TechnologyFingerprint {
+            id: stable_id(
+                "fingerprint",
+                format!("{rule_id}:{content_sha256}").as_bytes(),
+            ),
+            name: name.to_owned(),
+            version,
+            detector: "cyberedge-http".to_owned(),
+            rule_id: rule_id.to_owned(),
+            evidence_id: evidence_id.to_owned(),
+        })
+        .collect()
+}
+
+fn generator_tag<'a>(body: &'a str, product: &str) -> Option<&'a str> {
+    body.split("<meta").skip(1).find_map(|suffix| {
+        let tag = suffix.split_once('>')?.0;
+        let generator = tag.contains("name=\"generator\"") || tag.contains("name='generator'");
+        (generator && tag.contains(product)).then_some(tag)
+    })
+}
+
+fn product_version(body: &str, product: &str) -> Option<String> {
+    let suffix = body
+        .get(body.find(product)? + product.len()..)?
+        .trim_start();
+    let version = suffix
+        .chars()
+        .take_while(|character| character.is_ascii_digit() || *character == '.')
+        .take(32)
+        .collect::<String>();
+    (!version.is_empty()).then_some(version)
 }
 
 fn http_exposure_record(
@@ -1530,5 +1588,23 @@ mod detector_tests {
             "tls-certificate-expiring-v1"
         );
         assert!(detect(timestamp.seconds + 31 * 24 * 60 * 60).is_empty());
+    }
+
+    #[test]
+    fn requires_strong_technology_signatures() {
+        let detect = |body: &[u8]| technology_fingerprints(body, "evidence", "hash");
+        assert!(detect(b"WordPress consulting and Grafana dashboards").is_empty());
+        assert!(detect(b"/wp-content/theme.css").is_empty());
+        assert!(
+            detect(b"<meta name=\"generator\" content=\"Joomla\">WordPress services").is_empty()
+        );
+
+        let wordpress = detect(b"<meta name=\"generator\" content=\"WordPress 6.8.1\">");
+        assert_eq!(wordpress[0].name, "WordPress");
+        assert_eq!(wordpress[0].version, "6.8.1");
+        assert_eq!(wordpress[0].evidence_id, "evidence");
+
+        let grafana = detect(b"<title>Grafana</title><script>window.grafanaBootData={}</script>");
+        assert_eq!(grafana[0].name, "Grafana");
     }
 }

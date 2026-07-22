@@ -151,7 +151,9 @@ impl WebsiteProbe for TestWebsite {
             title: "CyberEdge Test".to_owned(),
             server: "test-server".to_owned(),
             content_type: "text/html".to_owned(),
-            body: b"<title>CyberEdge Test</title>".to_vec(),
+            body:
+                b"<title>CyberEdge Test</title><meta name=\"generator\" content=\"WordPress 6.8\">"
+                    .to_vec(),
         })
     }
 }
@@ -1175,6 +1177,9 @@ async fn retains_tls_certificate_as_inventory_and_der_evidence() {
         .websites;
     assert_eq!(websites.len(), 1);
     assert_eq!(websites[0].title, "CyberEdge Test");
+    assert_eq!(websites[0].fingerprints.len(), 1);
+    assert_eq!(websites[0].fingerprints[0].name, "WordPress");
+    assert_eq!(websites[0].fingerprints[0].version, "6.8");
     let report = service
         .get_task_report(Request::new(GetTaskReportRequest {
             context: Some(context("tls-report")),
@@ -1186,6 +1191,10 @@ async fn retains_tls_certificate_as_inventory_and_der_evidence() {
     assert_eq!(report.certificates.len(), 1);
     assert_eq!(report.websites.len(), 1);
     assert!(report.findings.is_empty());
+    assert_eq!(
+        report.websites[0].fingerprints[0].evidence_id,
+        format!("evidence_{}", report.websites[0].content_sha256)
+    );
     let evidence = report
         .evidence
         .iter()

@@ -262,6 +262,10 @@ fn website_json(website: Website) -> Value {
     json!({"id": website.id, "service_id": website.service_id, "url": website.url,
         "status_code": website.status_code, "title": website.title, "server": website.server,
         "content_type": website.content_type, "content_sha256": website.content_sha256,
+        "fingerprints": website.fingerprints.into_iter().map(|fingerprint| json!({
+            "id": fingerprint.id, "name": fingerprint.name, "version": fingerprint.version,
+            "detector": fingerprint.detector, "rule_id": fingerprint.rule_id,
+            "evidence_id": fingerprint.evidence_id})).collect::<Vec<_>>(),
         "first_seen_at": timestamp(website.first_seen_at),
         "last_seen_at": timestamp(website.last_seen_at)})
 }

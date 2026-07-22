@@ -568,6 +568,10 @@ fn website_json(value: cyberedge::proto::Website) -> Value {
     json!({"id": value.id, "service_id": value.service_id, "url": value.url,
         "status_code": value.status_code, "title": value.title, "server": value.server,
         "content_type": value.content_type, "content_sha256": value.content_sha256,
+        "fingerprints": value.fingerprints.into_iter().map(|fingerprint| json!({
+            "id": fingerprint.id, "name": fingerprint.name, "version": fingerprint.version,
+            "detector": fingerprint.detector, "rule_id": fingerprint.rule_id,
+            "evidence_id": fingerprint.evidence_id})).collect::<Vec<_>>(),
         "first_seen_at": timestamp_json(value.first_seen_at),
         "last_seen_at": timestamp_json(value.last_seen_at)})
 }
