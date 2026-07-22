@@ -46,7 +46,13 @@ The system crawler follows at most 16 root-page links at depth one. Only same-or
 
 Set `CYBEREDGE_SCREENSHOTS_ENABLED=true` to explicitly enable the screenshot adapter on a sandbox-capable host and optionally set `CYBEREDGE_CHROMIUM_BIN` (default `/usr/bin/chromium`). It renders only the already-retained root HTML from a temporary local file, with the Chromium sandbox intact, JavaScript disabled, a deny-all network resolver rule, and a deny-all CSP except inline styles/data images. It never navigates Chromium to the target URL. Rendering is limited to 15 seconds and 10 MiB of PNG output; the result becomes `http.screenshot` Evidence and `Website.screenshot_evidence_id`. Temporary HTML, PNG, and browser-profile files are removed after each attempt. Rendering failure records `http.screenshot_error` without failing the website observation.
 
-The core container intentionally contains no Chromium. Docker's default seccomp profile prevents Chromium's namespace sandbox, and CyberEdge will not compensate with `--no-sandbox` or `SYS_ADMIN`. Containerized rendering requires the planned isolated renderer sidecar with no network or database credentials; until then, leave screenshots disabled in the core Compose deployment.
+The core container intentionally contains no Chromium. To enable containerized rendering, add the isolated renderer overlay:
+
+```bash
+docker compose -f compose.yaml -f compose.screenshots.yaml up -d --build
+```
+
+The renderer receives retained HTML over a shared Unix socket. It has no network namespace, no database credentials, a read-only root filesystem, all Linux capabilities dropped, `no-new-privileges`, bounded memory/PIDs, and only temporary browser storage. Chromium's `--no-sandbox` flag is confined to this sidecar because the container itself is the security boundary. The ordinary `compose.yaml` deployment remains core-only with screenshots disabled.
 
 Do not grant `scan.active` to passive discovery Skills. Keep active grants in a separate Skill binding and verify the Scope before invocation.
 

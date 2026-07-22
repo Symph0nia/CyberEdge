@@ -18,6 +18,7 @@ pub use service::CyberEdgeService;
 pub use web::{read_only_router, serve_read_only_web};
 pub use worker::{
     BASELINE_SERVICE_PORTS, CertificateProbe, CertificateSource, CrtShSource, DiscoveryWorker,
-    DnsResolver, PortConnector, ScreenshotProbe, SystemCertificateProbe, SystemDnsResolver,
-    SystemPortConnector, SystemScreenshotProbe, SystemWebsiteProbe, WebSnapshot, WebsiteProbe,
+    DnsResolver, PortConnector, ScreenshotProbe, SocketScreenshotProbe, SystemCertificateProbe,
+    SystemDnsResolver, SystemPortConnector, SystemScreenshotProbe, SystemWebsiteProbe, WebSnapshot,
+    WebsiteProbe,
 };

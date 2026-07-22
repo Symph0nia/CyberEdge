@@ -8,9 +8,9 @@ use std::{
 
 use cyberedge::{
     BASELINE_SERVICE_PORTS, CrtShSource, CyberEdgeService, DiscoveryWorker, NotificationDispatcher,
-    PostgresRepository, Repository, StaticAuthorizer, SystemCertificateProbe, SystemDnsResolver,
-    SystemPortConnector, SystemScreenshotProbe, SystemWebsiteProbe, WebhookSink,
-    serve_read_only_web,
+    PostgresRepository, Repository, SocketScreenshotProbe, StaticAuthorizer,
+    SystemCertificateProbe, SystemDnsResolver, SystemPortConnector, SystemScreenshotProbe,
+    SystemWebsiteProbe, WebhookSink, serve_read_only_web,
 };
 use tokio::{net::UnixListener, signal};
 use tokio_stream::wrappers::UnixListenerStream;
@@ -40,7 +40,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .with_certificate_probe(Arc::new(SystemCertificateProbe::new()))
         .with_website_probe(Arc::new(SystemWebsiteProbe));
-    if env::var("CYBEREDGE_SCREENSHOTS_ENABLED").is_ok_and(|value| value == "true" || value == "1")
+    if let Ok(socket) = env::var("CYBEREDGE_SCREENSHOT_RENDERER_SOCKET") {
+        discovery = discovery.with_screenshot_probe(Arc::new(SocketScreenshotProbe::new(socket)));
+    } else if env::var("CYBEREDGE_SCREENSHOTS_ENABLED")
+        .is_ok_and(|value| value == "true" || value == "1")
     {
         let binary =
             env::var("CYBEREDGE_CHROMIUM_BIN").unwrap_or_else(|_| "/usr/bin/chromium".to_owned());

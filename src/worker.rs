@@ -205,12 +205,21 @@ pub trait ScreenshotProbe: Send + Sync {
 
 pub struct SystemScreenshotProbe {
     binary: PathBuf,
+    chromium_sandbox: bool,
 }
 
 impl SystemScreenshotProbe {
     pub fn new(binary: impl Into<PathBuf>) -> Self {
         Self {
             binary: binary.into(),
+            chromium_sandbox: true,
+        }
+    }
+
+    pub fn isolated_container(binary: impl Into<PathBuf>) -> Self {
+        Self {
+            binary: binary.into(),
+            chromium_sandbox: false,
         }
     }
 }
@@ -252,8 +261,11 @@ impl ScreenshotProbe for SystemScreenshotProbe {
                 "--window-size=1440,900",
             ])
             .arg(format!("--user-data-dir={}", profile_path.display()))
-            .arg(format!("--screenshot={}", png_path.display()))
-            .arg(file_url);
+            .arg(format!("--screenshot={}", png_path.display()));
+        if !self.chromium_sandbox {
+            command.arg("--no-sandbox");
+        }
+        command.arg(file_url);
         let result = tokio::time::timeout(std::time::Duration::from_secs(15), command.status())
             .await
             .map_err(|_| "screenshot renderer timed out".to_owned())
@@ -276,6 +288,63 @@ impl ScreenshotProbe for SystemScreenshotProbe {
             return Err("screenshot exceeds evidence limit".to_owned());
         }
         Ok(screenshot)
+    }
+}
+
+pub struct SocketScreenshotProbe {
+    socket_path: PathBuf,
+}
+
+impl SocketScreenshotProbe {
+    pub fn new(socket_path: impl Into<PathBuf>) -> Self {
+        Self {
+            socket_path: socket_path.into(),
+        }
+    }
+}
+
+#[async_trait]
+impl ScreenshotProbe for SocketScreenshotProbe {
+    async fn capture(&self, html: &[u8]) -> Result<Vec<u8>, String> {
+        if html.len() > MAX_WEB_BODY_BYTES {
+            return Err("HTML evidence exceeds screenshot input limit".to_owned());
+        }
+        let exchange = async {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            let mut stream = tokio::net::UnixStream::connect(&self.socket_path)
+                .await
+                .map_err(|error| error.to_string())?;
+            stream
+                .write_u32(html.len() as u32)
+                .await
+                .map_err(|error| error.to_string())?;
+            stream
+                .write_all(html)
+                .await
+                .map_err(|error| error.to_string())?;
+            stream.flush().await.map_err(|error| error.to_string())?;
+            let status = stream.read_u8().await.map_err(|error| error.to_string())?;
+            let length = stream.read_u32().await.map_err(|error| error.to_string())? as usize;
+            if length > MAX_SCREENSHOT_BYTES {
+                return Err("renderer response exceeds limit".to_owned());
+            }
+            let mut payload = vec![0; length];
+            stream
+                .read_exact(&mut payload)
+                .await
+                .map_err(|error| error.to_string())?;
+            if status == 0 {
+                if !payload.starts_with(b"\x89PNG\r\n\x1a\n") {
+                    return Err("renderer did not return PNG".to_owned());
+                }
+                Ok(payload)
+            } else {
+                Err(String::from_utf8_lossy(&payload).into_owned())
+            }
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(20), exchange)
+            .await
+            .map_err(|_| "screenshot renderer IPC timed out".to_owned())?
     }
 }
 

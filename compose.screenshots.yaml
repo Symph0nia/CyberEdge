@@ -1,0 +1,38 @@
+services:
+  cyberedge:
+    depends_on:
+      renderer:
+        condition: service_healthy
+    environment:
+      CYBEREDGE_SCREENSHOT_RENDERER_SOCKET: /run/cyberedge-renderer/render.sock
+    volumes:
+      - renderer-socket:/run/cyberedge-renderer
+
+  renderer:
+    build:
+      context: .
+      target: renderer
+    network_mode: none
+    environment:
+      CYBEREDGE_RENDERER_SOCKET: /run/cyberedge-renderer/render.sock
+      HOME: /tmp
+    volumes:
+      - renderer-socket:/run/cyberedge-renderer
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 768m
+    healthcheck:
+      test: ["CMD-SHELL", "test -S /run/cyberedge-renderer/render.sock"]
+      interval: 2s
+      timeout: 1s
+      retries: 30
+    restart: unless-stopped
+
+volumes:
+  renderer-socket:
