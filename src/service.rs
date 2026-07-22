@@ -15,11 +15,12 @@ use tonic::{Code, Request, Response, Status};
 use uuid::Uuid;
 
 use crate::proto::{
-    CancelTaskRequest, CreateScopeRequest, ErrorDetail, GetEvidenceRequest, GetScopeRequest,
-    GetTaskReportRequest, GetTaskRequest, HealthResponse, InvocationContext, Scope, ScopeTarget,
-    SearchAssetsRequest, SearchAssetsResponse, SearchAuditRequest, SearchAuditResponse,
-    SearchObservationsRequest, SearchObservationsResponse, StartScanRequest, TargetKind, Task,
-    TaskEvent, TaskReport, TaskState, WatchTaskRequest,
+    CancelTaskRequest, CreateScheduleRequest, CreateScopeRequest, ErrorDetail, GetEvidenceRequest,
+    GetScopeRequest, GetTaskReportRequest, GetTaskRequest, HealthResponse, InvocationContext,
+    Schedule, Scope, ScopeTarget, SearchAssetsRequest, SearchAssetsResponse, SearchAuditRequest,
+    SearchAuditResponse, SearchObservationsRequest, SearchObservationsResponse,
+    SearchSchedulesRequest, SearchSchedulesResponse, StartScanRequest, TargetKind, Task, TaskEvent,
+    TaskReport, TaskState, WatchTaskRequest,
     cyber_edge_server::{CyberEdge, CyberEdgeServer},
 };
 use crate::{
@@ -128,13 +129,7 @@ impl CyberEdge for CyberEdgeService {
             context: context.clone(),
             fingerprint: semantic_request.encode_to_vec(),
         };
-        required("policy_id", &request.policy_id)?;
-        if request.policy_id != "policy_passive_dns" {
-            return Err(invalid(
-                "POLICY_UNSUPPORTED",
-                "only policy_passive_dns is supported",
-            ));
-        }
+        validate_policy(&request.policy_id)?;
 
         let timestamp = now();
         let task = Task {
@@ -170,6 +165,64 @@ impl CyberEdge for CyberEdgeService {
             .await
             .map_err(repository_status)?;
         Ok(Response::new(task))
+    }
+
+    async fn create_schedule(
+        &self,
+        request: Request<CreateScheduleRequest>,
+    ) -> Result<Response<Schedule>, Status> {
+        let request = request.into_inner();
+        let context = validate_context(request.context.as_ref())?;
+        self.authorize(context, "schedule.manage")?;
+        let mut semantic_request = request.clone();
+        semantic_request.context = None;
+        let mutation = Mutation {
+            operation: "schedule.create",
+            context: context.clone(),
+            fingerprint: semantic_request.encode_to_vec(),
+        };
+        validate_policy(&request.policy_id)?;
+        if request.interval_seconds < 60 {
+            return Err(invalid(
+                "SCHEDULE_INTERVAL_INVALID",
+                "interval_seconds must be at least 60",
+            ));
+        }
+        let created_at = now();
+        let schedule = Schedule {
+            id: new_id("schedule"),
+            scope_id: required("scope_id", &request.scope_id)?.to_owned(),
+            policy_id: request.policy_id,
+            interval_seconds: request.interval_seconds,
+            enabled: true,
+            next_run_at: Some(prost_types::Timestamp {
+                seconds: created_at.seconds + request.interval_seconds as i64,
+                nanos: created_at.nanos,
+            }),
+            last_task_id: String::new(),
+            created_at: Some(created_at),
+        };
+        let result = self
+            .repository
+            .create_schedule(&mutation, schedule)
+            .await
+            .map_err(repository_status)?;
+        Ok(Response::new(result.value))
+    }
+
+    async fn search_schedules(
+        &self,
+        request: Request<SearchSchedulesRequest>,
+    ) -> Result<Response<SearchSchedulesResponse>, Status> {
+        let request = request.into_inner();
+        let context = validate_context(request.context.as_ref())?;
+        self.authorize(context, "schedule.read")?;
+        let schedules = self
+            .repository
+            .search_schedules(&request.scope_id)
+            .await
+            .map_err(repository_status)?;
+        Ok(Response::new(SearchSchedulesResponse { schedules }))
     }
 
     async fn watch_task(
@@ -484,6 +537,17 @@ fn required<'a>(field: &str, value: &'a str) -> Result<&'a str, Status> {
         return Err(invalid("FIELD_REQUIRED", &format!("{field} is required")));
     }
     Ok(value)
+}
+
+fn validate_policy(policy_id: &str) -> Result<(), Status> {
+    required("policy_id", policy_id)?;
+    if matches!(policy_id, "policy_passive_dns" | "policy_passive_inventory") {
+        return Ok(());
+    }
+    Err(invalid(
+        "POLICY_UNSUPPORTED",
+        "supported policies: policy_passive_dns, policy_passive_inventory",
+    ))
 }
 
 fn new_id(prefix: &str) -> String {

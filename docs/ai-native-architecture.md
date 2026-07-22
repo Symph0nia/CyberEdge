@@ -2,7 +2,7 @@
 
 状态：Accepted baseline
 
-实现状态：第一阶段 vertical slice 已覆盖 Scope、passive DNS Task、Asset/Observation/Evidence、确定性 TaskReport、Agent mutation audit、UDS/mTLS、AI machine bridge 与只读 Web。Finding、Monitor、Schedule、OIDC、只读 RBAC、字段脱敏和独立事件投影属于后续阶段，本文中的完整产品条目不表示已经实现。
+实现状态：当前 vertical slice 已覆盖 Scope、passive DNS/Certificate Transparency Task、Asset/Observation/Evidence、确定性 TaskReport、Agent mutation audit、持久化 Schedule 生成普通 Task、UDS/mTLS、AI machine bridge 与只读 Web。Finding、Monitor 差异基线、OIDC、只读 RBAC、字段脱敏和独立事件投影属于后续阶段，本文中的完整产品条目不表示已经实现。
 
 ## 1. 产品定义
 

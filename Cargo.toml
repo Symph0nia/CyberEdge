@@ -14,6 +14,7 @@ hyper-util = { version = "0.1.17", features = ["tokio"] }
 bytes = "1"
 prost = "0.14.4"
 prost-types = "0.14.4"
+reqwest = { version = "0.13.1", default-features = false, features = ["json", "query", "rustls-no-provider"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10.9"

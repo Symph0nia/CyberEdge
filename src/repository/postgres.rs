@@ -7,7 +7,8 @@ use super::{
     RepositoryError,
 };
 use crate::proto::{
-    Asset, AuditEvent, Evidence, Observation, Scope, ScopeTarget, Task, TaskEvent, TaskState,
+    Asset, AuditEvent, Evidence, Observation, Schedule, Scope, ScopeTarget, Task, TaskEvent,
+    TaskState,
 };
 
 pub struct PostgresRepository {
@@ -154,6 +155,164 @@ impl Repository for PostgresRepository {
     async fn get_task(&self, task_id: &str) -> Result<Task, RepositoryError> {
         let mut connection = self.pool.acquire().await?;
         fetch_task(&mut connection, task_id).await
+    }
+
+    async fn create_schedule(
+        &self,
+        mutation: &Mutation,
+        schedule: Schedule,
+    ) -> Result<MutationResult<Schedule>, RepositoryError> {
+        let mut tx = self.pool.begin().await?;
+        lock_idempotency(&mut tx, mutation).await?;
+        if let Some(schedule_id) = replay(&mut tx, mutation).await? {
+            let schedule = fetch_schedule(&mut tx, &schedule_id).await?;
+            tx.commit().await?;
+            return Ok(MutationResult {
+                value: schedule,
+                event: None,
+            });
+        }
+        ensure_exists(
+            &mut tx,
+            "SELECT 1 FROM scopes WHERE id = $1",
+            &schedule.scope_id,
+            "scope",
+        )
+        .await?;
+        let next = schedule.next_run_at.expect("schedule next run exists");
+        let created = schedule
+            .created_at
+            .expect("schedule created timestamp exists");
+        sqlx::query(
+            "INSERT INTO schedules
+             (id, scope_id, policy_id, interval_seconds, enabled,
+              next_run_at_seconds, next_run_at_nanos, last_task_id,
+              created_at_seconds, created_at_nanos)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, NULL, $8, $9)",
+        )
+        .bind(&schedule.id)
+        .bind(&schedule.scope_id)
+        .bind(&schedule.policy_id)
+        .bind(schedule.interval_seconds as i64)
+        .bind(schedule.enabled)
+        .bind(next.seconds)
+        .bind(next.nanos)
+        .bind(created.seconds)
+        .bind(created.nanos)
+        .execute(&mut *tx)
+        .await?;
+        record_mutation(&mut tx, mutation, "schedule", &schedule.id).await?;
+        insert_outbox(
+            &mut tx,
+            "schedule",
+            &schedule.id,
+            None,
+            "schedule.created",
+            json!({"schedule_id": schedule.id}),
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(MutationResult {
+            value: schedule,
+            event: None,
+        })
+    }
+
+    async fn search_schedules(&self, scope_id: &str) -> Result<Vec<Schedule>, RepositoryError> {
+        let exists = sqlx::query("SELECT 1 FROM scopes WHERE id = $1")
+            .bind(scope_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .is_some();
+        if !exists {
+            return Err(RepositoryError::NotFound("scope"));
+        }
+        let rows = sqlx::query(
+            "SELECT id, scope_id, policy_id, interval_seconds, enabled,
+                    next_run_at_seconds, next_run_at_nanos, last_task_id,
+                    created_at_seconds, created_at_nanos
+             FROM schedules WHERE scope_id = $1 ORDER BY created_at_seconds, created_at_nanos",
+        )
+        .bind(scope_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.iter().map(schedule_from_row).collect())
+    }
+
+    async fn enqueue_due_schedules(
+        &self,
+        timestamp: prost_types::Timestamp,
+    ) -> Result<Vec<Task>, RepositoryError> {
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query(
+            "SELECT id, scope_id, policy_id, interval_seconds, enabled,
+                    next_run_at_seconds, next_run_at_nanos, last_task_id,
+                    created_at_seconds, created_at_nanos
+             FROM schedules
+             WHERE enabled AND (next_run_at_seconds, next_run_at_nanos) <= ($1, $2)
+             ORDER BY next_run_at_seconds, next_run_at_nanos
+             FOR UPDATE SKIP LOCKED LIMIT 100",
+        )
+        .bind(timestamp.seconds)
+        .bind(timestamp.nanos)
+        .fetch_all(&mut *tx)
+        .await?;
+        let schedules = rows.iter().map(schedule_from_row).collect::<Vec<_>>();
+        let mut tasks = Vec::with_capacity(schedules.len());
+        for schedule in schedules {
+            let task = Task {
+                id: format!("task_{}", uuid::Uuid::now_v7()),
+                scope_id: schedule.scope_id.clone(),
+                policy_id: schedule.policy_id.clone(),
+                state: TaskState::Queued.into(),
+                created_at: Some(timestamp),
+                updated_at: Some(timestamp),
+            };
+            sqlx::query(
+                "INSERT INTO tasks
+                 (id, scope_id, policy_id, state, created_at_seconds, created_at_nanos,
+                  updated_at_seconds, updated_at_nanos, schedule_id)
+                 VALUES ($1, $2, $3, $4, $5, $6, $5, $6, $7)",
+            )
+            .bind(&task.id)
+            .bind(&task.scope_id)
+            .bind(&task.policy_id)
+            .bind(task.state)
+            .bind(timestamp.seconds)
+            .bind(timestamp.nanos)
+            .bind(&schedule.id)
+            .execute(&mut *tx)
+            .await?;
+            let event = TaskEvent {
+                task_id: task.id.clone(),
+                sequence: 1,
+                event_type: "task.queued".to_owned(),
+                occurred_at: Some(timestamp),
+            };
+            insert_task_event(&mut tx, &event).await?;
+            insert_outbox(
+                &mut tx,
+                "task",
+                &task.id,
+                Some(1),
+                "task.queued",
+                json!({"task_id": task.id, "schedule_id": schedule.id}),
+            )
+            .await?;
+            sqlx::query(
+                "UPDATE schedules SET last_task_id = $2,
+                 next_run_at_seconds = $3, next_run_at_nanos = $4 WHERE id = $1",
+            )
+            .bind(&schedule.id)
+            .bind(&task.id)
+            .bind(timestamp.seconds + schedule.interval_seconds as i64)
+            .bind(timestamp.nanos)
+            .execute(&mut *tx)
+            .await?;
+            tasks.push(task);
+        }
+        tx.commit().await?;
+        Ok(tasks)
     }
 
     async fn task_events(
@@ -466,6 +625,17 @@ impl Repository for PostgresRepository {
         .iter()
         .map(asset_from_row)
         .collect();
+        let schedules = sqlx::query(
+            "SELECT id, scope_id, policy_id, interval_seconds, enabled,
+                    next_run_at_seconds, next_run_at_nanos, last_task_id,
+                    created_at_seconds, created_at_nanos FROM schedules
+             ORDER BY created_at_seconds DESC, created_at_nanos DESC LIMIT 100",
+        )
+        .fetch_all(&self.pool)
+        .await?
+        .iter()
+        .map(schedule_from_row)
+        .collect();
         let observation_count = sqlx::query_scalar("SELECT COUNT(*) FROM observations")
             .fetch_one(&self.pool)
             .await?;
@@ -481,14 +651,19 @@ impl Repository for PostgresRepository {
         let asset_count = sqlx::query_scalar("SELECT COUNT(*) FROM assets")
             .fetch_one(&self.pool)
             .await?;
+        let schedule_count = sqlx::query_scalar("SELECT COUNT(*) FROM schedules")
+            .fetch_one(&self.pool)
+            .await?;
         let audit_events = fetch_audit(&self.pool, 50).await?;
         Ok(ReadOverview {
             scopes,
             tasks,
             assets,
+            schedules,
             scope_count,
             task_count,
             asset_count,
+            schedule_count,
             observation_count,
             evidence_count,
             audit_events,
@@ -739,6 +914,22 @@ async fn fetch_task(connection: &mut PgConnection, task_id: &str) -> Result<Task
     Ok(task_from_row(&row))
 }
 
+async fn fetch_schedule(
+    connection: &mut PgConnection,
+    schedule_id: &str,
+) -> Result<Schedule, RepositoryError> {
+    let row = sqlx::query(
+        "SELECT id, scope_id, policy_id, interval_seconds, enabled,
+                next_run_at_seconds, next_run_at_nanos, last_task_id,
+                created_at_seconds, created_at_nanos FROM schedules WHERE id = $1",
+    )
+    .bind(schedule_id)
+    .fetch_optional(connection)
+    .await?
+    .ok_or(RepositoryError::NotFound("schedule"))?;
+    Ok(schedule_from_row(&row))
+}
+
 async fn fetch_task_for_update(
     connection: &mut PgConnection,
     task_id: &str,
@@ -784,6 +975,27 @@ fn task_from_row(row: &sqlx::postgres::PgRow) -> Task {
         updated_at: Some(prost_types::Timestamp {
             seconds: row.get("updated_at_seconds"),
             nanos: row.get("updated_at_nanos"),
+        }),
+    }
+}
+
+fn schedule_from_row(row: &sqlx::postgres::PgRow) -> Schedule {
+    Schedule {
+        id: row.get("id"),
+        scope_id: row.get("scope_id"),
+        policy_id: row.get("policy_id"),
+        interval_seconds: row.get::<i64, _>("interval_seconds") as u64,
+        enabled: row.get("enabled"),
+        next_run_at: Some(prost_types::Timestamp {
+            seconds: row.get("next_run_at_seconds"),
+            nanos: row.get("next_run_at_nanos"),
+        }),
+        last_task_id: row
+            .get::<Option<String>, _>("last_task_id")
+            .unwrap_or_default(),
+        created_at: Some(prost_types::Timestamp {
+            seconds: row.get("created_at_seconds"),
+            nanos: row.get("created_at_nanos"),
         }),
     }
 }

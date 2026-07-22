@@ -14,7 +14,7 @@ use tower_http::{
 };
 
 use crate::{
-    proto::{Asset, Scope, Task},
+    proto::{Asset, Schedule, Scope, Task},
     repository::Repository,
 };
 
@@ -68,11 +68,13 @@ async fn overview(State(state): State<WebState>) -> Result<Json<Value>, WebError
     let model = state.repository.read_overview().await.map_err(WebError)?;
     Ok(Json(json!({
         "counts": {"scopes": model.scope_count, "tasks": model.task_count,
-            "assets": model.asset_count, "observations": model.observation_count,
+            "assets": model.asset_count, "schedules": model.schedule_count,
+            "observations": model.observation_count,
             "evidence": model.evidence_count},
         "scopes": model.scopes.into_iter().map(scope_json).collect::<Vec<_>>(),
         "tasks": model.tasks.into_iter().map(task_json).collect::<Vec<_>>(),
         "assets": model.assets.into_iter().map(asset_json).collect::<Vec<_>>(),
+        "schedules": model.schedules.into_iter().map(schedule_json).collect::<Vec<_>>(),
         "audit_events": model.audit_events.into_iter().map(|event| json!({
             "id": event.id, "request_id": event.request_id, "operation": event.operation,
             "agent_id": event.agent_id, "skill_name": event.skill_name,
@@ -145,6 +147,13 @@ fn task_json(task: Task) -> Value {
 fn asset_json(asset: Asset) -> Value {
     json!({"id": asset.id, "scope_id": asset.scope_id, "kind": asset.kind, "value": asset.value,
         "first_seen_at": timestamp(asset.first_seen_at), "last_seen_at": timestamp(asset.last_seen_at)})
+}
+
+fn schedule_json(schedule: Schedule) -> Value {
+    json!({"id": schedule.id, "scope_id": schedule.scope_id, "policy_id": schedule.policy_id,
+        "interval_seconds": schedule.interval_seconds, "enabled": schedule.enabled,
+        "next_run_at": timestamp(schedule.next_run_at), "last_task_id": schedule.last_task_id,
+        "created_at": timestamp(schedule.created_at)})
 }
 
 fn timestamp(value: Option<prost_types::Timestamp>) -> Value {

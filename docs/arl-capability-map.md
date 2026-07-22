@@ -1,0 +1,39 @@
+# ARL capability map
+
+Sources reviewed on 2026-07-22:
+
+- [Aabyss-Team/ARL](https://github.com/Aabyss-Team/ARL)
+- [owl234/ARL-Next](https://github.com/owl234/ARL-Next)
+
+CyberEdge copies neither repository's code, database shape, Web workflow, nor operational architecture. This map preserves the useful product capabilities while applying the AI-only control plane and evidence-first domain model.
+
+## Capability mapping
+
+| Upstream capability | CyberEdge domain | Delivery order | Current state |
+|---|---|---:|---|
+| Domain and IP inventory | Scope, Asset, Observation, Evidence | 1 | DNS vertical slice complete |
+| Passive domain data sources | Scanner Adapter, Observation | 2 | Certificate Transparency next |
+| Asset grouping and search | Scope and read model | 2 | Scope and bounded search complete |
+| Task policy and lifecycle | Policy, Task, Event | 1 | Passive policy and durable lifecycle complete |
+| Scheduled and periodic tasks | Schedule producing normal Task | 2 | Implemented baseline |
+| Port and service discovery | Service Asset, Observation | 3 | Not implemented |
+| TLS certificate collection | Certificate Asset, Evidence | 3 | Not implemented |
+| Website and fingerprint discovery | Website Asset, Observation | 3 | Not implemented |
+| Crawler and screenshots | Evidence adapters | 3 | Not implemented |
+| File exposure and host collision checks | Finding and Evidence | 4 | Not implemented |
+| Nuclei and custom PoC execution | Finding scanner adapter | 4 | Not implemented; no online PoC editor will be added |
+| Domain, IP, and website change monitoring | Monitor and Observation diff | 2 | Schedule implemented; diff pending |
+| GitHub leak and CVE monitoring | Threat intelligence adapters | 4 | Not implemented |
+| ICP and enterprise relationship lookup | Organization Asset adapter | 4 | Not implemented |
+| Notifications | Event sink adapters | 3 | Not implemented |
+| Dashboard and drill-down | Read-only Web projection | 1-3 | Overview, inventory, Task, Scope, evidence count, and audit complete |
+| MCP integration | Skill and machine RPC bridge | 1 | Native Skill plus gRPC/JSON bridge complete; MCP compatibility is optional |
+
+## Deliberate differences
+
+- PostgreSQL replaces MongoDB, RabbitMQ, and Celery until measured scale requires another component.
+- AI Skills replace the mutable human dashboard and manually configured task forms.
+- All scanner output becomes immutable Evidence before it can support a Finding.
+- Active scanning requires a separate capability and policy. Passive authorization never upgrades into active authorization.
+- Custom PoCs may be packaged and reviewed as versioned adapters later. CyberEdge will not provide a Web source-code editor or arbitrary execution endpoint.
+- Monitor and Schedule are definitions that create normal Tasks. They do not become a second execution engine.

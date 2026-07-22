@@ -13,6 +13,8 @@ service CyberEdge {
   rpc GetTask(GetTaskRequest) returns (Task);
   rpc WatchTask(WatchTaskRequest) returns (stream TaskEvent);
   rpc CancelTask(CancelTaskRequest) returns (Task);
+  rpc CreateSchedule(CreateScheduleRequest) returns (Schedule);
+  rpc SearchSchedules(SearchSchedulesRequest) returns (SearchSchedulesResponse);
   rpc SearchAssets(SearchAssetsRequest) returns (SearchAssetsResponse);
   rpc SearchObservations(SearchObservationsRequest) returns (SearchObservationsResponse);
   rpc GetEvidence(GetEvidenceRequest) returns (Evidence);
@@ -110,6 +112,31 @@ message CancelTaskRequest {
   InvocationContext context = 1;
   string task_id = 2;
 }
+
+message Schedule {
+  string id = 1;
+  string scope_id = 2;
+  string policy_id = 3;
+  uint64 interval_seconds = 4;
+  bool enabled = 5;
+  google.protobuf.Timestamp next_run_at = 6;
+  string last_task_id = 7;
+  google.protobuf.Timestamp created_at = 8;
+}
+
+message CreateScheduleRequest {
+  InvocationContext context = 1;
+  string scope_id = 2;
+  string policy_id = 3;
+  uint64 interval_seconds = 4;
+}
+
+message SearchSchedulesRequest {
+  InvocationContext context = 1;
+  string scope_id = 2;
+}
+
+message SearchSchedulesResponse { repeated Schedule schedules = 1; }
 
 message TaskEvent {
   string task_id = 1;

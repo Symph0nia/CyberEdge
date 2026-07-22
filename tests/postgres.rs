@@ -7,8 +7,9 @@ use async_trait::async_trait;
 use cyberedge::{
     Authorizer, CyberEdgeService, DiscoveryWorker, DnsResolver, PostgresRepository, Repository,
     proto::{
-        CreateScopeRequest, GetTaskReportRequest, GetTaskRequest, InvocationContext, ScopeTarget,
-        SearchAuditRequest, StartScanRequest, TargetKind, WatchTaskRequest,
+        CreateScheduleRequest, CreateScopeRequest, GetTaskReportRequest, GetTaskRequest,
+        InvocationContext, ScopeTarget, SearchAuditRequest, SearchSchedulesRequest,
+        StartScanRequest, TargetKind, WatchTaskRequest,
         cyber_edge_server::CyberEdge,
     },
 };
@@ -64,12 +65,27 @@ async fn persists_scope_task_events_audit_and_outbox() {
     let task = service
         .start_scan(Request::new(StartScanRequest {
             context: Some(context("task")),
-            scope_id: scope.id,
+            scope_id: scope.id.clone(),
             policy_id: "policy_passive_dns".to_owned(),
         }))
         .await
         .unwrap()
         .into_inner();
+    let schedule = service
+        .create_schedule(Request::new(CreateScheduleRequest {
+            context: Some(context("schedule")),
+            scope_id: scope.id.clone(),
+            policy_id: "policy_passive_inventory".to_owned(),
+            interval_seconds: 60,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let scheduled_tasks = repository
+        .enqueue_due_schedules(schedule.next_run_at.unwrap())
+        .await
+        .unwrap();
+    assert_eq!(scheduled_tasks.len(), 1);
     let worker = DiscoveryWorker::new(repository, Arc::new(Resolver));
     assert!(worker.run_once().await.unwrap());
     drop(service);
@@ -117,7 +133,7 @@ async fn persists_scope_task_events_audit_and_outbox() {
         .fetch_one(&pool)
         .await
         .unwrap();
-    assert_eq!(audit_count, 2);
+    assert_eq!(audit_count, 3);
     let asset_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM assets")
         .fetch_one(&pool)
         .await
@@ -126,7 +142,7 @@ async fn persists_scope_task_events_audit_and_outbox() {
         .fetch_one(&pool)
         .await
         .unwrap();
-    assert_eq!(outbox_count, 4);
+    assert_eq!(outbox_count, 6);
     assert_eq!(asset_count, 2);
     assert_eq!(observation_count, 2);
     let report = restarted
@@ -146,7 +162,17 @@ async fn persists_scope_task_events_audit_and_outbox() {
         .await
         .unwrap()
         .into_inner();
-    assert_eq!(audit.events.len(), 2);
+    assert_eq!(audit.events.len(), 3);
+    let schedules = restarted
+        .search_schedules(Request::new(SearchSchedulesRequest {
+            context: Some(context("schedules")),
+            scope_id: scope.id,
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .schedules;
+    assert_eq!(schedules[0].last_task_id, scheduled_tasks[0].id);
 }
 
 fn context(suffix: &str) -> InvocationContext {
@@ -162,7 +188,7 @@ fn context(suffix: &str) -> InvocationContext {
 async fn reset(pool: &PgPool) {
     sqlx::query(
         "TRUNCATE observations, evidence, assets, outbox_events, audit_events,
-         idempotency_keys, task_events, tasks, scope_targets, scopes
+         idempotency_keys, task_events, tasks, schedules, scope_targets, scopes
          RESTART IDENTITY CASCADE",
     )
     .execute(pool)

@@ -6,6 +6,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use serde::Deserialize;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use tokio::net::lookup_host;
@@ -37,9 +38,64 @@ impl DnsResolver for SystemDnsResolver {
     }
 }
 
+#[async_trait]
+pub trait CertificateSource: Send + Sync {
+    async fn discover(&self, domain: &str) -> Result<Vec<String>, String>;
+}
+
+pub struct CrtShSource {
+    client: reqwest::Client,
+}
+
+impl CrtShSource {
+    pub fn new() -> Result<Self, reqwest::Error> {
+        Ok(Self {
+            client: reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(15))
+                .user_agent("CyberEdge/0.1 passive-inventory")
+                .build()?,
+        })
+    }
+}
+
+#[derive(Deserialize)]
+struct CrtShEntry {
+    name_value: String,
+}
+
+#[async_trait]
+impl CertificateSource for CrtShSource {
+    async fn discover(&self, domain: &str) -> Result<Vec<String>, String> {
+        let response = self
+            .client
+            .get("https://crt.sh/")
+            .query(&[("q", format!("%.{domain}")), ("output", "json".to_owned())])
+            .send()
+            .await
+            .map_err(|error| error.to_string())?
+            .error_for_status()
+            .map_err(|error| error.to_string())?;
+        let entries = response
+            .json::<Vec<CrtShEntry>>()
+            .await
+            .map_err(|error| error.to_string())?;
+        Ok(entries
+            .into_iter()
+            .flat_map(|entry| {
+                entry
+                    .name_value
+                    .lines()
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>()
+            })
+            .collect())
+    }
+}
+
 pub struct DiscoveryWorker {
     repository: Arc<dyn Repository>,
     resolver: Arc<dyn DnsResolver>,
+    certificate_source: Option<Arc<dyn CertificateSource>>,
 }
 
 impl DiscoveryWorker {
@@ -47,14 +103,23 @@ impl DiscoveryWorker {
         Self {
             repository,
             resolver,
+            certificate_source: None,
         }
+    }
+
+    pub fn with_certificate_source(mut self, source: Arc<dyn CertificateSource>) -> Self {
+        self.certificate_source = Some(source);
+        self
     }
 
     pub async fn run_once(&self) -> Result<bool, RepositoryError> {
         let Some(claimed) = self.repository.claim_task(now()).await? else {
             return Ok(false);
         };
-        if claimed.task.policy_id != "policy_passive_dns" {
+        if !matches!(
+            claimed.task.policy_id.as_str(),
+            "policy_passive_dns" | "policy_passive_inventory"
+        ) {
             self.repository.fail_task(&claimed.task.id, now()).await?;
             return Ok(true);
         }
@@ -65,11 +130,61 @@ impl DiscoveryWorker {
                 self.discover_target(&claimed.task.id, &claimed.scope.id, target)
                     .await,
             );
+            if claimed.task.policy_id == "policy_passive_inventory" {
+                records.extend(
+                    self.discover_certificates(&claimed.task.id, &claimed.scope.id, target)
+                        .await,
+                );
+            }
         }
         self.repository
             .complete_task(&claimed.task.id, records, now())
             .await?;
         Ok(true)
+    }
+
+    async fn discover_certificates(
+        &self,
+        task_id: &str,
+        scope_id: &str,
+        target: &ScopeTarget,
+    ) -> Vec<DiscoveryRecord> {
+        if TargetKind::try_from(target.kind) != Ok(TargetKind::Domain) {
+            return Vec::new();
+        }
+        let Some(source) = &self.certificate_source else {
+            return vec![record(
+                task_id,
+                scope_id,
+                TargetKind::Domain,
+                &target.value,
+                "ct.error",
+                json!({"domain": target.value, "error": "certificate source unavailable"}),
+            )];
+        };
+        match source.discover(&target.value).await {
+            Ok(names) => normalize_certificate_names(&target.value, names)
+                .into_iter()
+                .map(|domain| {
+                    record(
+                        task_id,
+                        scope_id,
+                        TargetKind::Domain,
+                        &domain,
+                        "ct.discovered_domain",
+                        json!({"source": "crt.sh", "root_domain": target.value, "domain": domain}),
+                    )
+                })
+                .collect(),
+            Err(error) => vec![record(
+                task_id,
+                scope_id,
+                TargetKind::Domain,
+                &target.value,
+                "ct.error",
+                json!({"domain": target.value, "error": error}),
+            )],
+        }
     }
 
     async fn discover_target(
@@ -142,6 +257,35 @@ impl DiscoveryWorker {
             )],
         }
     }
+}
+
+const MAX_CERTIFICATE_NAMES: usize = 1_000;
+
+fn normalize_certificate_names(root: &str, names: Vec<String>) -> Vec<String> {
+    let root = root.trim().trim_end_matches('.').to_ascii_lowercase();
+    names
+        .into_iter()
+        .filter_map(|name| {
+            let name = name
+                .trim()
+                .trim_start_matches("*.")
+                .trim_end_matches('.')
+                .to_ascii_lowercase();
+            ((!name.is_empty())
+                && (name == root || name.ends_with(&format!(".{root}")))
+                && name.split('.').all(|label| {
+                    !label.is_empty()
+                        && label.len() <= 63
+                        && label
+                            .bytes()
+                            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+                }))
+            .then_some(name)
+        })
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .take(MAX_CERTIFICATE_NAMES)
+        .collect()
 }
 
 fn record(

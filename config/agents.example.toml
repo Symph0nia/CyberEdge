@@ -8,6 +8,8 @@ capabilities = [
   "scan.passive",
   "task.read",
   "task.cancel",
+  "schedule.manage",
+  "schedule.read",
   "asset.read",
   "evidence.read",
   "report.read",

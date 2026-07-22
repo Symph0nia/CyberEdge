@@ -17,17 +17,19 @@ Use `cyberedge-agent` as the machine bridge to the CyberEdge gRPC contract. Send
 ## Workflow
 
 1. Call `CreateScope` with normalized target kinds and the authorization reference.
-2. Call `StartScan` with capability `scan.passive` and policy `policy_passive_dns`.
+2. Call `StartScan` with capability `scan.passive`. Use `policy_passive_inventory` for broad passive inventory (DNS plus Certificate Transparency), or `policy_passive_dns` when only direct DNS resolution is requested.
 3. Call `WatchTask` from sequence `0`; on reconnect, continue after the last accepted sequence.
 4. Stop when the task reaches `completed`, `failed`, or `canceled`.
 5. Call `GetTaskReport` after `task.completed` to retrieve the deterministic report bundle.
 6. Use `SearchAudit` when the requester needs invocation provenance.
 7. Report only facts linked to evidence. Separate errors and coverage gaps from confirmed absence.
 
+For recurring monitoring, call `CreateSchedule` with the existing scope and passive policy. The minimum interval is 60 seconds. A Schedule never performs discovery itself: each due occurrence creates a normal Task, so follow and report its `last_task_id` through the same task workflow. Use `SearchSchedules` to inspect recurrence state.
+
 Use snake-case action names. Every envelope includes `request_id`, `idempotency_key`, `agent_id`, `skill_name`, and `skill_version`. Example:
 
 ```json
-{"request_id":"req_...","idempotency_key":"idem_...","agent_id":"agent_...","skill_name":"cyberedge-discover-assets","skill_version":"0.1.0","action":"start_scan","scope_id":"scope_...","policy_id":"policy_passive_dns"}
+{"request_id":"req_...","idempotency_key":"idem_...","agent_id":"agent_...","skill_name":"cyberedge-discover-assets","skill_version":"0.1.0","action":"start_scan","scope_id":"scope_...","policy_id":"policy_passive_inventory"}
 ```
 
 Set `CYBEREDGE_RPC_SOCKET` only when the service does not use `/tmp/cyberedge.sock`.

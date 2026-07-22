@@ -10,12 +10,15 @@ use super::{
     ClaimedTask, DiscoveryRecord, Mutation, MutationResult, ReadOverview, Repository,
     RepositoryError,
 };
-use crate::proto::{Asset, AuditEvent, Evidence, Observation, Scope, Task, TaskEvent, TaskState};
+use crate::proto::{
+    Asset, AuditEvent, Evidence, Observation, Schedule, Scope, Task, TaskEvent, TaskState,
+};
 
 #[derive(Default)]
 struct State {
     scopes: HashMap<String, Scope>,
     tasks: HashMap<String, Task>,
+    schedules: HashMap<String, Schedule>,
     events: HashMap<String, Vec<TaskEvent>>,
     idempotency: HashMap<String, (Vec<u8>, String)>,
     assets: HashMap<String, Asset>,
@@ -106,6 +109,91 @@ impl Repository for MemoryRepository {
             .get(task_id)
             .cloned()
             .ok_or(RepositoryError::NotFound("task"))
+    }
+
+    async fn create_schedule(
+        &self,
+        mutation: &Mutation,
+        schedule: Schedule,
+    ) -> Result<MutationResult<Schedule>, RepositoryError> {
+        let mut state = self.state.write().await;
+        if let Some((fingerprint, schedule_id)) = state.idempotency.get(&mutation.key()) {
+            ensure_same(fingerprint, &mutation.fingerprint)?;
+            return Ok(MutationResult {
+                value: state.schedules[schedule_id].clone(),
+                event: None,
+            });
+        }
+        if !state.scopes.contains_key(&schedule.scope_id) {
+            return Err(RepositoryError::NotFound("scope"));
+        }
+        state
+            .schedules
+            .insert(schedule.id.clone(), schedule.clone());
+        state.idempotency.insert(
+            mutation.key(),
+            (mutation.fingerprint.clone(), schedule.id.clone()),
+        );
+        state
+            .audits
+            .push(audit_event(mutation, "schedule", &schedule.id));
+        Ok(MutationResult {
+            value: schedule,
+            event: None,
+        })
+    }
+
+    async fn search_schedules(&self, scope_id: &str) -> Result<Vec<Schedule>, RepositoryError> {
+        let state = self.state.read().await;
+        if !state.scopes.contains_key(scope_id) {
+            return Err(RepositoryError::NotFound("scope"));
+        }
+        Ok(state
+            .schedules
+            .values()
+            .filter(|schedule| schedule.scope_id == scope_id)
+            .cloned()
+            .collect())
+    }
+
+    async fn enqueue_due_schedules(
+        &self,
+        timestamp: prost_types::Timestamp,
+    ) -> Result<Vec<Task>, RepositoryError> {
+        let mut state = self.state.write().await;
+        let due = state
+            .schedules
+            .values()
+            .filter(|schedule| {
+                schedule.enabled
+                    && schedule.next_run_at.is_some_and(|next| {
+                        (next.seconds, next.nanos) <= (timestamp.seconds, timestamp.nanos)
+                    })
+            })
+            .map(|schedule| schedule.id.clone())
+            .collect::<Vec<_>>();
+        let mut tasks = Vec::with_capacity(due.len());
+        for schedule_id in due {
+            let schedule = state.schedules.get_mut(&schedule_id).unwrap();
+            let task = scheduled_task(schedule, timestamp);
+            schedule.last_task_id = task.id.clone();
+            schedule.next_run_at = Some(prost_types::Timestamp {
+                seconds: timestamp.seconds + schedule.interval_seconds as i64,
+                nanos: timestamp.nanos,
+            });
+            state.events.insert(
+                task.id.clone(),
+                vec![TaskEvent {
+                    task_id: task.id.clone(),
+                    sequence: 1,
+                    event_type: "task.queued".to_owned(),
+                    occurred_at: Some(timestamp),
+                }],
+            );
+            state.tasks.insert(task.id.clone(), task.clone());
+            tasks.push(task);
+        }
+        Ok(tasks)
     }
 
     async fn task_events(
@@ -281,9 +369,11 @@ impl Repository for MemoryRepository {
             scopes: state.scopes.values().cloned().collect(),
             tasks: state.tasks.values().cloned().collect(),
             assets: state.assets.values().cloned().collect(),
+            schedules: state.schedules.values().cloned().collect(),
             scope_count: state.scopes.len() as i64,
             task_count: state.tasks.len() as i64,
             asset_count: state.assets.len() as i64,
+            schedule_count: state.schedules.len() as i64,
             observation_count: state.observations.len() as i64,
             evidence_count: state.evidence.len() as i64,
             audit_events: state.audits.iter().rev().take(50).cloned().collect(),
@@ -319,6 +409,17 @@ fn audit_event(mutation: &Mutation, resource_kind: &str, resource_id: &str) -> A
             seconds: duration.as_secs() as i64,
             nanos: duration.subsec_nanos() as i32,
         }),
+    }
+}
+
+fn scheduled_task(schedule: &Schedule, timestamp: prost_types::Timestamp) -> Task {
+    Task {
+        id: format!("task_{}", uuid::Uuid::now_v7()),
+        scope_id: schedule.scope_id.clone(),
+        policy_id: schedule.policy_id.clone(),
+        state: TaskState::Queued.into(),
+        created_at: Some(timestamp),
+        updated_at: Some(timestamp),
     }
 }
 

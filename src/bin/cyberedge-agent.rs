@@ -6,10 +6,10 @@ use std::{
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 use cyberedge::proto::{
-    CancelTaskRequest, CreateScopeRequest, ErrorDetail, GetEvidenceRequest, GetScopeRequest,
-    GetTaskReportRequest, GetTaskRequest, InvocationContext, ScopeTarget, SearchAssetsRequest,
-    SearchAuditRequest, SearchObservationsRequest, StartScanRequest, TargetKind, WatchTaskRequest,
-    cyber_edge_client::CyberEdgeClient,
+    CancelTaskRequest, CreateScheduleRequest, CreateScopeRequest, ErrorDetail, GetEvidenceRequest,
+    GetScopeRequest, GetTaskReportRequest, GetTaskRequest, InvocationContext, ScopeTarget,
+    SearchAssetsRequest, SearchAuditRequest, SearchObservationsRequest, SearchSchedulesRequest,
+    StartScanRequest, TargetKind, WatchTaskRequest, cyber_edge_client::CyberEdgeClient,
 };
 use hyper_util::rt::TokioIo;
 use prost::Message;
@@ -59,6 +59,14 @@ enum Command {
     },
     CancelTask {
         task_id: String,
+    },
+    CreateSchedule {
+        scope_id: String,
+        policy_id: String,
+        interval_seconds: u64,
+    },
+    SearchSchedules {
+        scope_id: String,
     },
     SearchAssets {
         scope_id: String,
@@ -181,6 +189,35 @@ async fn run() -> Result<(), Value> {
                 .map_err(rpc_error)?
                 .into_inner();
             emit(task_json(value));
+        }
+        Command::CreateSchedule {
+            scope_id,
+            policy_id,
+            interval_seconds,
+        } => {
+            let value = client
+                .create_schedule(CreateScheduleRequest {
+                    context,
+                    scope_id,
+                    policy_id,
+                    interval_seconds,
+                })
+                .await
+                .map_err(rpc_error)?
+                .into_inner();
+            emit(schedule_json(value));
+        }
+        Command::SearchSchedules { scope_id } => {
+            let values = client
+                .search_schedules(SearchSchedulesRequest { context, scope_id })
+                .await
+                .map_err(rpc_error)?
+                .into_inner()
+                .schedules
+                .into_iter()
+                .map(schedule_json)
+                .collect::<Vec<_>>();
+            emit(json!({"schedules": values}));
         }
         Command::SearchAssets { scope_id } => {
             let values = client
@@ -323,6 +360,13 @@ fn task_json(value: cyberedge::proto::Task) -> Value {
     json!({"id": value.id, "scope_id": value.scope_id, "policy_id": value.policy_id,
         "state": value.state, "created_at": timestamp_json(value.created_at),
         "updated_at": timestamp_json(value.updated_at)})
+}
+
+fn schedule_json(value: cyberedge::proto::Schedule) -> Value {
+    json!({"id": value.id, "scope_id": value.scope_id, "policy_id": value.policy_id,
+        "interval_seconds": value.interval_seconds, "enabled": value.enabled,
+        "next_run_at": timestamp_json(value.next_run_at), "last_task_id": value.last_task_id,
+        "created_at": timestamp_json(value.created_at)})
 }
 
 fn asset_json(value: cyberedge::proto::Asset) -> Value {

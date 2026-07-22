@@ -4,7 +4,7 @@ mod postgres;
 use async_trait::async_trait;
 
 use crate::proto::{
-    Asset, AuditEvent, Evidence, InvocationContext, Observation, Scope, Task, TaskEvent,
+    Asset, AuditEvent, Evidence, InvocationContext, Observation, Schedule, Scope, Task, TaskEvent,
 };
 
 pub use memory::MemoryRepository;
@@ -46,9 +46,11 @@ pub struct ReadOverview {
     pub scopes: Vec<Scope>,
     pub tasks: Vec<Task>,
     pub assets: Vec<Asset>,
+    pub schedules: Vec<Schedule>,
     pub scope_count: i64,
     pub task_count: i64,
     pub asset_count: i64,
+    pub schedule_count: i64,
     pub observation_count: i64,
     pub evidence_count: i64,
     pub audit_events: Vec<AuditEvent>,
@@ -86,6 +88,19 @@ pub trait Repository: Send + Sync {
     ) -> Result<MutationResult<Task>, RepositoryError>;
 
     async fn get_task(&self, task_id: &str) -> Result<Task, RepositoryError>;
+
+    async fn create_schedule(
+        &self,
+        mutation: &Mutation,
+        schedule: Schedule,
+    ) -> Result<MutationResult<Schedule>, RepositoryError>;
+
+    async fn search_schedules(&self, scope_id: &str) -> Result<Vec<Schedule>, RepositoryError>;
+
+    async fn enqueue_due_schedules(
+        &self,
+        timestamp: prost_types::Timestamp,
+    ) -> Result<Vec<Task>, RepositoryError>;
 
     async fn task_events(
         &self,

@@ -13,12 +13,14 @@ type Stamp = { seconds: number; nanos: number } | null
 type Scope = { id: string; name: string; authorization_ref: string; targets: { kind: number; value: string }[]; created_at: Stamp }
 type Task = { id: string; scope_id: string; policy_id: string; state: number; created_at: Stamp; updated_at: Stamp }
 type Asset = { id: string; scope_id: string; kind: number; value: string; first_seen_at: Stamp; last_seen_at: Stamp }
+type Schedule = { id: string; scope_id: string; policy_id: string; interval_seconds: number; enabled: boolean; next_run_at: Stamp; last_task_id: string; created_at: Stamp }
 type AuditEvent = { id: string; request_id: string; operation: string; agent_id: string; skill_name: string; skill_version: string; resource_id: string; occurred_at: Stamp }
 type Overview = {
-  counts: { scopes: number; tasks: number; assets: number; observations: number; evidence: number }
+  counts: { scopes: number; tasks: number; assets: number; schedules: number; observations: number; evidence: number }
   scopes: Scope[]
   tasks: Task[]
   assets: Asset[]
+  schedules: Schedule[]
   audit_events: AuditEvent[]
 }
 
@@ -65,6 +67,7 @@ function App() {
           <SideNavLink href="#overview" renderIcon={Dashboard}>Overview</SideNavLink>
           <SideNavLink href="#assets" renderIcon={Network_3}>Assets</SideNavLink>
           <SideNavLink href="#tasks" renderIcon={TaskIcon}>Tasks</SideNavLink>
+          <SideNavLink href="#monitoring" renderIcon={DataVis_1}>Monitoring</SideNavLink>
           <SideNavLink href="#evidence" renderIcon={DocumentSecurity}>Evidence</SideNavLink>
           <SideNavLink href="#audit" renderIcon={DocumentSecurity}>Audit</SideNavLink>
           <SideNavLink href="#coverage" renderIcon={DataVis_1}>Coverage</SideNavLink>
@@ -99,6 +102,11 @@ function App() {
             <section id="tasks" className="data-section" aria-labelledby="tasks-title">
               <div className="section-heading"><div><p className="section-label">Execution</p><h2 id="tasks-title">Task history</h2></div></div>
               <TaskTable tasks={data.tasks} />
+            </section>
+
+            <section id="monitoring" className="data-section" aria-labelledby="monitoring-title">
+              <div className="section-heading"><div><p className="section-label">Recurring observation</p><h2 id="monitoring-title">Monitoring schedules</h2></div></div>
+              <ScheduleTable schedules={data.schedules} />
             </section>
 
             <section id="audit" className="data-section" aria-labelledby="audit-title">
@@ -168,6 +176,20 @@ function TaskTable({ tasks }: { tasks: Task[] }) {
   </Table></TableContainer>
 }
 
+function ScheduleTable({ schedules }: { schedules: Schedule[] }) {
+  if (schedules.length === 0) return <Empty text="No recurring discovery schedules have been recorded." />
+  return <TableContainer><Table size="lg">
+    <TableHead><TableRow><TableHeader>Schedule</TableHeader><TableHeader>Policy</TableHeader><TableHeader>Cadence</TableHeader><TableHeader>Next run</TableHeader><TableHeader>Last task</TableHeader></TableRow></TableHead>
+    <TableBody>{schedules.map((schedule) => <TableRow key={schedule.id}>
+      <TableCell><code>{schedule.id}</code></TableCell>
+      <TableCell>{schedule.policy_id}</TableCell>
+      <TableCell><Tag type={schedule.enabled ? 'green' : 'gray'}>{schedule.enabled ? `Every ${formatInterval(schedule.interval_seconds)}` : 'Disabled'}</Tag></TableCell>
+      <TableCell>{formatTime(schedule.next_run_at)}</TableCell>
+      <TableCell><code>{schedule.last_task_id ? shortId(schedule.last_task_id) : 'Not run'}</code></TableCell>
+    </TableRow>)}</TableBody>
+  </Table></TableContainer>
+}
+
 function AuditTable({ events }: { events: AuditEvent[] }) {
   if (events.length === 0) return <Empty text="No Agent mutations have been audited." />
   return <TableContainer><Table size="lg">
@@ -191,6 +213,12 @@ function Empty({ text }: { text: string }) {
 
 function shortId(value: string) { return value.length > 22 ? `${value.slice(0, 18)}...` : value }
 function formatNumber(value: number) { return new Intl.NumberFormat('en-US').format(value) }
+function formatInterval(seconds: number) {
+  if (seconds % 86400 === 0) return `${seconds / 86400}d`
+  if (seconds % 3600 === 0) return `${seconds / 3600}h`
+  if (seconds % 60 === 0) return `${seconds / 60}m`
+  return `${seconds}s`
+}
 function formatTime(stamp: Stamp) {
   if (!stamp) return 'Unknown'
   return new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'medium' }).format(new Date(stamp.seconds * 1000))

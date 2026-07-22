@@ -1,3 +1,4 @@
+use prost_types::Timestamp;
 use std::{
     env, io,
     os::unix::fs::FileTypeExt,
@@ -6,8 +7,8 @@ use std::{
 };
 
 use cyberedge::{
-    CyberEdgeService, DiscoveryWorker, PostgresRepository, StaticAuthorizer, SystemDnsResolver,
-    serve_read_only_web,
+    CrtShSource, CyberEdgeService, DiscoveryWorker, PostgresRepository, Repository,
+    StaticAuthorizer, SystemDnsResolver, serve_read_only_web,
 };
 use tokio::{net::UnixListener, signal};
 use tokio_stream::wrappers::UnixListenerStream;
@@ -29,7 +30,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     })?;
     let repository = Arc::new(PostgresRepository::connect(&database_url).await?);
     let authorizer = Arc::new(StaticAuthorizer::load(policy_path)?);
-    let discovery = DiscoveryWorker::new(repository.clone(), Arc::new(SystemDnsResolver));
+    let discovery = DiscoveryWorker::new(repository.clone(), Arc::new(SystemDnsResolver))
+        .with_certificate_source(Arc::new(CrtShSource::new()?));
+    let scheduler_repository = repository.clone();
+    let scheduler = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
+        loop {
+            interval.tick().await;
+            let duration = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time must be after Unix epoch");
+            let timestamp = Timestamp {
+                seconds: duration.as_secs() as i64,
+                nanos: duration.subsec_nanos() as i32,
+            };
+            if let Err(error) = scheduler_repository.enqueue_due_schedules(timestamp).await {
+                eprintln!("schedule worker error: {error}");
+            }
+        }
+    });
     let worker = tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_millis(500));
         loop {
@@ -85,6 +104,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await?;
     }
     worker.abort();
+    scheduler.abort();
     if let Some(web) = web {
         web.abort();
     }
