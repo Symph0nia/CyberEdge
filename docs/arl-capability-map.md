@@ -28,7 +28,7 @@ CyberEdge copies neither repository's code, database shape, Web workflow, nor op
 | GitHub leak and CVE monitoring | Threat intelligence adapters | 4 | Bounded GitHub public-code reference monitoring and exact evidence-backed CPE-to-NVD CVE correlation implemented |
 | ICP and enterprise relationship lookup | Organization Asset adapter | 4 | Licensed provider-neutral HTTPS/UDS adapter implemented with explicit coverage and personal-data redaction |
 | Notifications | Event sink adapters | 3 | Reliable webhook outbox delivery implemented |
-| Dashboard and drill-down | Read-only Web projection | 1-3 | Overview, inventory, Task, Scope, evidence count, and audit complete |
+| Dashboard and drill-down | Read-only Web projection | 1-3 | OIDC-protected enterprise observer complete with URL-addressable overview, inventory, Findings, Tasks, monitoring and audit views; global search, filters, local saved views, relationship drill-down, Observation timelines, role-gated Evidence, sensitive-field redaction and read-only JSON export |
 | MCP integration | Skill and machine RPC bridge | 1 | Native Skill plus gRPC/JSON bridge complete; MCP compatibility is optional |
 
 ## Deliberate differences
