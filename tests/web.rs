@@ -67,6 +67,7 @@ async fn web_requires_valid_oidc_roles_and_separates_evidence_access() {
         "roles".to_owned(),
         "cyberedge.read".to_owned(),
         "cyberedge.evidence.read".to_owned(),
+        "cyberedge.sensitive.read".to_owned(),
         jwks,
     )));
     let app = read_only_router(

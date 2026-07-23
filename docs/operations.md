@@ -117,7 +117,7 @@ The Web has no mutation routes, but read-only does not mean public. Network-boun
 
 CyberEdge validates the Bearer JWT signature against the configured JWKS and requires `exp`, `iss`, `aud`, and `sub`. Only `RS256` is accepted. Redirects are disabled while fetching JWKS, the request times out after ten seconds, and the document is capped at 1 MiB. Keys are loaded at startup; restart CyberEdge after an IdP signing-key rotation.
 
-The role claim defaults to `roles`. `cyberedge.read` grants the read-only UI and inventory APIs; raw Evidence additionally requires `cyberedge.evidence.read`. Override these names with `CYBEREDGE_WEB_ROLE_CLAIM`, `CYBEREDGE_WEB_READ_ROLE`, and `CYBEREDGE_WEB_EVIDENCE_ROLE`. A reverse proxy may perform the browser login flow, but it must forward the signed token as `Authorization: Bearer`; unsigned identity headers are never trusted.
+The role claim defaults to `roles`. `cyberedge.read` grants the read-only UI and inventory APIs; raw Evidence additionally requires `cyberedge.evidence.read`. Scope authorization references and Audit request, Agent, and Skill identities are omitted unless the token also has `cyberedge.sensitive.read`. Override these names with `CYBEREDGE_WEB_ROLE_CLAIM`, `CYBEREDGE_WEB_READ_ROLE`, `CYBEREDGE_WEB_EVIDENCE_ROLE`, and `CYBEREDGE_WEB_SENSITIVE_ROLE`. A reverse proxy may perform the browser login flow, but it must forward the signed token as `Authorization: Bearer`; unsigned identity headers are never trusted.
 
 Start the authenticated container projection with:
 

@@ -9,5 +9,6 @@ services:
       CYBEREDGE_WEB_ROLE_CLAIM: ${CYBEREDGE_WEB_ROLE_CLAIM:-roles}
       CYBEREDGE_WEB_READ_ROLE: ${CYBEREDGE_WEB_READ_ROLE:-cyberedge.read}
       CYBEREDGE_WEB_EVIDENCE_ROLE: ${CYBEREDGE_WEB_EVIDENCE_ROLE:-cyberedge.evidence.read}
+      CYBEREDGE_WEB_SENSITIVE_ROLE: ${CYBEREDGE_WEB_SENSITIVE_ROLE:-cyberedge.sensitive.read}
     ports:
       - 127.0.0.1:8080:8080

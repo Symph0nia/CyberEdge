@@ -2,7 +2,7 @@ use std::{env, net::SocketAddr, path::PathBuf, sync::Arc};
 
 use axum::{
     Json, Router,
-    extract::{Path, Request, State},
+    extract::{Extension, Path, Request, State},
     http::{HeaderName, HeaderValue, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -42,12 +42,14 @@ pub struct OidcAccess {
     role_claim: String,
     read_role: String,
     evidence_role: String,
+    sensitive_role: String,
     jwks: JwkSet,
 }
 
 #[derive(Clone)]
 struct WebPrincipal {
     roles: Vec<String>,
+    sensitive: bool,
 }
 
 struct WebAuthFailure {
@@ -113,6 +115,8 @@ impl WebAccess {
                 env::var("CYBEREDGE_WEB_READ_ROLE").unwrap_or_else(|_| "cyberedge.read".to_owned()),
                 env::var("CYBEREDGE_WEB_EVIDENCE_ROLE")
                     .unwrap_or_else(|_| "cyberedge.evidence.read".to_owned()),
+                env::var("CYBEREDGE_WEB_SENSITIVE_ROLE")
+                    .unwrap_or_else(|_| "cyberedge.sensitive.read".to_owned()),
                 serde_json::from_slice(&bytes)?,
             ))));
         }
@@ -133,6 +137,7 @@ impl OidcAccess {
         role_claim: String,
         read_role: String,
         evidence_role: String,
+        sensitive_role: String,
         jwks: JwkSet,
     ) -> Self {
         Self {
@@ -141,6 +146,7 @@ impl OidcAccess {
             role_claim,
             read_role,
             evidence_role,
+            sensitive_role,
             jwks,
         }
     }
@@ -196,21 +202,31 @@ async fn authorize_web(
     mut request: Request,
     next: Next,
 ) -> Response {
-    let principal = match access {
+    let mut principal = match access {
         WebAccess::InsecureLocal => WebPrincipal {
             roles: vec![
                 "cyberedge.read".to_owned(),
                 "cyberedge.evidence.read".to_owned(),
+                "cyberedge.sensitive.read".to_owned(),
             ],
+            sensitive: true,
         },
         WebAccess::Oidc(ref config) => match oidc_principal(&request, config) {
             Ok(principal) => principal,
             Err(error) => return web_auth_error(error.status, error.message),
         },
     };
-    let (read_role, evidence_role) = match &access {
-        WebAccess::Oidc(config) => (config.read_role.as_str(), config.evidence_role.as_str()),
-        WebAccess::InsecureLocal => ("cyberedge.read", "cyberedge.evidence.read"),
+    let (read_role, evidence_role, sensitive_role) = match &access {
+        WebAccess::Oidc(config) => (
+            config.read_role.as_str(),
+            config.evidence_role.as_str(),
+            config.sensitive_role.as_str(),
+        ),
+        WebAccess::InsecureLocal => (
+            "cyberedge.read",
+            "cyberedge.evidence.read",
+            "cyberedge.sensitive.read",
+        ),
     };
     if !principal.roles.iter().any(|role| role == read_role) {
         return web_auth_error(StatusCode::FORBIDDEN, "required read-only role is missing");
@@ -220,6 +236,7 @@ async fn authorize_web(
     {
         return web_auth_error(StatusCode::FORBIDDEN, "required Evidence role is missing");
     }
+    principal.sensitive = principal.roles.iter().any(|role| role == sensitive_role);
     request.extensions_mut().insert(principal);
     next.run(request).await
 }
@@ -266,7 +283,10 @@ fn oidc_principal(request: &Request, config: &OidcAccess) -> Result<WebPrincipal
             "token role claim is missing or invalid",
         )
     })?;
-    Ok(WebPrincipal { roles })
+    Ok(WebPrincipal {
+        roles,
+        sensitive: false,
+    })
 }
 
 fn auth_failure(status: StatusCode, message: &'static str) -> WebAuthFailure {
@@ -295,8 +315,12 @@ async fn api_not_found() -> (StatusCode, Json<Value>) {
     )
 }
 
-async fn overview(State(state): State<WebState>) -> Result<Json<Value>, WebError> {
+async fn overview(
+    State(state): State<WebState>,
+    Extension(principal): Extension<WebPrincipal>,
+) -> Result<Json<Value>, WebError> {
     let model = state.repository.read_overview().await.map_err(WebError)?;
+    let show_sensitive = principal.sensitive;
     Ok(Json(json!({
         "counts": {"scopes": model.scope_count, "tasks": model.task_count,
             "assets": model.asset_count, "schedules": model.schedule_count,
@@ -311,7 +335,7 @@ async fn overview(State(state): State<WebState>) -> Result<Json<Value>, WebError
             "notifications_pending": model.notification_pending_count,
             "notifications_delivered": model.notification_delivered_count,
             "notifications_dead_letter": model.notification_dead_letter_count},
-        "scopes": model.scopes.into_iter().map(scope_json).collect::<Vec<_>>(),
+        "scopes": model.scopes.into_iter().map(|scope| scope_json(scope, show_sensitive)).collect::<Vec<_>>(),
         "tasks": model.tasks.into_iter().map(task_json).collect::<Vec<_>>(),
         "assets": model.assets.into_iter().map(asset_json).collect::<Vec<_>>(),
         "schedules": model.schedules.into_iter().map(schedule_json).collect::<Vec<_>>(),
@@ -321,12 +345,8 @@ async fn overview(State(state): State<WebState>) -> Result<Json<Value>, WebError
         "certificates": model.certificates.into_iter().map(certificate_json).collect::<Vec<_>>(),
         "websites": model.websites.into_iter().map(website_json).collect::<Vec<_>>(),
         "findings": model.findings.into_iter().map(finding_json).collect::<Vec<_>>(),
-        "audit_events": model.audit_events.into_iter().map(|event| json!({
-            "id": event.id, "request_id": event.request_id, "operation": event.operation,
-            "agent_id": event.agent_id, "skill_name": event.skill_name,
-            "skill_version": event.skill_version, "resource_kind": event.resource_kind,
-            "resource_id": event.resource_id, "occurred_at": timestamp(event.occurred_at)
-        })).collect::<Vec<_>>()
+        "audit_events": model.audit_events.into_iter()
+            .map(|event| audit_json(event, show_sensitive)).collect::<Vec<_>>()
     })))
 }
 
@@ -448,10 +468,29 @@ async fn evidence(
     ))
 }
 
-fn scope_json(scope: Scope) -> Value {
-    json!({"id": scope.id, "name": scope.name, "authorization_ref": scope.authorization_ref,
+fn scope_json(scope: Scope, show_sensitive: bool) -> Value {
+    let mut value = json!({"id": scope.id, "name": scope.name,
         "targets": scope.targets.into_iter().map(|target| json!({"kind": target.kind, "value": target.value})).collect::<Vec<_>>(),
-        "created_at": timestamp(scope.created_at)})
+        "created_at": timestamp(scope.created_at)});
+    if show_sensitive {
+        value["authorization_ref"] = Value::String(scope.authorization_ref);
+    }
+    value
+}
+
+fn audit_json(event: crate::proto::AuditEvent, show_sensitive: bool) -> Value {
+    let mut value = json!({
+        "id": event.id, "operation": event.operation,
+        "resource_kind": event.resource_kind, "resource_id": event.resource_id,
+        "occurred_at": timestamp(event.occurred_at)
+    });
+    if show_sensitive {
+        value["request_id"] = Value::String(event.request_id);
+        value["agent_id"] = Value::String(event.agent_id);
+        value["skill_name"] = Value::String(event.skill_name);
+        value["skill_version"] = Value::String(event.skill_version);
+    }
+    value
 }
 
 fn task_json(task: Task) -> Value {
@@ -547,5 +586,49 @@ impl axum::response::IntoResponse for WebError {
             Json(json!({"error": status.canonical_reason().unwrap_or("request failed")})),
         )
             .into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{audit_json, scope_json};
+    use crate::proto::{AuditEvent, Scope, ScopeTarget, TargetKind};
+
+    #[test]
+    fn sensitive_scope_and_audit_fields_require_explicit_projection_access() {
+        let scope = Scope {
+            id: "scope-1".to_owned(),
+            name: "Example".to_owned(),
+            authorization_ref: "change-secret".to_owned(),
+            targets: vec![ScopeTarget {
+                kind: TargetKind::Domain.into(),
+                value: "example.com".to_owned(),
+            }],
+            created_at: None,
+        };
+        let audit = AuditEvent {
+            id: "audit-1".to_owned(),
+            request_id: "request-secret".to_owned(),
+            operation: "CreateScope".to_owned(),
+            agent_id: "agent-secret".to_owned(),
+            skill_name: "skill-secret".to_owned(),
+            skill_version: "1.0.0".to_owned(),
+            resource_kind: "scope".to_owned(),
+            resource_id: "scope-1".to_owned(),
+            occurred_at: None,
+        };
+
+        let redacted_scope = scope_json(scope.clone(), false);
+        let redacted_audit = audit_json(audit.clone(), false);
+        assert!(redacted_scope.get("authorization_ref").is_none());
+        assert!(redacted_audit.get("request_id").is_none());
+        assert!(redacted_audit.get("agent_id").is_none());
+        assert!(redacted_audit.get("skill_name").is_none());
+
+        assert_eq!(
+            scope_json(scope, true)["authorization_ref"],
+            "change-secret"
+        );
+        assert_eq!(audit_json(audit, true)["agent_id"], "agent-secret");
     }
 }
