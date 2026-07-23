@@ -3,6 +3,8 @@ name = "cyberedge"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.97.1"
+license = "Apache-2.0"
+repository = "https://github.com/Symph0nia/CyberEdge"
 build = "build.rs"
 
 [dependencies]

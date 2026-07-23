@@ -1,0 +1,35 @@
+name: Bug report
+description: Report a reproducible CyberEdge defect
+title: "bug: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Do not disclose vulnerabilities here. Follow SECURITY.md instead.
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Observed behavior
+      description: Describe what happened and include sanitized logs or protocol output.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Use authorized test targets only. Remove secrets, personal data, and customer evidence.
+    validations:
+      required: true
+  - type: input
+    id: revision
+    attributes:
+      label: Revision
+      placeholder: Commit SHA or release
+    validations:
+      required: true

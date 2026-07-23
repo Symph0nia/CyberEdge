@@ -1,0 +1,26 @@
+name: Feature proposal
+description: Propose a focused capability or architectural change
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Describe the real operator or observation problem, not only a preferred implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: boundary
+    attributes:
+      label: AI-only and authorization boundary
+      description: Explain capabilities, Scope validation, evidence retention, and why no human mutation surface is needed.
+    validations:
+      required: true
+  - type: textarea
+    id: contract
+    attributes:
+      label: Proposed machine contract
+      description: Identify affected RPCs, schemas, Skills, adapters, or read projections.
+    validations:
+      required: true

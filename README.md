@@ -33,3 +33,7 @@ For a local self-hosted deployment:
 ```bash
 docker compose up --build -d
 ```
+
+## Contributing and license
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before proposing changes and report vulnerabilities through the process in [SECURITY.md](SECURITY.md). CyberEdge is licensed under the [Apache License 2.0](LICENSE).
