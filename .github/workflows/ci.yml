@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: cyberedge_test
+          POSTGRES_USER: cyberedge
+          POSTGRES_PASSWORD: cyberedge_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cyberedge -d cyberedge_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgres://cyberedge:cyberedge_test@127.0.0.1:5432/cyberedge_test
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
+          rustup default 1.97.1
+      - name: Check Rust formatting
+        run: cargo fmt --check
+      - name: Lint Rust
+        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: Test Rust and PostgreSQL integration
+        run: cargo test --all-targets --all-features
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install Web dependencies
+        run: npm --prefix web ci
+      - name: Build Web
+        run: npm --prefix web run build
+      - name: Validate Compose model
+        env:
+          CYBEREDGE_WEB_OIDC_ISSUER: https://identity.example
+          CYBEREDGE_WEB_OIDC_AUDIENCE: cyberedge-web
+          CYBEREDGE_WEB_OIDC_JWKS_URL: https://identity.example/.well-known/jwks.json
+        run: docker compose -f compose.yaml -f compose.web.yaml config --quiet
