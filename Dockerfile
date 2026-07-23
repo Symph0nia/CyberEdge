@@ -18,7 +18,7 @@ RUN --mount=type=cache,id=cyberedge-cargo-registry,target=/usr/local/cargo/regis
     --mount=type=cache,id=cyberedge-cargo-target,target=/build/target \
     cargo build --release --bins \
     && mkdir -p /out \
-    && cp target/release/cyberedge target/release/cyberedge-agent target/release/cyberedge-renderer /out/
+    && cp target/release/cyberedge target/release/cyberedge-agent target/release/cyberedge-renderer target/release/cyberedge-nuclei-adapter /out/
 
 FROM debian:bookworm-slim AS renderer
 RUN apt-get -o Acquire::Retries=5 update \
@@ -34,11 +34,24 @@ COPY --from=rust-builder /out/cyberedge-renderer /usr/local/bin/cyberedge-render
 USER 65532:65532
 ENTRYPOINT ["cyberedge-renderer"]
 
+FROM projectdiscovery/nuclei:v3.11.0@sha256:e677842fb1f50f29747565ba274a1d35dcf8c684132a42b0cb406e71fccae9fc AS nuclei-upstream
+
+FROM debian:bookworm-slim AS nuclei-adapter
+RUN apt-get -o Acquire::Retries=5 update \
+    && apt-get -o Acquire::Retries=5 install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && install -d -o 65532 -g 65532 /run/cyberedge-nuclei
+COPY --from=nuclei-upstream /usr/local/bin/nuclei /usr/local/bin/nuclei
+COPY --from=rust-builder /out/cyberedge-nuclei-adapter /usr/local/bin/cyberedge-nuclei-adapter
+USER 65532:65532
+ENTRYPOINT ["cyberedge-nuclei-adapter"]
+
 FROM debian:bookworm-slim AS core
 RUN apt-get -o Acquire::Retries=5 update \
     && apt-get -o Acquire::Retries=5 install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 RUN install -d -o 65532 -g 65532 /run/cyberedge-renderer
+RUN install -d -o 65532 -g 65532 /run/cyberedge-nuclei
 WORKDIR /opt/cyberedge
 COPY --from=rust-builder /out/cyberedge /usr/local/bin/cyberedge
 COPY --from=rust-builder /out/cyberedge-agent /usr/local/bin/cyberedge-agent

@@ -1,0 +1,4 @@
+interface:
+  display_name: "CyberEdge Scan Vulnerabilities"
+  short_description: "Run bounded evidence-backed vulnerability scans"
+  default_prompt: "Use $cyberedge-scan-vulnerabilities to run the reviewed vulnerability baseline for an authorized CyberEdge scope."

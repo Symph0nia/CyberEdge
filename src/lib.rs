@@ -3,6 +3,7 @@ pub mod proto {
 }
 
 mod notification;
+mod nuclei;
 mod policy;
 mod repository;
 mod service;
@@ -10,6 +11,7 @@ mod web;
 mod worker;
 
 pub use notification::{NotificationDispatcher, NotificationSink, WebhookSink};
+pub use nuclei::{NucleiProbe, SocketNucleiProbe, SystemNucleiProbe};
 pub use policy::{Authorizer, PolicyError, StaticAuthorizer};
 pub use repository::{
     MemoryRepository, OutboxEvent, PostgresRepository, Repository, RepositoryError,

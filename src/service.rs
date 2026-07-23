@@ -800,13 +800,16 @@ fn validate_policy(policy_id: &str) -> Result<(), Status> {
     required("policy_id", policy_id)?;
     if matches!(
         policy_id,
-        "policy_passive_dns" | "policy_passive_inventory" | "policy_service_baseline"
+        "policy_passive_dns"
+            | "policy_passive_inventory"
+            | "policy_service_baseline"
+            | "policy_vulnerability_baseline"
     ) {
         return Ok(());
     }
     Err(invalid(
         "POLICY_UNSUPPORTED",
-        "supported policies: policy_passive_dns, policy_passive_inventory, policy_service_baseline",
+        "supported policies: policy_passive_dns, policy_passive_inventory, policy_service_baseline, policy_vulnerability_baseline",
     ))
 }
 
@@ -814,6 +817,7 @@ fn policy_capability(policy_id: &str) -> Result<&'static str, Status> {
     validate_policy(policy_id)?;
     Ok(match policy_id {
         "policy_service_baseline" => "scan.active",
+        "policy_vulnerability_baseline" => "scan.vulnerability",
         _ => "scan.passive",
     })
 }

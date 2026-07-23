@@ -8,8 +8,8 @@ use std::{
 
 use async_trait::async_trait;
 use cyberedge::{
-    Authorizer, CertificateProbe, CyberEdgeService, DiscoveryWorker, DnsResolver, PortConnector,
-    PostgresRepository, Repository, ScreenshotProbe, WebSnapshot, WebsiteProbe,
+    Authorizer, CertificateProbe, CyberEdgeService, DiscoveryWorker, DnsResolver, NucleiProbe,
+    PortConnector, PostgresRepository, Repository, ScreenshotProbe, WebSnapshot, WebsiteProbe,
     proto::{
         AssetChangeKind, CreateScheduleRequest, CreateScopeRequest, ExposureChangeKind,
         FindingSeverity, FindingState, GetTaskReportRequest, GetTaskRequest, InvocationContext,
@@ -33,6 +33,7 @@ struct TestWebsite;
 struct TestScreenshot;
 struct ChangingWebsite(AtomicUsize);
 struct CyclingDirectoryWebsite(AtomicUsize);
+struct CyclingNuclei(AtomicUsize);
 
 #[async_trait]
 impl DnsResolver for Resolver {
@@ -159,6 +160,23 @@ impl WebsiteProbe for CyclingDirectoryWebsite {
             content_type: "text/html".to_owned(),
             body: body.to_vec(),
         })
+    }
+}
+
+#[async_trait]
+impl NucleiProbe for CyclingNuclei {
+    async fn scan(&self, targets: &[String]) -> Result<Vec<u8>, String> {
+        if self.0.fetch_add(1, Ordering::SeqCst) == 1 {
+            return Ok(Vec::new());
+        }
+        Ok(serde_json::to_vec(&serde_json::json!({
+            "template-id": "postgres-nuclei-test",
+            "type": "http",
+            "host": targets[0],
+            "matched-at": targets[0],
+            "info": {"name": "Postgres Nuclei test", "severity": "medium"}
+        }))
+        .unwrap())
     }
 }
 
@@ -548,6 +566,56 @@ async fn persists_scope_task_events_audit_and_outbox() {
         }
         assert_eq!(findings[0].id, finding_id);
         assert_eq!(findings[0].state, i32::from(expected_state));
+    }
+
+    let nuclei_scope = restarted
+        .create_scope(Request::new(CreateScopeRequest {
+            context: Some(context("nuclei-scope")),
+            name: "Nuclei lifecycle".to_owned(),
+            authorization_ref: "authorization:postgres-test".to_owned(),
+            targets: vec![ScopeTarget {
+                kind: TargetKind::Ip.into(),
+                value: "127.0.0.3".to_owned(),
+            }],
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let nuclei_worker = DiscoveryWorker::new(repository, Arc::new(Resolver(AtomicUsize::new(0))))
+        .with_port_connector(Arc::new(OpenConnector), vec![443])
+        .with_website_probe(Arc::new(CyclingDirectoryWebsite(AtomicUsize::new(0))))
+        .with_nuclei_probe(Arc::new(CyclingNuclei(AtomicUsize::new(0))));
+    for (index, expected_state) in [
+        FindingState::Open,
+        FindingState::Resolved,
+        FindingState::Open,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        restarted
+            .start_scan(Request::new(StartScanRequest {
+                context: Some(context(&format!("nuclei-task-{index}"))),
+                scope_id: nuclei_scope.id.clone(),
+                policy_id: "policy_vulnerability_baseline".to_owned(),
+            }))
+            .await
+            .unwrap();
+        nuclei_worker.run_once().await.unwrap();
+        let findings = restarted
+            .search_findings(Request::new(SearchFindingsRequest {
+                context: Some(context(&format!("nuclei-search-{index}"))),
+                scope_id: nuclei_scope.id.clone(),
+            }))
+            .await
+            .unwrap()
+            .into_inner()
+            .findings;
+        let finding = findings
+            .iter()
+            .find(|finding| finding.detector == "nuclei")
+            .expect("persisted nuclei finding");
+        assert_eq!(finding.state, i32::from(expected_state));
     }
 }
 

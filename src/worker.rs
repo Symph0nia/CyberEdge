@@ -25,6 +25,7 @@ use uuid::Uuid;
 use x509_parser::{extensions::GeneralName, parse_x509_certificate};
 
 use crate::{
+    nuclei::NucleiProbe,
     proto::{
         Asset, Certificate, Evidence, Finding, FindingSeverity, FindingState, Observation,
         ScopeTarget, Service, TargetKind, TechnologyFingerprint, Website,
@@ -540,6 +541,7 @@ pub struct DiscoveryWorker {
     certificate_probe: Option<Arc<dyn CertificateProbe>>,
     website_probe: Option<Arc<dyn WebsiteProbe>>,
     screenshot_probe: Option<Arc<dyn ScreenshotProbe>>,
+    nuclei_probe: Option<Arc<dyn NucleiProbe>>,
     service_ports: Vec<u16>,
 }
 
@@ -553,6 +555,7 @@ impl DiscoveryWorker {
             certificate_probe: None,
             website_probe: None,
             screenshot_probe: None,
+            nuclei_probe: None,
             service_ports: Vec::new(),
         }
     }
@@ -569,6 +572,11 @@ impl DiscoveryWorker {
 
     pub fn with_screenshot_probe(mut self, probe: Arc<dyn ScreenshotProbe>) -> Self {
         self.screenshot_probe = Some(probe);
+        self
+    }
+
+    pub fn with_nuclei_probe(mut self, probe: Arc<dyn NucleiProbe>) -> Self {
+        self.nuclei_probe = Some(probe);
         self
     }
 
@@ -593,7 +601,10 @@ impl DiscoveryWorker {
         };
         if !matches!(
             claimed.task.policy_id.as_str(),
-            "policy_passive_dns" | "policy_passive_inventory" | "policy_service_baseline"
+            "policy_passive_dns"
+                | "policy_passive_inventory"
+                | "policy_service_baseline"
+                | "policy_vulnerability_baseline"
         ) {
             self.repository.fail_task(&claimed.task.id, now()).await?;
             return Ok(true);
@@ -601,7 +612,10 @@ impl DiscoveryWorker {
 
         let mut records = Vec::new();
         for target in &claimed.scope.targets {
-            if claimed.task.policy_id == "policy_service_baseline" {
+            if matches!(
+                claimed.task.policy_id.as_str(),
+                "policy_service_baseline" | "policy_vulnerability_baseline"
+            ) {
                 records.extend(
                     self.discover_active_target(&claimed.task.id, &claimed.scope.id, target)
                         .await,
@@ -619,7 +633,10 @@ impl DiscoveryWorker {
                 );
             }
         }
-        if claimed.task.policy_id == "policy_service_baseline" {
+        if matches!(
+            claimed.task.policy_id.as_str(),
+            "policy_service_baseline" | "policy_vulnerability_baseline"
+        ) {
             records.extend(
                 self.discover_host_collisions(
                     &claimed.task.id,
@@ -630,10 +647,137 @@ impl DiscoveryWorker {
                 .await,
             );
         }
+        if claimed.task.policy_id == "policy_vulnerability_baseline" {
+            records.extend(
+                self.discover_nuclei_findings(
+                    &claimed.task.id,
+                    &claimed.scope.id,
+                    &claimed.scope.targets,
+                    &records,
+                )
+                .await?,
+            );
+        }
         self.repository
             .complete_task(&claimed.task.id, records, now())
             .await?;
         Ok(true)
+    }
+
+    async fn discover_nuclei_findings(
+        &self,
+        task_id: &str,
+        scope_id: &str,
+        scope_targets: &[ScopeTarget],
+        task_records: &[DiscoveryRecord],
+    ) -> Result<Vec<DiscoveryRecord>, RepositoryError> {
+        let fallback = scope_targets
+            .first()
+            .map(|target| {
+                (
+                    TargetKind::try_from(target.kind).unwrap_or(TargetKind::Unspecified),
+                    target.value.as_str(),
+                )
+            })
+            .unwrap_or((TargetKind::Unspecified, "scope"));
+        let Some(probe) = &self.nuclei_probe else {
+            return Ok(vec![record(
+                task_id,
+                scope_id,
+                fallback.0,
+                fallback.1,
+                "nuclei.error",
+                json!({"error": "nuclei adapter unavailable"}),
+            )]);
+        };
+        let targets = nuclei_targets(task_records);
+        if targets.is_empty() {
+            return Ok(vec![record(
+                task_id,
+                scope_id,
+                fallback.0,
+                fallback.1,
+                "nuclei.no_targets",
+                json!({"reason": "no successfully observed website targets"}),
+            )]);
+        }
+        let urls = targets
+            .values()
+            .map(|target| target.url.clone())
+            .collect::<Vec<_>>();
+        let output = match probe.scan(&urls).await {
+            Ok(output) => output,
+            Err(error) => {
+                return Ok(vec![record(
+                    task_id,
+                    scope_id,
+                    fallback.0,
+                    fallback.1,
+                    "nuclei.error",
+                    json!({"error": error, "target_count": urls.len()}),
+                )]);
+            }
+        };
+        let parsed = match parse_nuclei_output(&output, &targets) {
+            Ok(parsed) => parsed,
+            Err(error) => {
+                return Ok(vec![record(
+                    task_id,
+                    scope_id,
+                    fallback.0,
+                    fallback.1,
+                    "nuclei.error",
+                    json!({"error": error, "target_count": urls.len()}),
+                )]);
+            }
+        };
+        let previous = self.repository.search_findings(scope_id).await?;
+        let mut present = BTreeSet::new();
+        let mut records = Vec::new();
+        for result in parsed {
+            let key = (
+                result.target.asset.id.clone(),
+                result.event.template_id.clone(),
+                nuclei_fingerprint(&result.event),
+            );
+            if present.insert(key) {
+                records.push(nuclei_result_record(
+                    task_id,
+                    scope_id,
+                    result.target,
+                    result.event,
+                    result.raw,
+                ));
+            }
+        }
+        for target in targets.values() {
+            let evaluations = previous
+                .iter()
+                .filter(|finding| {
+                    finding.detector == "nuclei" && finding.asset_id == target.asset.id
+                })
+                .filter(|finding| {
+                    !present.contains(&(
+                        finding.asset_id.clone(),
+                        finding.rule_id.clone(),
+                        finding.fingerprint.clone(),
+                    ))
+                })
+                .map(|finding| FindingEvaluation {
+                    asset_id: finding.asset_id.clone(),
+                    detector: finding.detector.clone(),
+                    rule_id: finding.rule_id.clone(),
+                    fingerprint: finding.fingerprint.clone(),
+                })
+                .collect();
+            records.push(nuclei_coverage_record(
+                task_id,
+                scope_id,
+                target,
+                evaluations,
+            ));
+        }
+        Ok(records)
     }
 
     async fn discover_host_collisions(
@@ -1418,8 +1562,8 @@ fn certificate_validity_detections(
         let fingerprint = hex_hash(format!("{rule_id}:{service_id}").as_bytes());
         FindingEvaluation {
             asset_id: asset_id.to_owned(),
-            detector: DETECTOR,
-            rule_id,
+            detector: DETECTOR.to_owned(),
+            rule_id: rule_id.to_owned(),
             fingerprint,
         }
     };
@@ -1567,6 +1711,283 @@ fn website_record(
     }
 }
 
+#[derive(Clone)]
+struct NucleiTarget {
+    url: String,
+    asset: Asset,
+    service: Service,
+}
+
+#[derive(Deserialize)]
+struct NucleiEvent {
+    #[serde(rename = "template-id")]
+    template_id: String,
+    #[serde(default, rename = "matcher-name")]
+    matcher_name: String,
+    #[serde(default)]
+    r#type: String,
+    #[serde(default)]
+    host: String,
+    #[serde(default)]
+    url: String,
+    #[serde(default, rename = "matched-at")]
+    matched_at: String,
+    #[serde(default, rename = "is_fuzzing_result")]
+    is_fuzzing_result: bool,
+    info: NucleiInfo,
+}
+
+#[derive(Deserialize)]
+struct NucleiInfo {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    description: String,
+    #[serde(default)]
+    severity: serde_json::Value,
+}
+
+struct ParsedNucleiResult {
+    target: NucleiTarget,
+    event: NucleiEvent,
+    raw: Vec<u8>,
+}
+
+fn nuclei_targets(records: &[DiscoveryRecord]) -> BTreeMap<String, NucleiTarget> {
+    records
+        .iter()
+        .filter_map(|record| {
+            let website = record.website.as_ref()?;
+            let service = record.service.as_ref()?;
+            let url = normalized_http_target(&website.url)?;
+            Some((
+                url.clone(),
+                NucleiTarget {
+                    url,
+                    asset: record.asset.clone(),
+                    service: service.clone(),
+                },
+            ))
+        })
+        .take(MAX_NUCLEI_TARGETS)
+        .collect()
+}
+
+fn normalized_http_target(value: &str) -> Option<String> {
+    let mut url = reqwest::Url::parse(value).ok()?;
+    if !matches!(url.scheme(), "http" | "https")
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.host().is_none()
+    {
+        return None;
+    }
+    url.set_path("/");
+    url.set_query(None);
+    url.set_fragment(None);
+    Some(url.to_string())
+}
+
+fn parse_nuclei_output(
+    output: &[u8],
+    targets: &BTreeMap<String, NucleiTarget>,
+) -> Result<Vec<ParsedNucleiResult>, String> {
+    if output.len() > MAX_NUCLEI_OUTPUT_BYTES {
+        return Err("nuclei output exceeds evidence limit".to_owned());
+    }
+    let mut parsed = Vec::new();
+    for line in output
+        .split(|byte| *byte == b'\n')
+        .filter(|line| !line.is_empty())
+    {
+        if parsed.len() == MAX_NUCLEI_RESULTS || line.len() > MAX_NUCLEI_RESULT_BYTES {
+            return Err("nuclei result count or line size exceeds limit".to_owned());
+        }
+        let mut value: serde_json::Value = serde_json::from_slice(line)
+            .map_err(|error| format!("invalid nuclei JSONL: {error}"))?;
+        if ["request", "response", "template-encoded", "interaction"]
+            .iter()
+            .any(|field| value.get(field).is_some())
+        {
+            return Err("nuclei result contains forbidden raw execution fields".to_owned());
+        }
+        let source_sha256 = hex_hash(line);
+        let object = value
+            .as_object_mut()
+            .ok_or_else(|| "nuclei result must be a JSON object".to_owned())?;
+        object.remove("curl-command");
+        object.insert(
+            "cyberedge-source-sha256".to_owned(),
+            serde_json::Value::String(source_sha256),
+        );
+        let event: NucleiEvent = serde_json::from_value(value.clone())
+            .map_err(|error| format!("invalid nuclei result schema: {error}"))?;
+        if event.template_id.is_empty()
+            || event.template_id.len() > 256
+            || !event
+                .template_id
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+            || !matches!(event.r#type.as_str(), "http" | "ssl")
+            || event.is_fuzzing_result
+        {
+            return Err("nuclei result violates the adapter profile".to_owned());
+        }
+        let target = [&event.host, &event.url, &event.matched_at]
+            .into_iter()
+            .filter_map(|value| normalized_http_target(value))
+            .find_map(|url| targets.get(&url).cloned())
+            .ok_or_else(|| "nuclei result is outside derived targets".to_owned())?;
+        nuclei_severity(&event.info.severity)?;
+        parsed.push(ParsedNucleiResult {
+            target,
+            event,
+            raw: serde_json::to_vec(&value).expect("validated nuclei result is serializable"),
+        });
+    }
+    Ok(parsed)
+}
+
+fn nuclei_severity(value: &serde_json::Value) -> Result<FindingSeverity, String> {
+    match value
+        .as_str()
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "info" => Ok(FindingSeverity::Info),
+        "low" => Ok(FindingSeverity::Low),
+        "medium" => Ok(FindingSeverity::Medium),
+        "high" => Ok(FindingSeverity::High),
+        "critical" => Ok(FindingSeverity::Critical),
+        _ => Err("nuclei result has invalid severity".to_owned()),
+    }
+}
+
+fn nuclei_fingerprint(event: &NucleiEvent) -> String {
+    hex_hash(
+        format!(
+            "{}:{}:{}",
+            event.template_id, event.matcher_name, event.matched_at
+        )
+        .as_bytes(),
+    )
+}
+
+fn nuclei_result_record(
+    task_id: &str,
+    scope_id: &str,
+    target: NucleiTarget,
+    event: NucleiEvent,
+    raw: Vec<u8>,
+) -> DiscoveryRecord {
+    let timestamp = now();
+    let evidence_sha256 = hex_hash(&raw);
+    let evidence_id = format!("evidence_{evidence_sha256}");
+    let observation_id = format!("observation_{}", Uuid::now_v7());
+    let fingerprint = nuclei_fingerprint(&event);
+    let severity = nuclei_severity(&event.info.severity).expect("validated nuclei severity");
+    let title = if event.info.name.trim().is_empty() {
+        event.template_id.clone()
+    } else {
+        event.info.name.trim().chars().take(512).collect()
+    };
+    let description = format!(
+        "{} Matched at {}.",
+        event
+            .info
+            .description
+            .trim()
+            .chars()
+            .take(4096)
+            .collect::<String>(),
+        event.matched_at
+    )
+    .trim()
+    .to_owned();
+    let evaluation = FindingEvaluation {
+        asset_id: target.asset.id.clone(),
+        detector: "nuclei".to_owned(),
+        rule_id: event.template_id.clone(),
+        fingerprint: fingerprint.clone(),
+    };
+    let finding = Finding {
+        id: stable_id(
+            "finding",
+            format!(
+                "{scope_id}:nuclei:{}:{}:{fingerprint}",
+                event.template_id, target.asset.id
+            )
+            .as_bytes(),
+        ),
+        scope_id: scope_id.to_owned(),
+        task_id: task_id.to_owned(),
+        asset_id: target.asset.id.clone(),
+        observation_id: observation_id.clone(),
+        evidence_id: evidence_id.clone(),
+        detector: "nuclei".to_owned(),
+        rule_id: event.template_id.clone(),
+        title,
+        description,
+        severity: severity.into(),
+        state: FindingState::Open.into(),
+        fingerprint,
+        first_seen_at: Some(timestamp),
+        last_seen_at: Some(timestamp),
+    };
+    let payload = json!({
+        "target": target.url,
+        "template_id": event.template_id,
+        "matcher_name": event.matcher_name,
+        "matched_at": event.matched_at,
+        "severity": event.info.severity,
+        "content_sha256": evidence_sha256,
+    });
+    DiscoveryRecord {
+        asset: target.asset,
+        service: Some(target.service),
+        certificate: None,
+        website: None,
+        observation: Observation {
+            id: observation_id,
+            task_id: task_id.to_owned(),
+            asset_id: finding.asset_id.clone(),
+            observation_type: "nuclei.result".to_owned(),
+            value_json: payload.to_string(),
+            evidence_id: evidence_id.clone(),
+            observed_at: Some(timestamp),
+        },
+        evidence: Evidence {
+            id: evidence_id,
+            media_type: "application/x-ndjson".to_owned(),
+            sha256: evidence_sha256,
+            content: raw,
+            created_at: Some(timestamp),
+        },
+        finding_evaluations: vec![evaluation],
+        findings: vec![finding],
+    }
+}
+
+fn nuclei_coverage_record(
+    task_id: &str,
+    scope_id: &str,
+    target: &NucleiTarget,
+    evaluations: Vec<FindingEvaluation>,
+) -> DiscoveryRecord {
+    let mut record = record(
+        task_id,
+        scope_id,
+        TargetKind::try_from(target.asset.kind).unwrap_or(TargetKind::Unspecified),
+        &target.asset.value,
+        "nuclei.coverage",
+        json!({"target": target.url, "completed": true}),
+    );
+    record.service = Some(target.service.clone());
+    record.finding_evaluations = evaluations;
+    record
+}
+
 fn host_collision_record(
     task_id: &str,
     scope_id: &str,
@@ -1617,8 +2038,8 @@ fn host_collision_record(
     let fingerprint = hex_hash(format!("{rule_id}:{service_id}:{domain}").as_bytes());
     let evaluation = FindingEvaluation {
         asset_id: asset_id.clone(),
-        detector,
-        rule_id,
+        detector: detector.to_owned(),
+        rule_id: rule_id.to_owned(),
         fingerprint: fingerprint.clone(),
     };
     let finding = matched.then(|| Finding {
@@ -2065,8 +2486,8 @@ fn http_exposure_detection(
     let fingerprint = hex_hash(format!("{rule_id}:{service_id}").as_bytes());
     let evaluation = FindingEvaluation {
         asset_id: asset_id.to_owned(),
-        detector,
-        rule_id,
+        detector: detector.to_owned(),
+        rule_id: rule_id.to_owned(),
         fingerprint: fingerprint.clone(),
     };
     if !matched {
@@ -2112,8 +2533,8 @@ fn directory_listing_detection(
     let fingerprint = hex_hash(format!("{rule_id}:{}", snapshot.url).as_bytes());
     let evaluation = FindingEvaluation {
         asset_id: asset_id.to_owned(),
-        detector,
-        rule_id,
+        detector: detector.to_owned(),
+        rule_id: rule_id.to_owned(),
         fingerprint: fingerprint.clone(),
     };
     let title = snapshot.title.trim().to_ascii_lowercase();
@@ -2157,6 +2578,10 @@ const MAX_SCREENSHOT_BYTES: usize = 10 * 1_048_576;
 const MAX_HOST_COLLISION_DOMAINS: usize = 16;
 const MAX_HOST_COLLISION_CANDIDATES: usize = 64;
 const HOST_COLLISION_CONCURRENCY: usize = 8;
+const MAX_NUCLEI_TARGETS: usize = 64;
+const MAX_NUCLEI_RESULTS: usize = 1_000;
+const MAX_NUCLEI_RESULT_BYTES: usize = 1_048_576;
+const MAX_NUCLEI_OUTPUT_BYTES: usize = 10 * 1_048_576;
 const HTTP_PROBE_PATHS: &[&str] = &["/", "/.git/HEAD", "/.DS_Store"];
 
 fn html_title(body: &[u8]) -> String {

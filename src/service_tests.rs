@@ -209,3 +209,32 @@ async fn active_policy_requires_active_capability() {
         "CAPABILITY_DENIED"
     );
 }
+
+#[tokio::test]
+async fn vulnerability_policy_requires_separate_capability() {
+    struct ActiveOnly;
+
+    impl Authorizer for ActiveOnly {
+        fn authorize(&self, _context: &InvocationContext, capability: &str) -> bool {
+            capability != "scan.vulnerability"
+        }
+    }
+
+    let service =
+        CyberEdgeService::new(Arc::new(MemoryRepository::default()), Arc::new(ActiveOnly));
+    let scope = create_scope(&service).await;
+    let error = service
+        .start_scan(Request::new(StartScanRequest {
+            context: Some(context()),
+            scope_id: scope.id,
+            policy_id: "policy_vulnerability_baseline".to_owned(),
+        }))
+        .await
+        .unwrap_err();
+
+    assert_eq!(error.code(), Code::PermissionDenied);
+    assert_eq!(
+        ErrorDetail::decode(error.details()).unwrap().code,
+        "CAPABILITY_DENIED"
+    );
+}

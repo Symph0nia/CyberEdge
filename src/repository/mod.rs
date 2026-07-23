@@ -52,8 +52,8 @@ pub struct DiscoveryRecord {
 
 pub struct FindingEvaluation {
     pub asset_id: String,
-    pub detector: &'static str,
-    pub rule_id: &'static str,
+    pub detector: String,
+    pub rule_id: String,
     pub fingerprint: String,
 }
 

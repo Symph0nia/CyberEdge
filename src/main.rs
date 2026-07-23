@@ -8,7 +8,7 @@ use std::{
 
 use cyberedge::{
     BASELINE_SERVICE_PORTS, CrtShSource, CyberEdgeService, DiscoveryWorker, NotificationDispatcher,
-    PostgresRepository, Repository, SocketScreenshotProbe, StaticAuthorizer,
+    PostgresRepository, Repository, SocketNucleiProbe, SocketScreenshotProbe, StaticAuthorizer,
     SystemCertificateProbe, SystemDnsResolver, SystemPortConnector, SystemScreenshotProbe,
     SystemWebsiteProbe, WebhookSink, serve_read_only_web,
 };
@@ -48,6 +48,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let binary =
             env::var("CYBEREDGE_CHROMIUM_BIN").unwrap_or_else(|_| "/usr/bin/chromium".to_owned());
         discovery = discovery.with_screenshot_probe(Arc::new(SystemScreenshotProbe::new(binary)));
+    }
+    if let Ok(socket) = env::var("CYBEREDGE_NUCLEI_ADAPTER_SOCKET") {
+        discovery = discovery.with_nuclei_probe(Arc::new(SocketNucleiProbe::new(socket)));
     }
     let scheduler_repository = repository.clone();
     let scheduler = tokio::spawn(async move {

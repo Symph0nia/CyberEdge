@@ -77,3 +77,17 @@ capabilities = [
   "evidence.read",
   "report.read",
 ]
+
+[[grants]]
+agent_id = "codex-main"
+skill_name = "cyberedge-scan-vulnerabilities"
+skill_version = "0.1.0"
+capabilities = [
+  "scope.read",
+  "scan.vulnerability",
+  "task.read",
+  "finding.read",
+  "evidence.read",
+  "report.read",
+  "audit.read",
+]

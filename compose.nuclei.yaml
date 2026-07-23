@@ -1,0 +1,45 @@
+services:
+  cyberedge:
+    depends_on:
+      nuclei-adapter:
+        condition: service_healthy
+    environment:
+      CYBEREDGE_NUCLEI_ADAPTER_SOCKET: /run/cyberedge-nuclei/adapter.sock
+    volumes:
+      - nuclei-socket:/run/cyberedge-nuclei
+
+  nuclei-adapter:
+    build:
+      context: .
+      target: nuclei-adapter
+    environment:
+      CYBEREDGE_NUCLEI_SOCKET: /run/cyberedge-nuclei/adapter.sock
+      CYBEREDGE_NUCLEI_BIN: /usr/local/bin/nuclei
+      CYBEREDGE_NUCLEI_TEMPLATES: /opt/cyberedge/nuclei-templates
+      HOME: /tmp
+    volumes:
+      - nuclei-socket:/run/cyberedge-nuclei
+      - ./config/nuclei-templates:/opt/cyberedge/nuclei-templates:ro
+    networks:
+      - nuclei-egress
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=256m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 1g
+    healthcheck:
+      test: ["CMD-SHELL", "test -S /run/cyberedge-nuclei/adapter.sock"]
+      interval: 2s
+      timeout: 1s
+      retries: 30
+    restart: unless-stopped
+
+volumes:
+  nuclei-socket:
+
+networks:
+  nuclei-egress:

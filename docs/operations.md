@@ -34,6 +34,20 @@ Set `CYBEREDGE_WEBHOOK_URL` to enable notification delivery. Only `http` and `ht
 
 Finding adapters use `ReportFinding` and require `finding.report`. A Finding must reference an Observation from the same running or completed Task; Asset and Evidence linkage is derived server-side. Findings deduplicate by Scope, detector, rule, Asset, and stable fingerprint. This contract does not expose arbitrary execution, template upload, or an online PoC editor.
 
+## Vulnerability baseline
+
+`policy_vulnerability_baseline` requires the separate `scan.vulnerability` capability. It first executes the fixed active inventory baseline, then sends at most 64 successfully observed, credential-free Website origins to the Nuclei adapter over a Unix socket. AI callers cannot provide targets, templates, tags, severity filters, flags, headers, variables, or commands.
+
+Populate `config/nuclei-templates/` with a reviewed, signed allowlist before enabling the adapter. Template lifecycle is an operator-controlled release process; the runtime never downloads or updates templates. Start the deployment with:
+
+```bash
+docker compose -f compose.yaml -f compose.nuclei.yaml up -d --build
+```
+
+The adapter image pins Nuclei v3.11.0 by digest and has no database credentials. It runs on a separate egress network with a read-only root filesystem, all capabilities dropped, `no-new-privileges`, bounded memory/PIDs, and temporary working storage. Its fixed profile permits signed HTTP/SSL templates only; it disables unsigned templates, automatic updates, redirects, Interactsh/OAST, code, headless, fuzz/DAST, DoS tags, stdin, raw request/response output, and embedded template output. Rate is capped at 20 requests/second with concurrency and bulk size five, a five-second request timeout, one retry, and a nine-minute process deadline.
+
+Each accepted JSONL match is schema-checked and normalized before becoming immutable `application/x-ndjson` Evidence: raw request/response, embedded templates and interaction records are rejected, while Nuclei's generated `curl-command` is removed and replaced by the SHA-256 of the original source line. The result creates a `nuclei.result` Observation and a Finding keyed by template ID, matcher, matched location, and Asset. A successful target evaluation emits `nuclei.coverage`, allowing missing prior matches to resolve and later recurrence to reopen the same Finding. Adapter errors, malformed/out-of-scope output, and missing targets emit `nuclei.error` or `nuclei.no_targets` and never resolve existing Findings.
+
 The service baseline also runs the built-in `cyberedge-http/http-directory-listing-v1` detector. It requires a successful HTTP response with both a directory-index title and a listing marker, and stores the raw response body as the referenced Evidence. Built-in findings are committed in the same transaction as their Observation and Evidence. A later successful evaluation resolves a missing condition; recurrence reopens the same deterministic Finding. Probe errors do not resolve findings because coverage is unknown.
 
 Successful TLS probes evaluate `cyberedge-tls/tls-certificate-expired-v1` and `cyberedge-tls/tls-certificate-expiring-v1`. The latter uses a fixed 30-day window. Findings are keyed to the service endpoint rather than a certificate hash, so replacing the certificate resolves the existing endpoint condition instead of leaving a stale finding. The retained DER certificate is the supporting Evidence.

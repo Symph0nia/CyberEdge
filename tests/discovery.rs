@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use cyberedge::{
     Authorizer, CertificateProbe, CertificateSource, CyberEdgeService, DiscoveryWorker,
-    DnsResolver, MemoryRepository, PortConnector, Repository, ScreenshotProbe,
+    DnsResolver, MemoryRepository, NucleiProbe, PortConnector, Repository, ScreenshotProbe,
     SystemCertificateProbe, SystemPortConnector, SystemWebsiteProbe, WebSnapshot, WebsiteProbe,
     proto::{
         AssetChangeKind, CreateScheduleRequest, CreateScopeRequest, ExposureChangeKind,
@@ -111,6 +111,7 @@ struct ChangingWebsite(AtomicUsize);
 struct FailingWebsite(AtomicUsize);
 struct HostCollisionResolver;
 struct CyclingHostCollisionWebsite(AtomicUsize);
+struct CyclingNuclei(AtomicUsize);
 
 #[async_trait]
 impl DnsResolver for HostCollisionResolver {
@@ -158,6 +159,31 @@ impl WebsiteProbe for CyclingHostCollisionWebsite {
             content_type: "text/html".to_owned(),
             body: body.into_bytes(),
         })
+    }
+}
+
+#[async_trait]
+impl NucleiProbe for CyclingNuclei {
+    async fn scan(&self, targets: &[String]) -> Result<Vec<u8>, String> {
+        assert_eq!(targets.len(), 1);
+        if self.0.fetch_add(1, Ordering::SeqCst) == 1 {
+            return Ok(Vec::new());
+        }
+        Ok(serde_json::to_vec(&serde_json::json!({
+            "template-id": "CVE-2099-0001",
+            "matcher-name": "version-check",
+            "type": "http",
+            "host": targets[0],
+            "matched-at": format!("{}admin", targets[0]),
+            "matcher-status": true,
+            "curl-command": "curl http://discarded.example/",
+            "info": {
+                "name": "Test application vulnerability",
+                "description": "The retained scanner result matched the reviewed template.",
+                "severity": "high"
+            }
+        }))
+        .unwrap())
     }
 }
 
@@ -1378,6 +1404,105 @@ async fn detects_resolves_and_reopens_host_collision_with_comparison_evidence() 
                 .decode(evidence["candidate"]["body_base64"].as_str().unwrap())
                 .unwrap();
             assert!(String::from_utf8_lossy(&candidate).contains("authorized host route"));
+        }
+    }
+}
+
+#[tokio::test]
+async fn nuclei_policy_retains_results_and_resolves_missing_templates() {
+    let repository: Arc<dyn Repository> = Arc::new(MemoryRepository::default());
+    let service = CyberEdgeService::new(repository.clone(), Arc::new(Allow));
+    let scope = service
+        .create_scope(Request::new(CreateScopeRequest {
+            context: Some(context("nuclei-scope")),
+            name: "Nuclei lifecycle".to_owned(),
+            authorization_ref: "authorization:local-test".to_owned(),
+            targets: vec![ScopeTarget {
+                kind: TargetKind::Ip.into(),
+                value: "127.0.0.1".to_owned(),
+            }],
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let worker = DiscoveryWorker::new(repository, Arc::new(Resolver))
+        .with_port_connector(Arc::new(OpenPort), vec![80])
+        .with_website_probe(Arc::new(TestWebsite))
+        .with_nuclei_probe(Arc::new(CyclingNuclei(AtomicUsize::new(0))));
+
+    let mut finding_id = String::new();
+    for (index, expected_state) in [
+        FindingState::Open,
+        FindingState::Resolved,
+        FindingState::Open,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let task = service
+            .start_scan(Request::new(StartScanRequest {
+                context: Some(context(&format!("nuclei-task-{index}"))),
+                scope_id: scope.id.clone(),
+                policy_id: "policy_vulnerability_baseline".to_owned(),
+            }))
+            .await
+            .unwrap()
+            .into_inner();
+        worker.run_once().await.unwrap();
+        let findings = service
+            .search_findings(Request::new(SearchFindingsRequest {
+                context: Some(context(&format!("nuclei-findings-{index}"))),
+                scope_id: scope.id.clone(),
+            }))
+            .await
+            .unwrap()
+            .into_inner()
+            .findings;
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].state, i32::from(expected_state));
+        assert_eq!(findings[0].detector, "nuclei");
+        assert_eq!(findings[0].rule_id, "CVE-2099-0001");
+        if finding_id.is_empty() {
+            finding_id = findings[0].id.clone();
+        } else {
+            assert_eq!(findings[0].id, finding_id);
+        }
+
+        let report = service
+            .get_task_report(Request::new(GetTaskReportRequest {
+                context: Some(context(&format!("nuclei-report-{index}"))),
+                task_id: task.id,
+            }))
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(
+            report
+                .observations
+                .iter()
+                .any(|item| item.observation_type == "nuclei.coverage")
+        );
+        if expected_state == FindingState::Open {
+            let observation = report
+                .observations
+                .iter()
+                .find(|item| item.observation_type == "nuclei.result")
+                .expect("nuclei result observation");
+            let evidence = report
+                .evidence
+                .iter()
+                .find(|item| item.id == observation.evidence_id)
+                .expect("nuclei result evidence");
+            let evidence: serde_json::Value = serde_json::from_slice(&evidence.content).unwrap();
+            assert_eq!(evidence["template-id"], "CVE-2099-0001");
+            assert!(evidence.get("curl-command").is_none());
+            assert_eq!(
+                evidence["cyberedge-source-sha256"]
+                    .as_str()
+                    .expect("source hash")
+                    .len(),
+                64
+            );
         }
     }
 }

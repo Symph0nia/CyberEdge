@@ -2,7 +2,7 @@
 
 状态：Accepted baseline
 
-实现状态：当前 vertical slice 已覆盖 Scope、passive DNS/Certificate Transparency Task、受控 TCP service baseline、TLS leaf Certificate、bounded Website/HTTP observation、same-origin depth-1 crawler、offline screenshot Evidence、evidence-bound Website technology fingerprint、Asset/Service/Certificate/Website/Observation/Evidence、Evidence-backed Finding、HTTP directory-listing/Git/DS_Store/Host collision 与 TLS validity detectors、确定性 TaskReport、Agent mutation audit、持久化 Schedule 生成普通 Task、Monitor 资产及服务/网站变化、UDS/mTLS、AI machine bridge 与只读 Web。OIDC、只读 RBAC、字段脱敏和独立事件投影属于后续阶段，本文中的完整产品条目不表示已经实现。
+实现状态：当前 vertical slice 已覆盖 Scope、passive DNS/Certificate Transparency Task、受控 TCP service baseline、独立授权的 signed-template Nuclei vulnerability baseline、TLS leaf Certificate、bounded Website/HTTP observation、same-origin depth-1 crawler、offline screenshot Evidence、evidence-bound Website technology fingerprint、Asset/Service/Certificate/Website/Observation/Evidence、Evidence-backed Finding、HTTP directory-listing/Git/DS_Store/Host collision 与 TLS validity detectors、确定性 TaskReport、Agent mutation audit、持久化 Schedule 生成普通 Task、Monitor 资产及服务/网站变化、UDS/mTLS、AI machine bridge 与只读 Web。OIDC、只读 RBAC、字段脱敏和独立事件投影属于后续阶段，本文中的完整产品条目不表示已经实现。
 
 ## 1. 产品定义
 
@@ -336,7 +336,7 @@ Agent
 6. AI 查询结果并生成报告
 7. 人类通过只读 Web 查看同一份结果和完整审计链
 
-第一阶段不接入主动端口扫描、Nuclei、企业工商查询或 GitHub 情报。
+第一阶段原始边界不接入主动端口扫描、Nuclei、企业工商查询或 GitHub 情报；当前实现已在后续阶段加入受控端口基线与隔离 Nuclei adapter，企业工商查询和 GitHub 情报仍未实现。
 
 ## 10. 已确认决策
 
