@@ -1,0 +1,15 @@
+{
+  "name": "cyberedge-monitor-public-code",
+  "version": "0.1.0",
+  "entrypoint": "cyberedge-agent",
+  "transport": "grpc-json-bridge",
+  "capabilities": [
+    "scope.read",
+    "scan.intelligence",
+    "task.read",
+    "finding.read",
+    "evidence.read",
+    "report.read",
+    "audit.read"
+  ]
+}

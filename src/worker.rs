@@ -25,6 +25,7 @@ use uuid::Uuid;
 use x509_parser::{extensions::GeneralName, parse_x509_certificate};
 
 use crate::{
+    intelligence::PublicCodeProbe,
     nuclei::NucleiProbe,
     proto::{
         Asset, Certificate, Evidence, Finding, FindingSeverity, FindingState, Observation,
@@ -542,6 +543,7 @@ pub struct DiscoveryWorker {
     website_probe: Option<Arc<dyn WebsiteProbe>>,
     screenshot_probe: Option<Arc<dyn ScreenshotProbe>>,
     nuclei_probe: Option<Arc<dyn NucleiProbe>>,
+    public_code_probe: Option<Arc<dyn PublicCodeProbe>>,
     service_ports: Vec<u16>,
 }
 
@@ -556,6 +558,7 @@ impl DiscoveryWorker {
             website_probe: None,
             screenshot_probe: None,
             nuclei_probe: None,
+            public_code_probe: None,
             service_ports: Vec::new(),
         }
     }
@@ -577,6 +580,11 @@ impl DiscoveryWorker {
 
     pub fn with_nuclei_probe(mut self, probe: Arc<dyn NucleiProbe>) -> Self {
         self.nuclei_probe = Some(probe);
+        self
+    }
+
+    pub fn with_public_code_probe(mut self, probe: Arc<dyn PublicCodeProbe>) -> Self {
+        self.public_code_probe = Some(probe);
         self
     }
 
@@ -605,8 +613,23 @@ impl DiscoveryWorker {
                 | "policy_passive_inventory"
                 | "policy_service_baseline"
                 | "policy_vulnerability_baseline"
+                | "policy_public_code_intelligence"
         ) {
             self.repository.fail_task(&claimed.task.id, now()).await?;
+            return Ok(true);
+        }
+
+        if claimed.task.policy_id == "policy_public_code_intelligence" {
+            let records = self
+                .discover_public_code_references(
+                    &claimed.task.id,
+                    &claimed.scope.id,
+                    &claimed.scope.targets,
+                )
+                .await?;
+            self.repository
+                .complete_task(&claimed.task.id, records, now())
+                .await?;
             return Ok(true);
         }
 
@@ -662,6 +685,116 @@ impl DiscoveryWorker {
             .complete_task(&claimed.task.id, records, now())
             .await?;
         Ok(true)
+    }
+
+    async fn discover_public_code_references(
+        &self,
+        task_id: &str,
+        scope_id: &str,
+        scope_targets: &[ScopeTarget],
+    ) -> Result<Vec<DiscoveryRecord>, RepositoryError> {
+        let domains = scope_targets
+            .iter()
+            .filter(|target| TargetKind::try_from(target.kind) == Ok(TargetKind::Domain))
+            .map(|target| target.value.clone())
+            .take(MAX_PUBLIC_CODE_DOMAINS)
+            .collect::<BTreeSet<_>>();
+        let fallback = domains
+            .iter()
+            .next()
+            .cloned()
+            .unwrap_or_else(|| "scope".to_owned());
+        let Some(probe) = &self.public_code_probe else {
+            return Ok(vec![record(
+                task_id,
+                scope_id,
+                TargetKind::Domain,
+                &fallback,
+                "github.code.error",
+                json!({"error": "public code adapter unavailable"}),
+            )]);
+        };
+        if domains.is_empty() {
+            return Ok(vec![record(
+                task_id,
+                scope_id,
+                TargetKind::Unspecified,
+                &fallback,
+                "github.code.no_targets",
+                json!({"reason": "scope has no domain targets"}),
+            )]);
+        }
+        let domains = domains.into_iter().collect::<Vec<_>>();
+        let output = match probe.search(&domains).await {
+            Ok(output) => output,
+            Err(error) => {
+                return Ok(vec![record(
+                    task_id,
+                    scope_id,
+                    TargetKind::Domain,
+                    &fallback,
+                    "github.code.error",
+                    json!({"error": error, "target_count": domains.len()}),
+                )]);
+            }
+        };
+        let references = match parse_public_code_output(&output, &domains) {
+            Ok(references) => references,
+            Err(error) => {
+                return Ok(vec![record(
+                    task_id,
+                    scope_id,
+                    TargetKind::Domain,
+                    &fallback,
+                    "github.code.error",
+                    json!({"error": error, "target_count": domains.len()}),
+                )]);
+            }
+        };
+        let previous = self.repository.search_findings(scope_id).await?;
+        let mut present = BTreeSet::new();
+        let mut records = Vec::new();
+        for reference in references {
+            let fingerprint = public_code_fingerprint(&reference);
+            if present.insert((reference.query_domain.clone(), fingerprint.clone())) {
+                records.push(public_code_result_record(
+                    task_id,
+                    scope_id,
+                    reference,
+                    fingerprint,
+                ));
+            }
+        }
+        for domain in &domains {
+            let asset_id = stable_id(
+                "asset",
+                format!("{scope_id}:{}:{domain}", i32::from(TargetKind::Domain)).as_bytes(),
+            );
+            let evaluations = previous
+                .iter()
+                .filter(|finding| {
+                    finding.detector == "github-public-code" && finding.asset_id == asset_id
+                })
+                .filter(|finding| !present.contains(&(domain.clone(), finding.fingerprint.clone())))
+                .map(|finding| FindingEvaluation {
+                    asset_id: finding.asset_id.clone(),
+                    detector: finding.detector.clone(),
+                    rule_id: finding.rule_id.clone(),
+                    fingerprint: finding.fingerprint.clone(),
+                })
+                .collect();
+            let mut coverage = record(
+                task_id,
+                scope_id,
+                TargetKind::Domain,
+                domain,
+                "github.code.coverage",
+                json!({"domain": domain, "completed": true}),
+            );
+            coverage.finding_evaluations = evaluations;
+            records.push(coverage);
+        }
+        Ok(records)
     }
 
     async fn discover_nuclei_findings(
@@ -1788,6 +1921,119 @@ fn normalized_http_target(value: &str) -> Option<String> {
     Some(url.to_string())
 }
 
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PublicCodeReference {
+    query_domain: String,
+    repository: String,
+    path: String,
+    name: String,
+    blob_sha: String,
+    html_url: String,
+}
+
+fn parse_public_code_output(
+    output: &[u8],
+    domains: &[String],
+) -> Result<Vec<PublicCodeReference>, String> {
+    if output.len() > MAX_PUBLIC_CODE_OUTPUT_BYTES {
+        return Err("public code output exceeds evidence limit".to_owned());
+    }
+    let values: Vec<PublicCodeReference> = serde_json::from_slice(output)
+        .map_err(|error| format!("invalid public code JSON: {error}"))?;
+    if values.len() > MAX_PUBLIC_CODE_RESULTS {
+        return Err("public code result count exceeds limit".to_owned());
+    }
+    let domains = domains.iter().collect::<BTreeSet<_>>();
+    for value in &values {
+        let url = reqwest::Url::parse(&value.html_url)
+            .map_err(|_| "public code result URL is invalid".to_owned())?;
+        if !domains.contains(&value.query_domain)
+            || value.repository.len() > 256
+            || value.repository.split('/').count() != 2
+            || value.path.is_empty()
+            || value.path.len() > 1024
+            || value.name.is_empty()
+            || value.name.len() > 256
+            || !matches!(value.blob_sha.len(), 40 | 64)
+            || !value.blob_sha.bytes().all(|byte| byte.is_ascii_hexdigit())
+            || url.scheme() != "https"
+            || url.host_str() != Some("github.com")
+            || !url.username().is_empty()
+            || url.password().is_some()
+            || [&value.repository, &value.path, &value.name]
+                .into_iter()
+                .any(|field| field.chars().any(char::is_control))
+        {
+            return Err("public code result violates the adapter profile".to_owned());
+        }
+    }
+    Ok(values)
+}
+
+fn public_code_fingerprint(value: &PublicCodeReference) -> String {
+    hex_hash(format!("{}:{}", value.repository, value.path).as_bytes())
+}
+
+fn public_code_result_record(
+    task_id: &str,
+    scope_id: &str,
+    reference: PublicCodeReference,
+    fingerprint: String,
+) -> DiscoveryRecord {
+    let domain = reference.query_domain.clone();
+    let payload = json!({
+        "query_domain": reference.query_domain,
+        "repository": reference.repository,
+        "path": reference.path,
+        "name": reference.name,
+        "blob_sha": reference.blob_sha,
+        "html_url": reference.html_url,
+        "classification": "public_code_reference_candidate",
+    });
+    let mut result = record(
+        task_id,
+        scope_id,
+        TargetKind::Domain,
+        &domain,
+        "github.code.reference",
+        payload,
+    );
+    let rule_id = "public-code-reference".to_owned();
+    let evaluation = FindingEvaluation {
+        asset_id: result.asset.id.clone(),
+        detector: "github-public-code".to_owned(),
+        rule_id: rule_id.clone(),
+        fingerprint: fingerprint.clone(),
+    };
+    result.findings.push(Finding {
+        id: stable_id(
+            "finding",
+            format!(
+                "{scope_id}:github-public-code:{rule_id}:{}:{fingerprint}",
+                result.asset.id
+            )
+            .as_bytes(),
+        ),
+        scope_id: scope_id.to_owned(),
+        task_id: task_id.to_owned(),
+        asset_id: result.asset.id.clone(),
+        observation_id: result.observation.id.clone(),
+        evidence_id: result.evidence.id.clone(),
+        detector: "github-public-code".to_owned(),
+        rule_id,
+        title: "Public code references an authorized domain".to_owned(),
+        description: "GitHub code search returned a public repository path referencing the authorized domain. This is a review candidate, not proof of a credential leak.".to_owned(),
+        severity: FindingSeverity::Info.into(),
+        state: FindingState::Open.into(),
+        fingerprint,
+        first_seen_at: result.observation.observed_at,
+        last_seen_at: result.observation.observed_at,
+    });
+    result.finding_evaluations.push(evaluation);
+    result
+}
+
 fn parse_nuclei_output(
     output: &[u8],
     targets: &BTreeMap<String, NucleiTarget>,
@@ -2579,6 +2825,9 @@ const MAX_HOST_COLLISION_DOMAINS: usize = 16;
 const MAX_HOST_COLLISION_CANDIDATES: usize = 64;
 const HOST_COLLISION_CONCURRENCY: usize = 8;
 const MAX_NUCLEI_TARGETS: usize = 64;
+const MAX_PUBLIC_CODE_DOMAINS: usize = 8;
+const MAX_PUBLIC_CODE_RESULTS: usize = 160;
+const MAX_PUBLIC_CODE_OUTPUT_BYTES: usize = 1_048_576;
 const MAX_NUCLEI_RESULTS: usize = 1_000;
 const MAX_NUCLEI_RESULT_BYTES: usize = 1_048_576;
 const MAX_NUCLEI_OUTPUT_BYTES: usize = 10 * 1_048_576;

@@ -1,0 +1,48 @@
+services:
+  cyberedge:
+    depends_on:
+      public-code-adapter:
+        condition: service_healthy
+    environment:
+      CYBEREDGE_PUBLIC_CODE_ADAPTER_SOCKET: /run/cyberedge-public-code/adapter.sock
+    volumes:
+      - public-code-socket:/run/cyberedge-public-code
+
+  public-code-adapter:
+    build:
+      context: .
+      target: public-code-adapter
+    environment:
+      CYBEREDGE_PUBLIC_CODE_SOCKET: /run/cyberedge-public-code/adapter.sock
+      GITHUB_TOKEN_FILE: /run/secrets/github_token
+    secrets:
+      - github_token
+    volumes:
+      - public-code-socket:/run/cyberedge-public-code
+    networks:
+      - public-code-egress
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD-SHELL", "test -S /run/cyberedge-public-code/adapter.sock"]
+      interval: 2s
+      timeout: 1s
+      retries: 30
+    restart: unless-stopped
+
+volumes:
+  public-code-socket:
+
+networks:
+  public-code-egress:
+
+secrets:
+  github_token:
+    file: ${CYBEREDGE_GITHUB_TOKEN_FILE:?CYBEREDGE_GITHUB_TOKEN_FILE is required}

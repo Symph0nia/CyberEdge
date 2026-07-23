@@ -1,0 +1,4 @@
+interface:
+  display_name: "Monitor Public Code"
+  short_description: "Review bounded public GitHub code references"
+  default_prompt: "Use $cyberedge-monitor-public-code to review public-code reference candidates for an authorized CyberEdge scope."

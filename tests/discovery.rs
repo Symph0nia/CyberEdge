@@ -10,8 +10,9 @@ use async_trait::async_trait;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use cyberedge::{
     Authorizer, CertificateProbe, CertificateSource, CyberEdgeService, DiscoveryWorker,
-    DnsResolver, MemoryRepository, NucleiProbe, PortConnector, Repository, ScreenshotProbe,
-    SystemCertificateProbe, SystemPortConnector, SystemWebsiteProbe, WebSnapshot, WebsiteProbe,
+    DnsResolver, MemoryRepository, NucleiProbe, PortConnector, PublicCodeProbe, Repository,
+    ScreenshotProbe, SystemCertificateProbe, SystemPortConnector, SystemWebsiteProbe, WebSnapshot,
+    WebsiteProbe,
     proto::{
         AssetChangeKind, CreateScheduleRequest, CreateScopeRequest, ExposureChangeKind,
         FindingSeverity, FindingState, GetEvidenceRequest, GetTaskReportRequest, InvocationContext,
@@ -112,6 +113,7 @@ struct FailingWebsite(AtomicUsize);
 struct HostCollisionResolver;
 struct CyclingHostCollisionWebsite(AtomicUsize);
 struct CyclingNuclei(AtomicUsize);
+struct CyclingPublicCode(AtomicUsize);
 
 #[async_trait]
 impl DnsResolver for HostCollisionResolver {
@@ -184,6 +186,25 @@ impl NucleiProbe for CyclingNuclei {
             }
         }))
         .unwrap())
+    }
+}
+
+#[async_trait]
+impl PublicCodeProbe for CyclingPublicCode {
+    async fn search(&self, domains: &[String]) -> Result<Vec<u8>, String> {
+        assert_eq!(domains, ["example.com"]);
+        if self.0.fetch_add(1, Ordering::SeqCst) == 1 {
+            return Ok(b"[]".to_vec());
+        }
+        serde_json::to_vec(&serde_json::json!([{
+            "query_domain": "example.com",
+            "repository": "example/public-config",
+            "path": "deploy/config.yaml",
+            "name": "config.yaml",
+            "blob_sha": "0123456789abcdef0123456789abcdef01234567",
+            "html_url": "https://github.com/example/public-config/blob/main/deploy/config.yaml"
+        }]))
+        .map_err(|error| error.to_string())
     }
 }
 
@@ -1503,6 +1524,96 @@ async fn nuclei_policy_retains_results_and_resolves_missing_templates() {
                     .len(),
                 64
             );
+        }
+    }
+}
+
+#[tokio::test]
+async fn public_code_policy_retains_metadata_and_tracks_candidate_lifecycle() {
+    let repository: Arc<dyn Repository> = Arc::new(MemoryRepository::default());
+    let service = CyberEdgeService::new(repository.clone(), Arc::new(Allow));
+    let scope = service
+        .create_scope(Request::new(CreateScopeRequest {
+            context: Some(context("public-code-scope")),
+            name: "Public code lifecycle".to_owned(),
+            authorization_ref: "authorization:public-intelligence-test".to_owned(),
+            targets: vec![ScopeTarget {
+                kind: TargetKind::Domain.into(),
+                value: "example.com".to_owned(),
+            }],
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let worker = DiscoveryWorker::new(repository, Arc::new(Resolver))
+        .with_public_code_probe(Arc::new(CyclingPublicCode(AtomicUsize::new(0))));
+
+    let mut finding_id = String::new();
+    for (index, expected_state) in [
+        FindingState::Open,
+        FindingState::Resolved,
+        FindingState::Open,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let task = service
+            .start_scan(Request::new(StartScanRequest {
+                context: Some(context(&format!("public-code-task-{index}"))),
+                scope_id: scope.id.clone(),
+                policy_id: "policy_public_code_intelligence".to_owned(),
+            }))
+            .await
+            .unwrap()
+            .into_inner();
+        worker.run_once().await.unwrap();
+        let findings = service
+            .search_findings(Request::new(SearchFindingsRequest {
+                context: Some(context(&format!("public-code-findings-{index}"))),
+                scope_id: scope.id.clone(),
+            }))
+            .await
+            .unwrap()
+            .into_inner()
+            .findings;
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].state, i32::from(expected_state));
+        assert_eq!(findings[0].detector, "github-public-code");
+        assert_eq!(findings[0].severity, i32::from(FindingSeverity::Info));
+        if finding_id.is_empty() {
+            finding_id = findings[0].id.clone();
+        } else {
+            assert_eq!(findings[0].id, finding_id);
+        }
+        let report = service
+            .get_task_report(Request::new(GetTaskReportRequest {
+                context: Some(context(&format!("public-code-report-{index}"))),
+                task_id: task.id,
+            }))
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(
+            report
+                .observations
+                .iter()
+                .any(|item| item.observation_type == "github.code.coverage")
+        );
+        if expected_state == FindingState::Open {
+            let evidence = report
+                .evidence
+                .iter()
+                .find(|item| {
+                    String::from_utf8_lossy(&item.content).contains("example/public-config")
+                })
+                .expect("public code metadata evidence");
+            let evidence: serde_json::Value = serde_json::from_slice(&evidence.content).unwrap();
+            assert_eq!(
+                evidence["classification"],
+                "public_code_reference_candidate"
+            );
+            assert!(evidence.get("content").is_none());
+            assert!(evidence.get("secret").is_none());
         }
     }
 }

@@ -91,3 +91,17 @@ capabilities = [
   "report.read",
   "audit.read",
 ]
+
+[[grants]]
+agent_id = "codex-main"
+skill_name = "cyberedge-monitor-public-code"
+skill_version = "0.1.0"
+capabilities = [
+  "scope.read",
+  "scan.intelligence",
+  "task.read",
+  "finding.read",
+  "evidence.read",
+  "report.read",
+  "audit.read",
+]

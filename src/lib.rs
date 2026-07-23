@@ -2,6 +2,7 @@ pub mod proto {
     tonic::include_proto!("cyberedge.v1");
 }
 
+mod intelligence;
 mod notification;
 mod nuclei;
 mod policy;
@@ -10,6 +11,7 @@ mod service;
 mod web;
 mod worker;
 
+pub use intelligence::{GitHubPublicCodeProbe, PublicCodeProbe, SocketPublicCodeProbe};
 pub use notification::{NotificationDispatcher, NotificationSink, WebhookSink};
 pub use nuclei::{NucleiProbe, SocketNucleiProbe, SystemNucleiProbe};
 pub use policy::{Authorizer, PolicyError, StaticAuthorizer};

@@ -9,7 +9,8 @@ use std::{
 use async_trait::async_trait;
 use cyberedge::{
     Authorizer, CertificateProbe, CyberEdgeService, DiscoveryWorker, DnsResolver, NucleiProbe,
-    PortConnector, PostgresRepository, Repository, ScreenshotProbe, WebSnapshot, WebsiteProbe,
+    PortConnector, PostgresRepository, PublicCodeProbe, Repository, ScreenshotProbe, WebSnapshot,
+    WebsiteProbe,
     proto::{
         AssetChangeKind, CreateScheduleRequest, CreateScopeRequest, ExposureChangeKind,
         FindingSeverity, FindingState, GetTaskReportRequest, GetTaskRequest, InvocationContext,
@@ -34,6 +35,7 @@ struct TestScreenshot;
 struct ChangingWebsite(AtomicUsize);
 struct CyclingDirectoryWebsite(AtomicUsize);
 struct CyclingNuclei(AtomicUsize);
+struct CyclingPublicCode(AtomicUsize);
 
 #[async_trait]
 impl DnsResolver for Resolver {
@@ -177,6 +179,17 @@ impl NucleiProbe for CyclingNuclei {
             "info": {"name": "Postgres Nuclei test", "severity": "medium"}
         }))
         .unwrap())
+    }
+}
+
+#[async_trait]
+impl PublicCodeProbe for CyclingPublicCode {
+    async fn search(&self, domains: &[String]) -> Result<Vec<u8>, String> {
+        assert_eq!(domains, ["example.com"]);
+        if self.0.fetch_add(1, Ordering::SeqCst) == 1 {
+            return Ok(b"[]".to_vec());
+        }
+        Ok(br#"[{"query_domain":"example.com","repository":"example/public-config","path":"deploy/config.yaml","name":"config.yaml","blob_sha":"0123456789abcdef0123456789abcdef01234567","html_url":"https://github.com/example/public-config/blob/main/deploy/config.yaml"}]"#.to_vec())
     }
 }
 
@@ -581,10 +594,11 @@ async fn persists_scope_task_events_audit_and_outbox() {
         .await
         .unwrap()
         .into_inner();
-    let nuclei_worker = DiscoveryWorker::new(repository, Arc::new(Resolver(AtomicUsize::new(0))))
-        .with_port_connector(Arc::new(OpenConnector), vec![443])
-        .with_website_probe(Arc::new(CyclingDirectoryWebsite(AtomicUsize::new(0))))
-        .with_nuclei_probe(Arc::new(CyclingNuclei(AtomicUsize::new(0))));
+    let nuclei_worker =
+        DiscoveryWorker::new(repository.clone(), Arc::new(Resolver(AtomicUsize::new(0))))
+            .with_port_connector(Arc::new(OpenConnector), vec![443])
+            .with_website_probe(Arc::new(CyclingDirectoryWebsite(AtomicUsize::new(0))))
+            .with_nuclei_probe(Arc::new(CyclingNuclei(AtomicUsize::new(0))));
     for (index, expected_state) in [
         FindingState::Open,
         FindingState::Resolved,
@@ -615,6 +629,55 @@ async fn persists_scope_task_events_audit_and_outbox() {
             .iter()
             .find(|finding| finding.detector == "nuclei")
             .expect("persisted nuclei finding");
+        assert_eq!(finding.state, i32::from(expected_state));
+    }
+
+    let public_code_scope = restarted
+        .create_scope(Request::new(CreateScopeRequest {
+            context: Some(context("public-code-scope")),
+            name: "Public code lifecycle".to_owned(),
+            authorization_ref: "authorization:postgres-test".to_owned(),
+            targets: vec![ScopeTarget {
+                kind: TargetKind::Domain.into(),
+                value: "example.com".to_owned(),
+            }],
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let public_code_worker =
+        DiscoveryWorker::new(repository, Arc::new(Resolver(AtomicUsize::new(0))))
+            .with_public_code_probe(Arc::new(CyclingPublicCode(AtomicUsize::new(0))));
+    for (index, expected_state) in [
+        FindingState::Open,
+        FindingState::Resolved,
+        FindingState::Open,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        restarted
+            .start_scan(Request::new(StartScanRequest {
+                context: Some(context(&format!("public-code-task-{index}"))),
+                scope_id: public_code_scope.id.clone(),
+                policy_id: "policy_public_code_intelligence".to_owned(),
+            }))
+            .await
+            .unwrap();
+        public_code_worker.run_once().await.unwrap();
+        let findings = restarted
+            .search_findings(Request::new(SearchFindingsRequest {
+                context: Some(context(&format!("public-code-search-{index}"))),
+                scope_id: public_code_scope.id.clone(),
+            }))
+            .await
+            .unwrap()
+            .into_inner()
+            .findings;
+        let finding = findings
+            .iter()
+            .find(|finding| finding.detector == "github-public-code")
+            .expect("persisted public code finding");
         assert_eq!(finding.state, i32::from(expected_state));
     }
 }

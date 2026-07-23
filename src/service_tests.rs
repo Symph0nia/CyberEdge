@@ -238,3 +238,34 @@ async fn vulnerability_policy_requires_separate_capability() {
         "CAPABILITY_DENIED"
     );
 }
+
+#[tokio::test]
+async fn public_code_policy_requires_intelligence_capability() {
+    struct WithoutIntelligence;
+
+    impl Authorizer for WithoutIntelligence {
+        fn authorize(&self, _context: &InvocationContext, capability: &str) -> bool {
+            capability != "scan.intelligence"
+        }
+    }
+
+    let service = CyberEdgeService::new(
+        Arc::new(MemoryRepository::default()),
+        Arc::new(WithoutIntelligence),
+    );
+    let scope = create_scope(&service).await;
+    let error = service
+        .start_scan(Request::new(StartScanRequest {
+            context: Some(context()),
+            scope_id: scope.id,
+            policy_id: "policy_public_code_intelligence".to_owned(),
+        }))
+        .await
+        .unwrap_err();
+
+    assert_eq!(error.code(), Code::PermissionDenied);
+    assert_eq!(
+        ErrorDetail::decode(error.details()).unwrap().code,
+        "CAPABILITY_DENIED"
+    );
+}
