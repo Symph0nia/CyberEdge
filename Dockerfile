@@ -18,7 +18,7 @@ RUN --mount=type=cache,id=cyberedge-cargo-registry,target=/usr/local/cargo/regis
     --mount=type=cache,id=cyberedge-cargo-target,target=/build/target \
     cargo build --release --bins \
     && mkdir -p /out \
-    && cp target/release/cyberedge target/release/cyberedge-agent target/release/cyberedge-renderer target/release/cyberedge-nuclei-adapter target/release/cyberedge-public-code-adapter target/release/cyberedge-cve-adapter /out/
+    && cp target/release/cyberedge target/release/cyberedge-agent target/release/cyberedge-renderer target/release/cyberedge-nuclei-adapter target/release/cyberedge-public-code-adapter target/release/cyberedge-cve-adapter target/release/cyberedge-registration-adapter /out/
 
 FROM debian:bookworm-slim AS renderer
 RUN apt-get -o Acquire::Retries=5 update \
@@ -64,6 +64,15 @@ COPY --from=rust-builder /out/cyberedge-cve-adapter /usr/local/bin/cyberedge-cve
 USER 65532:65532
 ENTRYPOINT ["cyberedge-cve-adapter"]
 
+FROM debian:bookworm-slim AS registration-adapter
+RUN apt-get -o Acquire::Retries=5 update \
+    && apt-get -o Acquire::Retries=5 install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && install -d -o 65532 -g 65532 /run/cyberedge-registration
+COPY --from=rust-builder /out/cyberedge-registration-adapter /usr/local/bin/cyberedge-registration-adapter
+USER 65532:65532
+ENTRYPOINT ["cyberedge-registration-adapter"]
+
 FROM debian:bookworm-slim AS core
 RUN apt-get -o Acquire::Retries=5 update \
     && apt-get -o Acquire::Retries=5 install -y --no-install-recommends ca-certificates \
@@ -72,6 +81,7 @@ RUN install -d -o 65532 -g 65532 /run/cyberedge-renderer
 RUN install -d -o 65532 -g 65532 /run/cyberedge-nuclei
 RUN install -d -o 65532 -g 65532 /run/cyberedge-public-code
 RUN install -d -o 65532 -g 65532 /run/cyberedge-cve
+RUN install -d -o 65532 -g 65532 /run/cyberedge-registration
 WORKDIR /opt/cyberedge
 COPY --from=rust-builder /out/cyberedge /usr/local/bin/cyberedge
 COPY --from=rust-builder /out/cyberedge-agent /usr/local/bin/cyberedge-agent

@@ -1,0 +1,15 @@
+{
+  "name": "cyberedge-query-registrations",
+  "version": "0.1.0",
+  "entrypoint": "cyberedge-agent",
+  "transport": "grpc-json-bridge",
+  "capabilities": [
+    "scope.read",
+    "scan.intelligence",
+    "task.read",
+    "asset.read",
+    "evidence.read",
+    "report.read",
+    "audit.read"
+  ]
+}

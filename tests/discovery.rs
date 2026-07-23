@@ -10,9 +10,9 @@ use async_trait::async_trait;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use cyberedge::{
     Authorizer, CertificateProbe, CertificateSource, CveProbe, CyberEdgeService, DiscoveryWorker,
-    DnsResolver, MemoryRepository, NucleiProbe, PortConnector, PublicCodeProbe, Repository,
-    ScreenshotProbe, SystemCertificateProbe, SystemPortConnector, SystemWebsiteProbe, WebSnapshot,
-    WebsiteProbe,
+    DnsResolver, MemoryRepository, NucleiProbe, PortConnector, PublicCodeProbe, RegistrationProbe,
+    Repository, ScreenshotProbe, SystemCertificateProbe, SystemPortConnector, SystemWebsiteProbe,
+    WebSnapshot, WebsiteProbe,
     proto::{
         AssetChangeKind, CreateScheduleRequest, CreateScopeRequest, ExposureChangeKind,
         FindingSeverity, FindingState, GetEvidenceRequest, GetTaskReportRequest, InvocationContext,
@@ -115,6 +115,7 @@ struct CyclingHostCollisionWebsite(AtomicUsize);
 struct CyclingNuclei(AtomicUsize);
 struct CyclingPublicCode(AtomicUsize);
 struct CyclingCve(AtomicUsize);
+struct TestRegistration;
 
 #[async_trait]
 impl DnsResolver for HostCollisionResolver {
@@ -233,6 +234,36 @@ impl CveProbe for CyclingCve {
             "base_severity": "CRITICAL",
             "references": ["https://example.test/CVE-2099-1234"]
         }]))
+        .map_err(|error| error.to_string())
+    }
+}
+
+#[async_trait]
+impl RegistrationProbe for TestRegistration {
+    async fn lookup(&self, domains: &[String]) -> Result<Vec<u8>, String> {
+        assert_eq!(domains, ["example.cn"]);
+        serde_json::to_vec(&serde_json::json!({
+            "coverage": [{"domain": "example.cn", "status": "complete"}],
+            "records": [{
+                "domain": "example.cn",
+                "icp_number": "京ICP备00000000号-1",
+                "site_name": "Example Site",
+                "entity_name": "Example Technology Co., Ltd.",
+                "entity_type": "enterprise",
+                "unified_social_credit_code": "91110000123456789X",
+                "status": "active",
+                "approved_at": "2026-01-01",
+                "source": "licensed-provider",
+                "source_url": "https://provider.example/records/1",
+                "relationships": [{
+                    "relationship_type": "affiliate",
+                    "related_entity": "Example Cloud Co., Ltd.",
+                    "related_domain": "cloud.example.cn",
+                    "confidence": "confirmed",
+                    "source": "licensed-provider"
+                }]
+            }]
+        }))
         .map_err(|error| error.to_string())
     }
 }
@@ -1645,6 +1676,89 @@ async fn public_code_policy_retains_metadata_and_tracks_candidate_lifecycle() {
             assert!(evidence.get("secret").is_none());
         }
     }
+}
+
+#[tokio::test]
+async fn registration_policy_projects_domain_and_organization_evidence() {
+    let repository: Arc<dyn Repository> = Arc::new(MemoryRepository::default());
+    let service = CyberEdgeService::new(repository.clone(), Arc::new(Allow));
+    let scope = service
+        .create_scope(Request::new(CreateScopeRequest {
+            context: Some(context("registration-scope")),
+            name: "Registration intelligence".to_owned(),
+            authorization_ref: "authorization:licensed-provider-test".to_owned(),
+            targets: vec![ScopeTarget {
+                kind: TargetKind::Domain.into(),
+                value: "example.cn".to_owned(),
+            }],
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let worker = DiscoveryWorker::new(repository, Arc::new(Resolver))
+        .with_registration_probe(Arc::new(TestRegistration));
+    let task = service
+        .start_scan(Request::new(StartScanRequest {
+            context: Some(context("registration-task")),
+            scope_id: scope.id.clone(),
+            policy_id: "policy_registration_intelligence".to_owned(),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    worker.run_once().await.unwrap();
+
+    let assets = service
+        .search_assets(Request::new(SearchAssetsRequest {
+            context: Some(context("registration-assets")),
+            scope_id: scope.id,
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .assets;
+    assert!(assets.iter().any(|asset| {
+        asset.kind == i32::from(TargetKind::Organization) && asset.value == "91110000123456789X"
+    }));
+    let report = service
+        .get_task_report(Request::new(GetTaskReportRequest {
+            context: Some(context("registration-report")),
+            task_id: task.id,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(
+        report
+            .observations
+            .iter()
+            .any(|item| item.observation_type == "registration.icp")
+    );
+    assert!(
+        report
+            .observations
+            .iter()
+            .any(|item| item.observation_type == "organization.registration")
+    );
+    assert!(
+        report
+            .observations
+            .iter()
+            .any(|item| item.observation_type == "registration.coverage")
+    );
+    let evidence = report
+        .evidence
+        .iter()
+        .find(|item| String::from_utf8_lossy(&item.content).contains("京ICP备00000000号-1"))
+        .expect("registration evidence");
+    let evidence: serde_json::Value = serde_json::from_slice(&evidence.content).unwrap();
+    assert_eq!(
+        evidence["relationships"][0]["related_domain"],
+        "cloud.example.cn"
+    );
+    assert!(evidence.get("phone").is_none());
+    assert!(evidence.get("address").is_none());
+    assert!(evidence.get("legal_representative").is_none());
 }
 
 #[tokio::test]

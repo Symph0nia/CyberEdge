@@ -1,0 +1,49 @@
+services:
+  cyberedge:
+    depends_on:
+      registration-adapter:
+        condition: service_healthy
+    environment:
+      CYBEREDGE_REGISTRATION_ADAPTER_SOCKET: /run/cyberedge-registration/adapter.sock
+    volumes:
+      - registration-socket:/run/cyberedge-registration
+
+  registration-adapter:
+    build:
+      context: .
+      target: registration-adapter
+    environment:
+      CYBEREDGE_REGISTRATION_SOCKET: /run/cyberedge-registration/adapter.sock
+      CYBEREDGE_REGISTRATION_PROVIDER_URL: ${CYBEREDGE_REGISTRATION_PROVIDER_URL:?CYBEREDGE_REGISTRATION_PROVIDER_URL is required}
+      REGISTRATION_PROVIDER_TOKEN_FILE: /run/secrets/registration_provider_token
+    secrets:
+      - registration_provider_token
+    volumes:
+      - registration-socket:/run/cyberedge-registration
+    networks:
+      - registration-egress
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD-SHELL", "test -S /run/cyberedge-registration/adapter.sock"]
+      interval: 2s
+      timeout: 1s
+      retries: 30
+    restart: unless-stopped
+
+volumes:
+  registration-socket:
+
+networks:
+  registration-egress:
+
+secrets:
+  registration_provider_token:
+    file: ${CYBEREDGE_REGISTRATION_PROVIDER_TOKEN_FILE:?CYBEREDGE_REGISTRATION_PROVIDER_TOKEN_FILE is required}

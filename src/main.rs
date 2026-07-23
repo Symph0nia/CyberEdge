@@ -9,8 +9,8 @@ use std::{
 use cyberedge::{
     BASELINE_SERVICE_PORTS, CrtShSource, CyberEdgeService, DiscoveryWorker, NotificationDispatcher,
     PostgresRepository, Repository, SocketCveProbe, SocketNucleiProbe, SocketPublicCodeProbe,
-    SocketScreenshotProbe, StaticAuthorizer, SystemCertificateProbe, SystemDnsResolver,
-    SystemPortConnector, SystemScreenshotProbe, SystemWebsiteProbe, WebhookSink,
+    SocketRegistrationProbe, SocketScreenshotProbe, StaticAuthorizer, SystemCertificateProbe,
+    SystemDnsResolver, SystemPortConnector, SystemScreenshotProbe, SystemWebsiteProbe, WebhookSink,
     serve_read_only_web,
 };
 use tokio::{net::UnixListener, signal};
@@ -58,6 +58,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     if let Ok(socket) = env::var("CYBEREDGE_CVE_ADAPTER_SOCKET") {
         discovery = discovery.with_cve_probe(Arc::new(SocketCveProbe::new(socket)));
+    }
+    if let Ok(socket) = env::var("CYBEREDGE_REGISTRATION_ADAPTER_SOCKET") {
+        discovery =
+            discovery.with_registration_probe(Arc::new(SocketRegistrationProbe::new(socket)));
     }
     let scheduler_repository = repository.clone();
     let scheduler = tokio::spawn(async move {

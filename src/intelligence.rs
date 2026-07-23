@@ -10,6 +10,7 @@ const MAX_REQUEST_BYTES: usize = 4 * 1024;
 const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
 const MAX_CPE_NAMES: usize = 16;
 const MAX_CVE_RESPONSE_BYTES: usize = 10 * 1024 * 1024;
+const MAX_REGISTRATION_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
 
 #[async_trait]
 pub trait PublicCodeProbe: Send + Sync {
@@ -19,6 +20,11 @@ pub trait PublicCodeProbe: Send + Sync {
 #[async_trait]
 pub trait CveProbe: Send + Sync {
     async fn query(&self, cpe_names: &[String]) -> Result<Vec<u8>, String>;
+}
+
+#[async_trait]
+pub trait RegistrationProbe: Send + Sync {
+    async fn lookup(&self, domains: &[String]) -> Result<Vec<u8>, String>;
 }
 
 pub struct SocketPublicCodeProbe {
@@ -40,6 +46,16 @@ pub struct NvdCveProbe {
     api_key: Option<String>,
     cve_api: reqwest::Url,
     cpe_api: reqwest::Url,
+}
+
+pub struct SocketRegistrationProbe {
+    socket_path: PathBuf,
+}
+
+pub struct HttpRegistrationProbe {
+    client: reqwest::Client,
+    endpoint: reqwest::Url,
+    token: String,
 }
 
 impl SocketPublicCodeProbe {
@@ -140,6 +156,49 @@ impl NvdCveProbe {
     }
 }
 
+impl SocketRegistrationProbe {
+    pub fn new(socket_path: impl Into<PathBuf>) -> Self {
+        Self {
+            socket_path: socket_path.into(),
+        }
+    }
+}
+
+impl HttpRegistrationProbe {
+    pub fn new(endpoint: &str, token: impl Into<String>) -> Result<Self, String> {
+        let endpoint = reqwest::Url::parse(endpoint).map_err(|error| error.to_string())?;
+        if endpoint.scheme() != "https" {
+            return Err("registration provider endpoint must use HTTPS".to_owned());
+        }
+        Self::with_endpoint(endpoint, token)
+    }
+
+    #[cfg(test)]
+    fn for_test(endpoint: &str, token: impl Into<String>) -> Result<Self, String> {
+        let endpoint = reqwest::Url::parse(endpoint).map_err(|error| error.to_string())?;
+        Self::with_endpoint(endpoint, token)
+    }
+
+    fn with_endpoint(endpoint: reqwest::Url, token: impl Into<String>) -> Result<Self, String> {
+        let token = token.into();
+        if token.trim().is_empty() {
+            return Err("registration provider token is required".to_owned());
+        }
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .redirect(reqwest::redirect::Policy::none())
+            .user_agent("CyberEdge/0.1 registration-intelligence")
+            .build()
+            .map_err(|error| error.to_string())?;
+        Ok(Self {
+            client,
+            endpoint,
+            token,
+        })
+    }
+}
+
 #[derive(Serialize)]
 struct SearchRequest<'a> {
     domains: &'a [String],
@@ -148,6 +207,52 @@ struct SearchRequest<'a> {
 #[derive(Serialize)]
 struct CveRequest<'a> {
     cpe_names: &'a [String],
+}
+
+#[derive(Serialize)]
+struct RegistrationRequest<'a> {
+    domains: &'a [String],
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct RegistrationResponse {
+    coverage: Vec<RegistrationCoverage>,
+    records: Vec<RegistrationRecord>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct RegistrationCoverage {
+    domain: String,
+    status: String,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct RegistrationRecord {
+    domain: String,
+    icp_number: String,
+    site_name: String,
+    entity_name: String,
+    entity_type: String,
+    unified_social_credit_code: String,
+    status: String,
+    approved_at: String,
+    source: String,
+    source_url: String,
+    #[serde(default)]
+    relationships: Vec<RegistrationRelationship>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct RegistrationRelationship {
+    relationship_type: String,
+    related_entity: String,
+    related_domain: String,
+    confidence: String,
+    source: String,
 }
 
 #[derive(Deserialize)]
@@ -356,6 +461,173 @@ impl CveProbe for NvdCveProbe {
     }
 }
 
+#[async_trait]
+impl RegistrationProbe for SocketRegistrationProbe {
+    async fn lookup(&self, domains: &[String]) -> Result<Vec<u8>, String> {
+        validate_domains(domains)?;
+        let request = serde_json::to_vec(&RegistrationRequest { domains })
+            .map_err(|error| format!("encode registration request: {error}"))?;
+        if request.len() > MAX_REQUEST_BYTES {
+            return Err("registration request exceeds IPC limit".to_owned());
+        }
+        let exchange = async {
+            let mut stream = tokio::net::UnixStream::connect(&self.socket_path)
+                .await
+                .map_err(|error| error.to_string())?;
+            stream
+                .write_u32(request.len() as u32)
+                .await
+                .map_err(|error| error.to_string())?;
+            stream
+                .write_all(&request)
+                .await
+                .map_err(|error| error.to_string())?;
+            let status = stream.read_u8().await.map_err(|error| error.to_string())?;
+            let length = stream.read_u32().await.map_err(|error| error.to_string())? as usize;
+            if length > MAX_REGISTRATION_RESPONSE_BYTES {
+                return Err("registration response exceeds IPC limit".to_owned());
+            }
+            let mut payload = vec![0; length];
+            stream
+                .read_exact(&mut payload)
+                .await
+                .map_err(|error| error.to_string())?;
+            if status == 0 {
+                Ok(payload)
+            } else {
+                Err(String::from_utf8_lossy(&payload).into_owned())
+            }
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(5 * 60), exchange)
+            .await
+            .map_err(|_| "registration adapter IPC timed out".to_owned())?
+    }
+}
+
+#[async_trait]
+impl RegistrationProbe for HttpRegistrationProbe {
+    async fn lookup(&self, domains: &[String]) -> Result<Vec<u8>, String> {
+        validate_domains(domains)?;
+        let response = self
+            .client
+            .post(self.endpoint.clone())
+            .bearer_auth(&self.token)
+            .json(&RegistrationRequest { domains })
+            .send()
+            .await
+            .map_err(|error| error.to_string())?;
+        if !response.status().is_success() {
+            return Err(format!(
+                "registration provider returned {}",
+                response.status()
+            ));
+        }
+        let body = response.bytes().await.map_err(|error| error.to_string())?;
+        if body.len() > MAX_REGISTRATION_RESPONSE_BYTES {
+            return Err("registration provider response exceeds limit".to_owned());
+        }
+        let mut response: RegistrationResponse =
+            serde_json::from_slice(&body).map_err(|error| error.to_string())?;
+        validate_registration_response(domains, &mut response)?;
+        serde_json::to_vec(&response).map_err(|error| error.to_string())
+    }
+}
+
+fn validate_registration_response(
+    domains: &[String],
+    response: &mut RegistrationResponse,
+) -> Result<(), String> {
+    if response.records.len() > 160 || response.coverage.len() != domains.len() {
+        return Err("registration provider result count is invalid".to_owned());
+    }
+    let requested = domains.iter().collect::<std::collections::BTreeSet<_>>();
+    let covered = response
+        .coverage
+        .iter()
+        .filter(|coverage| coverage.status == "complete")
+        .map(|coverage| &coverage.domain)
+        .collect::<std::collections::BTreeSet<_>>();
+    if requested != covered {
+        return Err("registration provider coverage is incomplete".to_owned());
+    }
+    for record in &mut response.records {
+        if !requested.contains(&record.domain)
+            || record.icp_number.is_empty()
+            || record.icp_number.len() > 128
+            || record.site_name.len() > 512
+            || record.entity_name.len() > 512
+            || !matches!(
+                record.entity_type.as_str(),
+                "enterprise" | "government" | "institution" | "individual" | "other"
+            )
+            || !matches!(record.status.as_str(), "active" | "cancelled" | "unknown")
+            || record.approved_at.len() > 64
+            || record.source.is_empty()
+            || record.source.len() > 256
+            || !valid_source_url(&record.source_url)
+            || !record.unified_social_credit_code.is_empty()
+                && (record.unified_social_credit_code.len() != 18
+                    || !record
+                        .unified_social_credit_code
+                        .bytes()
+                        .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit()))
+            || record.relationships.len() > 20
+        {
+            return Err("registration provider record violates the adapter profile".to_owned());
+        }
+        if record.entity_type == "individual" {
+            record.entity_name.clear();
+            record.unified_social_credit_code.clear();
+        }
+        for relationship in &record.relationships {
+            if !matches!(
+                relationship.relationship_type.as_str(),
+                "same_entity" | "parent" | "subsidiary" | "affiliate"
+            ) || relationship.related_entity.len() > 512
+                || !relationship.related_domain.is_empty()
+                    && validate_domains(std::slice::from_ref(&relationship.related_domain)).is_err()
+                || !matches!(relationship.confidence.as_str(), "confirmed" | "reported")
+                || relationship.source.is_empty()
+                || relationship.source.len() > 256
+            {
+                return Err("registration relationship violates the adapter profile".to_owned());
+            }
+        }
+        record.relationships.sort_by(|left, right| {
+            (
+                &left.relationship_type,
+                &left.related_entity,
+                &left.related_domain,
+            )
+                .cmp(&(
+                    &right.relationship_type,
+                    &right.related_entity,
+                    &right.related_domain,
+                ))
+        });
+    }
+    response
+        .coverage
+        .sort_by(|left, right| left.domain.cmp(&right.domain));
+    response.records.sort_by(|left, right| {
+        (&left.domain, &left.icp_number, &left.entity_name).cmp(&(
+            &right.domain,
+            &right.icp_number,
+            &right.entity_name,
+        ))
+    });
+    Ok(())
+}
+
+fn valid_source_url(value: &str) -> bool {
+    reqwest::Url::parse(value).is_ok_and(|url| {
+        url.scheme() == "https"
+            && url.host().is_some()
+            && url.username().is_empty()
+            && url.password().is_none()
+    })
+}
+
 fn normalize_nvd_cve(cpe_name: &str, cve: &serde_json::Value) -> Result<serde_json::Value, String> {
     let id = cve["id"]
         .as_str()
@@ -468,8 +740,8 @@ fn valid_cve_id(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        CveProbe, GitHubPublicCodeProbe, NvdCveProbe, PublicCodeProbe, validate_cpe_names,
-        validate_domains,
+        CveProbe, GitHubPublicCodeProbe, HttpRegistrationProbe, NvdCveProbe, PublicCodeProbe,
+        RegistrationProbe, validate_cpe_names, validate_domains,
     };
     use tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
@@ -604,6 +876,52 @@ mod tests {
         assert_eq!(output[0]["base_severity"], "CRITICAL");
         assert!(output[0].get("configurations").is_none());
         assert!(!output.to_string().contains("must_not_be_retained"));
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn registration_probe_requires_coverage_and_redacts_individuals() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = vec![0; 4096];
+            let length = stream.read(&mut request).await.unwrap();
+            let request = String::from_utf8_lossy(&request[..length]);
+            assert!(request.starts_with("POST /lookup "));
+            assert!(request.contains("authorization: Bearer provider-token"));
+            assert!(request.contains("example.cn"));
+            let body = serde_json::json!({
+                "coverage": [{"domain": "example.cn", "status": "complete"}],
+                "records": [{
+                    "domain": "example.cn",
+                    "icp_number": "京ICP备00000000号-1",
+                    "site_name": "Example",
+                    "entity_name": "must be redacted",
+                    "entity_type": "individual",
+                    "unified_social_credit_code": "",
+                    "status": "active",
+                    "approved_at": "2026-01-01",
+                    "source": "licensed-provider",
+                    "source_url": "https://provider.example/records/1",
+                    "relationships": []
+                }]
+            })
+            .to_string();
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            stream.write_all(response.as_bytes()).await.unwrap();
+        });
+        let probe =
+            HttpRegistrationProbe::for_test(&format!("http://{address}/lookup"), "provider-token")
+                .unwrap();
+        let output = probe.lookup(&["example.cn".to_owned()]).await.unwrap();
+        let output: serde_json::Value = serde_json::from_slice(&output).unwrap();
+        assert_eq!(output["records"][0]["entity_name"], "");
+        assert!(!output.to_string().contains("must be redacted"));
         server.await.unwrap();
     }
 }

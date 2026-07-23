@@ -1,0 +1,4 @@
+interface:
+  display_name: "Query Registrations"
+  short_description: "Query licensed ICP and organization intelligence safely"
+  default_prompt: "Use $cyberedge-query-registrations to query authorized domain registration and organization intelligence through the configured licensed provider adapter."

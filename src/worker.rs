@@ -25,7 +25,7 @@ use uuid::Uuid;
 use x509_parser::{extensions::GeneralName, parse_x509_certificate};
 
 use crate::{
-    intelligence::{CveProbe, PublicCodeProbe},
+    intelligence::{CveProbe, PublicCodeProbe, RegistrationProbe},
     nuclei::NucleiProbe,
     proto::{
         Asset, Certificate, Evidence, Finding, FindingSeverity, FindingState, Observation,
@@ -545,6 +545,7 @@ pub struct DiscoveryWorker {
     nuclei_probe: Option<Arc<dyn NucleiProbe>>,
     public_code_probe: Option<Arc<dyn PublicCodeProbe>>,
     cve_probe: Option<Arc<dyn CveProbe>>,
+    registration_probe: Option<Arc<dyn RegistrationProbe>>,
     service_ports: Vec<u16>,
 }
 
@@ -561,6 +562,7 @@ impl DiscoveryWorker {
             nuclei_probe: None,
             public_code_probe: None,
             cve_probe: None,
+            registration_probe: None,
             service_ports: Vec::new(),
         }
     }
@@ -595,6 +597,11 @@ impl DiscoveryWorker {
         self
     }
 
+    pub fn with_registration_probe(mut self, probe: Arc<dyn RegistrationProbe>) -> Self {
+        self.registration_probe = Some(probe);
+        self
+    }
+
     pub fn with_port_connector(
         mut self,
         connector: Arc<dyn PortConnector>,
@@ -622,6 +629,7 @@ impl DiscoveryWorker {
                 | "policy_vulnerability_baseline"
                 | "policy_public_code_intelligence"
                 | "policy_cve_intelligence"
+                | "policy_registration_intelligence"
         ) {
             self.repository.fail_task(&claimed.task.id, now()).await?;
             return Ok(true);
@@ -644,6 +652,15 @@ impl DiscoveryWorker {
             let records = self
                 .discover_cve_findings(&claimed.task.id, &claimed.scope.id)
                 .await?;
+            self.repository
+                .complete_task(&claimed.task.id, records, now())
+                .await?;
+            return Ok(true);
+        }
+        if claimed.task.policy_id == "policy_registration_intelligence" {
+            let records = self
+                .discover_registrations(&claimed.task.id, &claimed.scope.id, &claimed.scope.targets)
+                .await;
             self.repository
                 .complete_task(&claimed.task.id, records, now())
                 .await?;
@@ -702,6 +719,107 @@ impl DiscoveryWorker {
             .complete_task(&claimed.task.id, records, now())
             .await?;
         Ok(true)
+    }
+
+    async fn discover_registrations(
+        &self,
+        task_id: &str,
+        scope_id: &str,
+        scope_targets: &[ScopeTarget],
+    ) -> Vec<DiscoveryRecord> {
+        let domains = scope_targets
+            .iter()
+            .filter(|target| TargetKind::try_from(target.kind) == Ok(TargetKind::Domain))
+            .map(|target| target.value.clone())
+            .take(MAX_REGISTRATION_DOMAINS)
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+        if domains.is_empty() {
+            return vec![record(
+                task_id,
+                scope_id,
+                TargetKind::Unspecified,
+                "scope",
+                "registration.no_targets",
+                json!({"reason": "scope has no domain targets"}),
+            )];
+        }
+        let Some(probe) = &self.registration_probe else {
+            return vec![record(
+                task_id,
+                scope_id,
+                TargetKind::Domain,
+                &domains[0],
+                "registration.error",
+                json!({"error": "registration adapter unavailable"}),
+            )];
+        };
+        let output = match probe.lookup(&domains).await {
+            Ok(output) => output,
+            Err(error) => {
+                return vec![record(
+                    task_id,
+                    scope_id,
+                    TargetKind::Domain,
+                    &domains[0],
+                    "registration.error",
+                    json!({"error": error, "target_count": domains.len()}),
+                )];
+            }
+        };
+        let response = match parse_registration_output(&output, &domains) {
+            Ok(response) => response,
+            Err(error) => {
+                return vec![record(
+                    task_id,
+                    scope_id,
+                    TargetKind::Domain,
+                    &domains[0],
+                    "registration.error",
+                    json!({"error": error, "target_count": domains.len()}),
+                )];
+            }
+        };
+        let mut records = Vec::new();
+        for registration in response.records {
+            let payload = serde_json::to_value(&registration)
+                .expect("validated registration is serializable");
+            records.push(record(
+                task_id,
+                scope_id,
+                TargetKind::Domain,
+                &registration.domain,
+                "registration.icp",
+                payload.clone(),
+            ));
+            if registration.entity_type != "individual" && !registration.entity_name.is_empty() {
+                let organization_value = if registration.unified_social_credit_code.is_empty() {
+                    registration.entity_name.as_str()
+                } else {
+                    registration.unified_social_credit_code.as_str()
+                };
+                records.push(record(
+                    task_id,
+                    scope_id,
+                    TargetKind::Organization,
+                    organization_value,
+                    "organization.registration",
+                    payload,
+                ));
+            }
+        }
+        for coverage in response.coverage {
+            records.push(record(
+                task_id,
+                scope_id,
+                TargetKind::Domain,
+                &coverage.domain,
+                "registration.coverage",
+                json!({"domain": coverage.domain, "completed": true}),
+            ));
+        }
+        records
     }
 
     async fn discover_cve_findings(
@@ -2116,6 +2234,138 @@ struct CveResult {
     references: Vec<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RegistrationResponse {
+    coverage: Vec<RegistrationCoverage>,
+    records: Vec<RegistrationRecord>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RegistrationCoverage {
+    domain: String,
+    status: String,
+}
+
+#[derive(Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+struct RegistrationRecord {
+    domain: String,
+    icp_number: String,
+    site_name: String,
+    entity_name: String,
+    entity_type: String,
+    unified_social_credit_code: String,
+    status: String,
+    approved_at: String,
+    source: String,
+    source_url: String,
+    relationships: Vec<RegistrationRelationship>,
+}
+
+#[derive(Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+struct RegistrationRelationship {
+    relationship_type: String,
+    related_entity: String,
+    related_domain: String,
+    confidence: String,
+    source: String,
+}
+
+fn parse_registration_output(
+    output: &[u8],
+    domains: &[String],
+) -> Result<RegistrationResponse, String> {
+    if output.len() > MAX_REGISTRATION_OUTPUT_BYTES {
+        return Err("registration output exceeds evidence limit".to_owned());
+    }
+    let response: RegistrationResponse = serde_json::from_slice(output)
+        .map_err(|error| format!("invalid registration JSON: {error}"))?;
+    if response.records.len() > MAX_REGISTRATION_RESULTS || response.coverage.len() != domains.len()
+    {
+        return Err("registration result count is invalid".to_owned());
+    }
+    let requested = domains.iter().collect::<BTreeSet<_>>();
+    let covered = response
+        .coverage
+        .iter()
+        .filter(|coverage| coverage.status == "complete")
+        .map(|coverage| &coverage.domain)
+        .collect::<BTreeSet<_>>();
+    if requested != covered {
+        return Err("registration coverage is incomplete".to_owned());
+    }
+    for registration in &response.records {
+        if !requested.contains(&registration.domain)
+            || registration.icp_number.is_empty()
+            || registration.icp_number.len() > 128
+            || registration.site_name.len() > 512
+            || registration.entity_name.len() > 512
+            || !matches!(
+                registration.entity_type.as_str(),
+                "enterprise" | "government" | "institution" | "individual" | "other"
+            )
+            || registration.entity_type == "individual"
+                && (!registration.entity_name.is_empty()
+                    || !registration.unified_social_credit_code.is_empty())
+            || !matches!(
+                registration.status.as_str(),
+                "active" | "cancelled" | "unknown"
+            )
+            || registration.approved_at.len() > 64
+            || registration.source.is_empty()
+            || registration.source.len() > 256
+            || !strict_https_url(&registration.source_url)
+            || !registration.unified_social_credit_code.is_empty()
+                && (registration.unified_social_credit_code.len() != 18
+                    || !registration
+                        .unified_social_credit_code
+                        .bytes()
+                        .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit()))
+            || registration.relationships.len() > 20
+            || registration.relationships.iter().any(|relationship| {
+                !matches!(
+                    relationship.relationship_type.as_str(),
+                    "same_entity" | "parent" | "subsidiary" | "affiliate"
+                ) || relationship.related_entity.len() > 512
+                    || !relationship.related_domain.is_empty()
+                        && !valid_domain_name(&relationship.related_domain)
+                    || !matches!(relationship.confidence.as_str(), "confirmed" | "reported")
+                    || relationship.source.is_empty()
+                    || relationship.source.len() > 256
+            })
+        {
+            return Err("registration record violates the adapter profile".to_owned());
+        }
+    }
+    Ok(response)
+}
+
+fn valid_domain_name(value: &str) -> bool {
+    value.len() <= 253
+        && value.contains('.')
+        && value.split('.').all(|label| {
+            !label.is_empty()
+                && label.len() <= 63
+                && !label.starts_with('-')
+                && !label.ends_with('-')
+                && label
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        })
+}
+
+fn strict_https_url(value: &str) -> bool {
+    reqwest::Url::parse(value).is_ok_and(|url| {
+        url.scheme() == "https"
+            && url.host().is_some()
+            && url.username().is_empty()
+            && url.password().is_none()
+    })
+}
+
 fn parse_cve_output(output: &[u8], cpe_names: &[String]) -> Result<Vec<CveResult>, String> {
     if output.len() > MAX_CVE_OUTPUT_BYTES {
         return Err("CVE output exceeds evidence limit".to_owned());
@@ -3186,6 +3436,9 @@ const MAX_PUBLIC_CODE_OUTPUT_BYTES: usize = 1_048_576;
 const MAX_CVE_CPE_NAMES: usize = 16;
 const MAX_CVE_RESULTS: usize = 5_000;
 const MAX_CVE_OUTPUT_BYTES: usize = 10 * 1_048_576;
+const MAX_REGISTRATION_DOMAINS: usize = 8;
+const MAX_REGISTRATION_RESULTS: usize = 160;
+const MAX_REGISTRATION_OUTPUT_BYTES: usize = 2 * 1_048_576;
 const MAX_NUCLEI_RESULTS: usize = 1_000;
 const MAX_NUCLEI_RESULT_BYTES: usize = 1_048_576;
 const MAX_NUCLEI_OUTPUT_BYTES: usize = 10 * 1_048_576;

@@ -9,8 +9,8 @@ use std::{
 use async_trait::async_trait;
 use cyberedge::{
     Authorizer, CertificateProbe, CveProbe, CyberEdgeService, DiscoveryWorker, DnsResolver,
-    NucleiProbe, PortConnector, PostgresRepository, PublicCodeProbe, Repository, ScreenshotProbe,
-    WebSnapshot, WebsiteProbe,
+    NucleiProbe, PortConnector, PostgresRepository, PublicCodeProbe, RegistrationProbe, Repository,
+    ScreenshotProbe, WebSnapshot, WebsiteProbe,
     proto::{
         AssetChangeKind, CreateScheduleRequest, CreateScopeRequest, ExposureChangeKind,
         FindingSeverity, FindingState, GetTaskReportRequest, GetTaskRequest, InvocationContext,
@@ -37,6 +37,7 @@ struct CyclingDirectoryWebsite(AtomicUsize);
 struct CyclingNuclei(AtomicUsize);
 struct CyclingPublicCode(AtomicUsize);
 struct CyclingCve(AtomicUsize);
+struct TestRegistration;
 
 #[async_trait]
 impl DnsResolver for Resolver {
@@ -205,6 +206,14 @@ impl CveProbe for CyclingCve {
             return Ok(b"[]".to_vec());
         }
         Ok(br#"[{"cpe_name":"cpe:2.3:a:wordpress:wordpress:6.8:*:*:*:*:*:*:*","cve_id":"CVE-2099-1234","source_identifier":"security@example.test","published":"2099-01-01T00:00:00.000","last_modified":"2099-01-02T00:00:00.000","vuln_status":"Analyzed","description":"Evidence-backed test CVE.","cvss_version":"3.1","cvss_vector":"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H","base_score":9.8,"base_severity":"CRITICAL","references":["https://example.test/CVE-2099-1234"]}]"#.to_vec())
+    }
+}
+
+#[async_trait]
+impl RegistrationProbe for TestRegistration {
+    async fn lookup(&self, domains: &[String]) -> Result<Vec<u8>, String> {
+        assert_eq!(domains, ["example.com"]);
+        Ok(r#"{"coverage":[{"domain":"example.com","status":"complete"}],"records":[{"domain":"example.com","icp_number":"京ICP备00000000号-1","site_name":"Example","entity_name":"Example Technology Co., Ltd.","entity_type":"enterprise","unified_social_credit_code":"91110000123456789X","status":"active","approved_at":"2026-01-01","source":"licensed-provider","source_url":"https://provider.example/records/1","relationships":[]}] }"#.as_bytes().to_vec())
     }
 }
 
@@ -700,8 +709,9 @@ async fn persists_scope_task_events_audit_and_outbox() {
         assert_eq!(finding.state, i32::from(expected_state));
     }
 
-    let cve_worker = DiscoveryWorker::new(repository, Arc::new(Resolver(AtomicUsize::new(0))))
-        .with_cve_probe(Arc::new(CyclingCve(AtomicUsize::new(0))));
+    let cve_worker =
+        DiscoveryWorker::new(repository.clone(), Arc::new(Resolver(AtomicUsize::new(0))))
+            .with_cve_probe(Arc::new(CyclingCve(AtomicUsize::new(0))));
     for (index, expected_state) in [
         FindingState::Open,
         FindingState::Resolved,
@@ -734,6 +744,46 @@ async fn persists_scope_task_events_audit_and_outbox() {
             .expect("persisted NVD CVE finding");
         assert_eq!(finding.state, i32::from(expected_state));
     }
+
+    let registration_worker =
+        DiscoveryWorker::new(repository, Arc::new(Resolver(AtomicUsize::new(0))))
+            .with_registration_probe(Arc::new(TestRegistration));
+    let registration_task = restarted
+        .start_scan(Request::new(StartScanRequest {
+            context: Some(context("registration-task")),
+            scope_id: scope.id.clone(),
+            policy_id: "policy_registration_intelligence".to_owned(),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    registration_worker.run_once().await.unwrap();
+    let assets = restarted
+        .search_assets(Request::new(cyberedge::proto::SearchAssetsRequest {
+            context: Some(context("registration-assets")),
+            scope_id: scope.id,
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .assets;
+    assert!(assets.iter().any(|asset| {
+        asset.kind == i32::from(TargetKind::Organization) && asset.value == "91110000123456789X"
+    }));
+    let report = restarted
+        .get_task_report(Request::new(GetTaskReportRequest {
+            context: Some(context("registration-report")),
+            task_id: registration_task.id,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(
+        report
+            .observations
+            .iter()
+            .any(|observation| observation.observation_type == "registration.coverage")
+    );
 }
 
 fn context(suffix: &str) -> InvocationContext {

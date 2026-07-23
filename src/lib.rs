@@ -12,8 +12,8 @@ mod web;
 mod worker;
 
 pub use intelligence::{
-    CveProbe, GitHubPublicCodeProbe, NvdCveProbe, PublicCodeProbe, SocketCveProbe,
-    SocketPublicCodeProbe,
+    CveProbe, GitHubPublicCodeProbe, HttpRegistrationProbe, NvdCveProbe, PublicCodeProbe,
+    RegistrationProbe, SocketCveProbe, SocketPublicCodeProbe, SocketRegistrationProbe,
 };
 pub use notification::{NotificationDispatcher, NotificationSink, WebhookSink};
 pub use nuclei::{NucleiProbe, SocketNucleiProbe, SystemNucleiProbe};
