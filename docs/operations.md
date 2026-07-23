@@ -19,11 +19,15 @@ printf '%s' '{"request_id":"req_health_scope","idempotency_key":"idem_health_sco
 
 The bridge accepts one JSON envelope on stdin and emits JSON Lines on stdout. It has no interactive mode.
 
+`GetTaskReport` includes Evidence identifiers, media types, hashes, and timestamps but deliberately omits Evidence bodies so comprehensive reports remain bounded. Use `GetEvidence` for the small number of artifacts needed to support a material conclusion.
+
 ## End-to-end assessment
 
 The `cyberedge-assess-scope` Skill first calls `GetReadiness`, then starts one `StartAssessment` Task. `standard` uses the fixed baseline service ports. `thorough` uses the server-owned TCP `1-1024` profile plus selected high-value ports; callers still cannot provide ports, templates, flags, headers, paths, commands, or targets outside the Scope.
 
 The Task chains passive DNS and Certificate Transparency, a bounded in-domain DNS label set, active inventory, Host collision comparison, the reviewed Nuclei baseline, exact-domain public-code metadata, exact observed CPE-to-NVD correlation, and licensed registration intelligence. `GetTaskReport.coverage` reports each stage as `complete`, `partial`, `unavailable`, or `blocked`. Treat Task state `COMPLETED` only as “the workflow stopped normally,” never as proof that optional adapters ran.
+
+Certificate Transparency discovery queries `crt.sh` first and falls back to the Cert Spotter issuance API when the primary request fails. The fallback is bounded to one page of unexpired issuances, requests DNS names only, and uses the same root-domain normalization and wildcard filtering as the primary source.
 
 ```bash
 printf '%s' '{"request_id":"req_assess_1","idempotency_key":"idem_assess_1","agent_id":"codex-main","skill_name":"cyberedge-assess-scope","skill_version":"0.1.0","action":"start_assessment","scope_id":"scope_...","profile":"thorough"}' \
@@ -48,7 +52,7 @@ Finding adapters use `ReportFinding` and require `finding.report`. A Finding mus
 
 `policy_vulnerability_baseline` requires the separate `scan.vulnerability` capability. It first executes the fixed active inventory baseline, then sends at most 64 successfully observed, credential-free Website origins to the Nuclei adapter over a Unix socket. AI callers cannot provide targets, templates, tags, severity filters, flags, headers, variables, or commands.
 
-Populate `config/nuclei-templates/` with a reviewed, signed allowlist before enabling the adapter. Template lifecycle is an operator-controlled release process; the runtime never downloads or updates templates. Start the deployment with:
+Populate `config/nuclei-templates/` with a reviewed, signed allowlist before enabling the adapter, or set `CYBEREDGE_NUCLEI_TEMPLATES_DIR` to an absolute operator-managed directory. Template lifecycle is an operator-controlled release process; the runtime never downloads or updates templates. Start the deployment with:
 
 ```bash
 docker compose -f compose.yaml -f compose.nuclei.yaml up -d --build
@@ -60,7 +64,7 @@ Each accepted JSONL match is schema-checked and normalized before becoming immut
 
 ## Public-code intelligence adapter
 
-Write the GitHub token to a root-readable deployment secret file, set `CYBEREDGE_GITHUB_TOKEN_FILE` to that file's absolute path, and layer `compose.public-code.yaml` over `compose.yaml`. Compose mounts it as `/run/secrets/github_token` only inside the isolated `public-code-adapter`; the token is absent from container environment variables, and the core sees only a Unix socket. The sidecar has a read-only root filesystem, no Linux capabilities, a private egress network, bounded memory/processes, and no database network or credentials.
+Write the GitHub token to a deployment secret file readable only by UID `65532`, set `CYBEREDGE_GITHUB_TOKEN_FILE` to that file's absolute path, and layer `compose.public-code.yaml` over `compose.yaml`. Local Docker Compose bind-mounts secret files without changing ownership, so prepare the file as UID/GID `65532` with mode `0400`; do not make it world-readable. Compose mounts it as `/run/secrets/github_token` only inside the isolated `public-code-adapter`; the token is absent from container environment variables, and the core sees only a Unix socket. The sidecar has a read-only root filesystem, no Linux capabilities, a private egress network, bounded memory/processes, and no database network or credentials.
 
 `policy_public_code_intelligence` requires `scan.intelligence`. It derives at most eight exact domain names from the authorized Scope and performs one quoted GitHub code search per domain with at most 20 results. The adapter retains only query domain, public repository, path, file name, blob SHA, and GitHub URL. It deliberately discards response fragments and never fetches source content. Each accepted item creates `github.code.reference` Evidence and an `Info` Finding explicitly classified as a review candidate, while `github.code.coverage` drives resolution. Provider errors and malformed/out-of-scope output never resolve prior candidates.
 

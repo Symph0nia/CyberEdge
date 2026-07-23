@@ -505,9 +505,30 @@ struct CrtShEntry {
     name_value: String,
 }
 
+#[derive(Deserialize)]
+struct CertSpotterIssuance {
+    #[serde(default)]
+    dns_names: Vec<String>,
+}
+
 #[async_trait]
 impl CertificateSource for CrtShSource {
     async fn discover(&self, domain: &str) -> Result<Vec<String>, String> {
+        match self.discover_crt_sh(domain).await {
+            Ok(names) => Ok(names),
+            Err(crt_sh_error) => {
+                self.discover_certspotter(domain)
+                    .await
+                    .map_err(|fallback_error| {
+                        format!("crt.sh: {crt_sh_error}; certspotter: {fallback_error}")
+                    })
+            }
+        }
+    }
+}
+
+impl CrtShSource {
+    async fn discover_crt_sh(&self, domain: &str) -> Result<Vec<String>, String> {
         let response = self
             .client
             .get("https://crt.sh/")
@@ -530,6 +551,29 @@ impl CertificateSource for CrtShSource {
                     .map(str::to_owned)
                     .collect::<Vec<_>>()
             })
+            .collect())
+    }
+
+    async fn discover_certspotter(&self, domain: &str) -> Result<Vec<String>, String> {
+        let response = self
+            .client
+            .get("https://api.certspotter.com/v1/issuances")
+            .query(&[
+                ("domain", domain),
+                ("include_subdomains", "true"),
+                ("expand", "dns_names"),
+            ])
+            .send()
+            .await
+            .map_err(|error| error.to_string())?
+            .error_for_status()
+            .map_err(|error| error.to_string())?;
+        Ok(response
+            .json::<Vec<CertSpotterIssuance>>()
+            .await
+            .map_err(|error| error.to_string())?
+            .into_iter()
+            .flat_map(|issuance| issuance.dns_names)
             .collect())
     }
 }
@@ -1928,7 +1972,7 @@ impl DiscoveryWorker {
                         TargetKind::Domain,
                         &domain,
                         "ct.discovered_domain",
-                        json!({"source": "crt.sh", "root_domain": target.value, "domain": domain}),
+                        json!({"source": "certificate_transparency", "root_domain": target.value, "domain": domain}),
                     )
                 })
                 .collect(),
@@ -2955,7 +2999,7 @@ fn parse_nuclei_output(
         }
         let target = [&event.host, &event.url, &event.matched_at]
             .into_iter()
-            .filter_map(|value| normalized_http_target(value))
+            .flat_map(|value| nuclei_result_target_candidates(value))
             .find_map(|url| targets.get(&url).cloned())
             .ok_or_else(|| "nuclei result is outside derived targets".to_owned())?;
         nuclei_severity(&event.info.severity)?;
@@ -2966,6 +3010,23 @@ fn parse_nuclei_output(
         });
     }
     Ok(parsed)
+}
+
+fn nuclei_result_target_candidates(value: &str) -> Vec<String> {
+    let mut candidates = Vec::new();
+    if let Some(url) = normalized_http_target(value) {
+        candidates.push(url);
+    }
+    if !value.contains("://") && !value.is_empty() {
+        for scheme in ["https", "http"] {
+            if let Some(url) = normalized_http_target(&format!("{scheme}://{value}/"))
+                && !candidates.contains(&url)
+            {
+                candidates.push(url);
+            }
+        }
+    }
+    candidates
 }
 
 fn nuclei_severity(value: &serde_json::Value) -> Result<FindingSeverity, String> {
@@ -3958,5 +4019,21 @@ mod detector_tests {
             &snapshot("Default", "text/html", b"default".to_vec()),
             &snapshot("API", "application/json", json),
         ));
+    }
+
+    #[test]
+    fn maps_bare_nuclei_ssl_hosts_to_derived_https_targets() {
+        let url = "https://example.com/".to_owned();
+        let targets = BTreeMap::from([(
+            url.clone(),
+            NucleiTarget {
+                url,
+                asset: Asset::default(),
+                service: Service::default(),
+            },
+        )]);
+        let output = br#"{"template-id":"deprecated-tls","type":"ssl","host":"example.com:443","matched-at":"example.com:443","info":{"name":"Deprecated TLS","severity":"low"}}"#;
+
+        assert_eq!(parse_nuclei_output(output, &targets).unwrap().len(), 1);
     }
 }

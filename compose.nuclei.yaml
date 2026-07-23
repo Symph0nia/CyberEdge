@@ -19,7 +19,7 @@ services:
       HOME: /tmp
     volumes:
       - nuclei-socket:/run/cyberedge-nuclei
-      - ./config/nuclei-templates:/opt/cyberedge/nuclei-templates:ro
+      - ${CYBEREDGE_NUCLEI_TEMPLATES_DIR:-./config/nuclei-templates}:/opt/cyberedge/nuclei-templates:ro
     networks:
       - nuclei-egress
     read_only: true

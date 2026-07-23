@@ -617,6 +617,10 @@ impl CyberEdge for CyberEdgeService {
         &self,
         request: Request<GetTaskReportRequest>,
     ) -> Result<Response<TaskReport>, Status> {
+        let omit_evidence_content = request
+            .metadata()
+            .get("x-cyberedge-omit-evidence-content")
+            .is_some_and(|value| value == "true");
         let request = request.into_inner();
         let context = validate_context(request.context.as_ref())?;
         self.authorize(context, "report.read")?;
@@ -732,12 +736,15 @@ impl CyberEdge for CyberEdgeService {
         let mut evidence = Vec::new();
         for observation in &observations {
             if evidence_ids.insert(observation.evidence_id.clone()) {
-                evidence.push(
-                    self.repository
-                        .get_evidence(&observation.evidence_id)
-                        .await
-                        .map_err(repository_status)?,
-                );
+                let mut item = self
+                    .repository
+                    .get_evidence(&observation.evidence_id)
+                    .await
+                    .map_err(repository_status)?;
+                if omit_evidence_content {
+                    item.content.clear();
+                }
+                evidence.push(item);
             }
         }
         let coverage = observations.iter().filter_map(coverage_entry).collect();

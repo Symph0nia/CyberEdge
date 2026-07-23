@@ -21,7 +21,7 @@ use serde_json::{Value, json};
 use tokio::net::UnixStream;
 use tokio_stream::StreamExt;
 use tonic::{
-    Code, Status,
+    Code, Request, Status,
     transport::{Certificate, Channel, ClientTlsConfig, Endpoint, Identity, Uri},
 };
 use tower::service_fn;
@@ -456,8 +456,13 @@ async fn run() -> Result<(), Value> {
             );
         }
         Command::GetTaskReport { task_id } => {
+            let mut request = Request::new(GetTaskReportRequest { context, task_id });
+            request.metadata_mut().insert(
+                "x-cyberedge-omit-evidence-content",
+                "true".parse().expect("static metadata value is valid"),
+            );
             let report = client
-                .get_task_report(GetTaskReportRequest { context, task_id })
+                .get_task_report(request)
                 .await
                 .map_err(rpc_error)?
                 .into_inner();
@@ -466,7 +471,7 @@ async fn run() -> Result<(), Value> {
                 "scope": report.scope.map(scope_json),
                 "assets": report.assets.into_iter().map(asset_json).collect::<Vec<_>>(),
                 "observations": report.observations.into_iter().map(observation_json).collect::<Vec<_>>(),
-                "evidence": report.evidence.into_iter().map(evidence_json).collect::<Vec<_>>(),
+                "evidence": report.evidence.into_iter().map(evidence_metadata_json).collect::<Vec<_>>(),
                 "services": report.services.into_iter().map(service_json).collect::<Vec<_>>(),
                 "certificates": report.certificates.into_iter().map(certificate_json).collect::<Vec<_>>(),
                 "websites": report.websites.into_iter().map(website_json).collect::<Vec<_>>(),
@@ -583,9 +588,9 @@ fn observation_json(value: cyberedge::proto::Observation) -> Value {
         "evidence_id": value.evidence_id, "observed_at": timestamp_json(value.observed_at)})
 }
 
-fn evidence_json(value: cyberedge::proto::Evidence) -> Value {
+fn evidence_metadata_json(value: cyberedge::proto::Evidence) -> Value {
     json!({"id": value.id, "media_type": value.media_type, "sha256": value.sha256,
-        "content_base64": STANDARD.encode(value.content), "created_at": timestamp_json(value.created_at)})
+        "created_at": timestamp_json(value.created_at)})
 }
 
 fn service_json(value: cyberedge::proto::Service) -> Value {

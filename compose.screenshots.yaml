@@ -9,6 +9,7 @@ services:
       - renderer-socket:/run/cyberedge-renderer
 
   renderer:
+    init: true
     build:
       context: .
       target: renderer
