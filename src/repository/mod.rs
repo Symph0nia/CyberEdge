@@ -202,6 +202,74 @@ pub trait Repository: Send + Sync {
     async fn search_audit(&self) -> Result<Vec<AuditEvent>, RepositoryError>;
 }
 
+#[async_trait]
+pub trait WebReadRepository: Send + Sync {
+    async fn read_overview(&self) -> Result<ReadOverview, RepositoryError>;
+    async fn search_assets(&self, scope_id: &str) -> Result<Vec<Asset>, RepositoryError>;
+    async fn search_services(&self, scope_id: &str) -> Result<Vec<Service>, RepositoryError>;
+    async fn search_certificates(
+        &self,
+        scope_id: &str,
+    ) -> Result<Vec<Certificate>, RepositoryError>;
+    async fn search_websites(&self, scope_id: &str) -> Result<Vec<Website>, RepositoryError>;
+    async fn search_findings(&self, scope_id: &str) -> Result<Vec<Finding>, RepositoryError>;
+    async fn search_observations(&self, task_id: &str)
+    -> Result<Vec<Observation>, RepositoryError>;
+    async fn search_exposure_changes(
+        &self,
+        schedule_id: &str,
+    ) -> Result<Vec<ExposureChange>, RepositoryError>;
+    async fn get_evidence(&self, evidence_id: &str) -> Result<Evidence, RepositoryError>;
+}
+
+#[async_trait]
+impl<T: Repository + ?Sized> WebReadRepository for T {
+    async fn read_overview(&self) -> Result<ReadOverview, RepositoryError> {
+        Repository::read_overview(self).await
+    }
+
+    async fn search_assets(&self, scope_id: &str) -> Result<Vec<Asset>, RepositoryError> {
+        Repository::search_assets(self, scope_id).await
+    }
+
+    async fn search_services(&self, scope_id: &str) -> Result<Vec<Service>, RepositoryError> {
+        Repository::search_services(self, scope_id).await
+    }
+
+    async fn search_certificates(
+        &self,
+        scope_id: &str,
+    ) -> Result<Vec<Certificate>, RepositoryError> {
+        Repository::search_certificates(self, scope_id).await
+    }
+
+    async fn search_websites(&self, scope_id: &str) -> Result<Vec<Website>, RepositoryError> {
+        Repository::search_websites(self, scope_id).await
+    }
+
+    async fn search_findings(&self, scope_id: &str) -> Result<Vec<Finding>, RepositoryError> {
+        Repository::search_findings(self, scope_id).await
+    }
+
+    async fn search_observations(
+        &self,
+        task_id: &str,
+    ) -> Result<Vec<Observation>, RepositoryError> {
+        Repository::search_observations(self, task_id).await
+    }
+
+    async fn search_exposure_changes(
+        &self,
+        schedule_id: &str,
+    ) -> Result<Vec<ExposureChange>, RepositoryError> {
+        Repository::search_exposure_changes(self, schedule_id).await
+    }
+
+    async fn get_evidence(&self, evidence_id: &str) -> Result<Evidence, RepositoryError> {
+        Repository::get_evidence(self, evidence_id).await
+    }
+}
+
 #[derive(Clone)]
 struct ExposureState {
     resource_kind: &'static str,

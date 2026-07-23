@@ -21,12 +21,12 @@ use crate::{
         Asset, AssetChange, Certificate, ExposureChange, Finding, Schedule, Scope, Service, Task,
         Website,
     },
-    repository::Repository,
+    repository::WebReadRepository,
 };
 
 #[derive(Clone)]
 struct WebState {
-    repository: Arc<dyn Repository>,
+    repository: Arc<dyn WebReadRepository>,
 }
 
 #[derive(Clone)]
@@ -147,7 +147,7 @@ impl OidcAccess {
 }
 
 pub async fn serve_read_only_web(
-    repository: Arc<dyn Repository>,
+    repository: Arc<dyn WebReadRepository>,
     address: SocketAddr,
     dist: PathBuf,
     access: WebAccess,
@@ -158,7 +158,7 @@ pub async fn serve_read_only_web(
 }
 
 pub fn read_only_router(
-    repository: Arc<dyn Repository>,
+    repository: Arc<dyn WebReadRepository>,
     dist: PathBuf,
     access: WebAccess,
 ) -> Router {

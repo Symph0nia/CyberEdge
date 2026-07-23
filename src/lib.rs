@@ -20,6 +20,7 @@ pub use nuclei::{NucleiProbe, SocketNucleiProbe, SystemNucleiProbe};
 pub use policy::{Authorizer, PolicyError, StaticAuthorizer};
 pub use repository::{
     MemoryRepository, OutboxEvent, PostgresRepository, Repository, RepositoryError,
+    WebReadRepository,
 };
 pub use service::CyberEdgeService;
 pub use web::{OidcAccess, WebAccess, WebAccessError, read_only_router, serve_read_only_web};

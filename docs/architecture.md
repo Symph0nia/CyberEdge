@@ -16,6 +16,8 @@ CyberEdge is a single-organization, self-hosted modular monolith. AI Agents are 
 
 `scope -> asset -> observation -> finding -> evidence -> remediation`
 
+The optional Web is compiled against a dedicated `WebReadRepository` contract. Its handlers cannot call Scope, Task, Schedule, Finding, worker, or outbox mutations even if the backing deployment currently reads the same PostgreSQL data. A separately stored event projection remains a later scaling boundary, not a prerequisite for enforcing read-only behavior.
+
 Tasks are claimed with `FOR UPDATE SKIP LOCKED`. State changes, task events, discovery records, and outbox events are committed transactionally. A dedicated broker is introduced only when measured throughput proves PostgreSQL insufficient.
 
 Scanner tools run behind adapters with explicit timeouts, resource limits, and normalized output. Raw tool output is evidence, never the domain model.
