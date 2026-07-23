@@ -40,6 +40,8 @@ jobs:
           rustup default 1.97.1
       - name: Check Rust formatting
         run: cargo fmt --check
+      - name: Validate Skill contracts
+        run: python3 scripts/validate-skills.py
       - name: Lint Rust
         run: cargo clippy --all-targets --all-features -- -D warnings
       - name: Test Rust and PostgreSQL integration

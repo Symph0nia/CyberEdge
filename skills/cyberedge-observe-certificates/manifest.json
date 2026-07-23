@@ -1,7 +1,17 @@
 {
+  "schema_version": 1,
   "name": "cyberedge-observe-certificates",
   "version": "0.1.0",
-  "entrypoint": "cyberedge-agent",
-  "transport": "grpc-json-bridge",
-  "capabilities": ["scope.read", "scan.active", "task.read", "asset.read", "service.read", "certificate.read", "evidence.read", "report.read"]
+  "protocol": "cyberedge.v1.CyberEdge",
+  "capabilities": ["scope.read", "scan.active", "task.read", "asset.read", "service.read", "certificate.read", "evidence.read", "report.read"],
+  "rpc_allowlist": [
+    "GetScope",
+    "StartScan",
+    "GetTask",
+    "WatchTask",
+    "SearchCertificates",
+    "SearchObservations",
+    "GetEvidence",
+    "GetTaskReport"
+  ]
 }

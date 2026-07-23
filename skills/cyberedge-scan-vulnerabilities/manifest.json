@@ -1,8 +1,8 @@
 {
+  "schema_version": 1,
   "name": "cyberedge-scan-vulnerabilities",
   "version": "0.1.0",
-  "entrypoint": "cyberedge-agent",
-  "transport": "grpc-json-bridge",
+  "protocol": "cyberedge.v1.CyberEdge",
   "capabilities": [
     "scope.read",
     "scan.vulnerability",
@@ -11,5 +11,16 @@
     "evidence.read",
     "report.read",
     "audit.read"
+  ],
+  "rpc_allowlist": [
+    "GetScope",
+    "StartScan",
+    "GetTask",
+    "WatchTask",
+    "SearchFindings",
+    "SearchObservations",
+    "GetEvidence",
+    "GetTaskReport",
+    "SearchAudit"
   ]
 }

@@ -1,7 +1,15 @@
 {
+  "schema_version": 1,
   "name": "cyberedge-report-findings",
   "version": "0.1.0",
-  "entrypoint": "cyberedge-agent",
-  "transport": "grpc-json-bridge",
-  "capabilities": ["task.read", "finding.report", "finding.read", "evidence.read", "report.read"]
+  "protocol": "cyberedge.v1.CyberEdge",
+  "capabilities": ["task.read", "finding.report", "finding.read", "evidence.read", "report.read"],
+  "rpc_allowlist": [
+    "GetTask",
+    "ReportFinding",
+    "SearchFindings",
+    "SearchObservations",
+    "GetEvidence",
+    "GetTaskReport"
+  ]
 }
