@@ -10,6 +10,8 @@ service CyberEdge {
   rpc CreateScope(CreateScopeRequest) returns (Scope);
   rpc GetScope(GetScopeRequest) returns (Scope);
   rpc StartScan(StartScanRequest) returns (Task);
+  rpc StartAssessment(StartAssessmentRequest) returns (Task);
+  rpc GetReadiness(GetReadinessRequest) returns (ReadinessResponse);
   rpc GetTask(GetTaskRequest) returns (Task);
   rpc WatchTask(WatchTaskRequest) returns (stream TaskEvent);
   rpc CancelTask(CancelTaskRequest) returns (Task);
@@ -45,6 +47,31 @@ message ErrorDetail {
 
 message HealthResponse {
   string status = 1;
+}
+
+enum AssessmentProfile {
+  ASSESSMENT_PROFILE_UNSPECIFIED = 0;
+  ASSESSMENT_PROFILE_STANDARD = 1;
+  ASSESSMENT_PROFILE_THOROUGH = 2;
+}
+
+message StartAssessmentRequest {
+  InvocationContext context = 1;
+  string scope_id = 2;
+  AssessmentProfile profile = 3;
+}
+
+message GetReadinessRequest { InvocationContext context = 1; }
+
+message ComponentReadiness {
+  string component = 1;
+  bool available = 2;
+  string detail = 3;
+}
+
+message ReadinessResponse {
+  repeated ComponentReadiness components = 1;
+  repeated string assessment_profiles = 2;
 }
 
 enum TargetKind {
@@ -386,6 +413,22 @@ message TaskReport {
   repeated Certificate certificates = 8;
   repeated Website websites = 9;
   repeated Finding findings = 10;
+  repeated CoverageEntry coverage = 11;
+}
+
+enum CoverageState {
+  COVERAGE_STATE_UNSPECIFIED = 0;
+  COVERAGE_STATE_COMPLETE = 1;
+  COVERAGE_STATE_PARTIAL = 2;
+  COVERAGE_STATE_UNAVAILABLE = 3;
+  COVERAGE_STATE_BLOCKED = 4;
+}
+
+message CoverageEntry {
+  string stage = 1;
+  CoverageState state = 2;
+  string detail = 3;
+  uint64 observations = 4;
 }
 
 message AuditEvent {

@@ -15,6 +15,7 @@ CyberEdge copies neither repository's code, database shape, Web workflow, nor op
 | Passive domain data sources | Scanner Adapter, Observation | 2 | DNS and Certificate Transparency implemented |
 | Asset grouping and search | Scope and read model | 2 | Scope and bounded search complete |
 | Task policy and lifecycle | Policy, Task, Event | 1 | Passive policy and durable lifecycle complete |
+| One-click full workflow | Assessment Task and CoverageEntry | 1 | Implemented as one typed RPC with standard/thorough server-owned profiles and explicit stage degradation |
 | Scheduled and periodic tasks | Schedule producing normal Task | 2 | Implemented baseline |
 | Controlled baseline TCP connect scan | Service inventory and Observation | 3 | Implemented |
 | Banner and product identification | Website TechnologyFingerprint | 3 | Header hint plus evidence-bound WordPress and Grafana strong-signature identification implemented |
@@ -39,3 +40,4 @@ CyberEdge copies neither repository's code, database shape, Web workflow, nor op
 - Active scanning requires a separate capability and policy. Passive authorization never upgrades into active authorization.
 - Custom PoCs may be packaged and reviewed as versioned adapters later. CyberEdge will not provide a Web source-code editor or arbitrary execution endpoint.
 - Monitor and Schedule are definitions that create normal Tasks. They do not become a second execution engine.
+- A terminal Assessment Task is operational completion only. Product completeness is determined by every stage's `CoverageEntry`.

@@ -630,8 +630,28 @@ impl DiscoveryWorker {
                 | "policy_public_code_intelligence"
                 | "policy_cve_intelligence"
                 | "policy_registration_intelligence"
+                | "policy_assessment_standard"
+                | "policy_assessment_thorough"
         ) {
             self.repository.fail_task(&claimed.task.id, now()).await?;
+            return Ok(true);
+        }
+
+        if matches!(
+            claimed.task.policy_id.as_str(),
+            "policy_assessment_standard" | "policy_assessment_thorough"
+        ) {
+            let records = self
+                .run_assessment(
+                    &claimed.task.id,
+                    &claimed.scope.id,
+                    &claimed.scope.targets,
+                    claimed.task.policy_id == "policy_assessment_thorough",
+                )
+                .await?;
+            self.repository
+                .complete_task(&claimed.task.id, records, now())
+                .await?;
             return Ok(true);
         }
 
@@ -719,6 +739,244 @@ impl DiscoveryWorker {
             .complete_task(&claimed.task.id, records, now())
             .await?;
         Ok(true)
+    }
+
+    async fn run_assessment(
+        &self,
+        task_id: &str,
+        scope_id: &str,
+        scope_targets: &[ScopeTarget],
+        thorough: bool,
+    ) -> Result<Vec<DiscoveryRecord>, RepositoryError> {
+        let fallback = scope_targets.first().cloned().unwrap_or(ScopeTarget {
+            kind: TargetKind::Unspecified.into(),
+            value: "scope".to_owned(),
+        });
+        let mut records = Vec::new();
+        let mut active_targets = scope_targets.to_vec();
+
+        for target in scope_targets {
+            records.extend(self.discover_target(task_id, scope_id, target).await);
+            let certificate_records = self.discover_certificates(task_id, scope_id, target).await;
+            for record in &certificate_records {
+                if record.observation.observation_type == "ct.discovered_domain" {
+                    active_targets.push(ScopeTarget {
+                        kind: TargetKind::Domain.into(),
+                        value: record.asset.value.clone(),
+                    });
+                }
+            }
+            records.extend(certificate_records);
+        }
+        let passive_state = if records
+            .iter()
+            .any(|record| record.observation.observation_type == "ct.error")
+        {
+            "partial"
+        } else {
+            "complete"
+        };
+        records.push(coverage_record(
+            task_id,
+            scope_id,
+            &fallback,
+            "passive_discovery",
+            passive_state,
+            "DNS seeds and certificate transparency",
+            records.len(),
+        ));
+
+        for target in scope_targets
+            .iter()
+            .filter(|target| TargetKind::try_from(target.kind) == Ok(TargetKind::Domain))
+        {
+            let wildcard = self.wildcard_addresses(&target.value).await;
+            if !wildcard.is_empty() {
+                records.push(record(
+                    task_id,
+                    scope_id,
+                    TargetKind::Domain,
+                    &target.value,
+                    "dns.wildcard",
+                    json!({"domain": target.value, "addresses": wildcard.iter().map(ToString::to_string).collect::<Vec<_>>() }),
+                ));
+            }
+            for label in ASSESSMENT_DNS_LABELS {
+                let domain = format!("{label}.{}", target.value);
+                if self.resolver.resolve(&domain).await.is_ok_and(|addresses| {
+                    let addresses = addresses.into_iter().collect::<BTreeSet<_>>();
+                    !addresses.is_empty() && addresses != wildcard
+                }) {
+                    active_targets.push(ScopeTarget {
+                        kind: TargetKind::Domain.into(),
+                        value: domain,
+                    });
+                }
+            }
+        }
+        active_targets.sort_by(|left, right| left.value.cmp(&right.value));
+        active_targets.dedup_by(|left, right| left.kind == right.kind && left.value == right.value);
+        let discovered_total = active_targets.len().saturating_sub(scope_targets.len());
+        let expansion_state = if active_targets.len() > MAX_ASSESSMENT_ACTIVE_TARGETS {
+            active_targets.truncate(MAX_ASSESSMENT_ACTIVE_TARGETS);
+            "partial"
+        } else {
+            "complete"
+        };
+        records.push(coverage_record(
+            task_id,
+            scope_id,
+            &fallback,
+            "subdomain_expansion",
+            expansion_state,
+            "bounded DNS labels plus CT names with wildcard filtering; active targets capped at 64",
+            discovered_total,
+        ));
+
+        let ports = if thorough {
+            thorough_service_ports()
+        } else {
+            self.service_ports.clone()
+        };
+        let active_start = records.len();
+        for target in &active_targets {
+            records.extend(
+                self.discover_active_target_on_ports(task_id, scope_id, target, &ports)
+                    .await,
+            );
+        }
+        records.extend(
+            self.discover_host_collisions(task_id, scope_id, &active_targets, &records)
+                .await,
+        );
+        let active_records = records.len() - active_start;
+        let active_state = if self.port_connector.is_some() {
+            "complete"
+        } else {
+            "unavailable"
+        };
+        records.push(coverage_record(
+            task_id,
+            scope_id,
+            &fallback,
+            "active_inventory",
+            active_state,
+            if thorough {
+                "TCP 1-1024 plus selected high-value ports"
+            } else {
+                "baseline service ports"
+            },
+            active_records,
+        ));
+
+        let vulnerability = self
+            .discover_nuclei_findings(task_id, scope_id, &active_targets, &records)
+            .await?;
+        let vulnerability_state = if self.nuclei_probe.is_none() {
+            "unavailable"
+        } else {
+            adapter_state(&vulnerability, "nuclei.error", "nuclei.no_targets")
+        };
+        let vulnerability_count = vulnerability.len();
+        records.extend(vulnerability);
+        records.push(coverage_record(
+            task_id,
+            scope_id,
+            &fallback,
+            "vulnerability",
+            vulnerability_state,
+            "reviewed Nuclei baseline",
+            vulnerability_count,
+        ));
+
+        let public_code = self
+            .discover_public_code_references(task_id, scope_id, scope_targets)
+            .await?;
+        let public_code_state = if self.public_code_probe.is_none() {
+            "unavailable"
+        } else {
+            adapter_state(&public_code, "github.code.error", "github.code.no_targets")
+        };
+        let public_code_count = public_code.len();
+        records.extend(public_code);
+        records.push(coverage_record(
+            task_id,
+            scope_id,
+            &fallback,
+            "public_code",
+            public_code_state,
+            "exact-domain public metadata",
+            public_code_count,
+        ));
+
+        let cve = self.discover_cve_findings(task_id, scope_id).await?;
+        let cve_state = if self.cve_probe.is_none() {
+            "unavailable"
+        } else {
+            adapter_state(&cve, "nvd.cve.error", "nvd.cve.no_targets")
+        };
+        let cve_count = cve.len();
+        records.extend(cve);
+        records.push(coverage_record(
+            task_id,
+            scope_id,
+            &fallback,
+            "cve",
+            cve_state,
+            "exact observed CPE correlation",
+            cve_count,
+        ));
+
+        let registration = self
+            .discover_registrations(task_id, scope_id, scope_targets)
+            .await;
+        let registration_state = if self.registration_probe.is_none() {
+            "unavailable"
+        } else {
+            adapter_state(
+                &registration,
+                "registration.error",
+                "registration.no_targets",
+            )
+        };
+        let registration_count = registration.len();
+        records.extend(registration);
+        records.push(coverage_record(
+            task_id,
+            scope_id,
+            &fallback,
+            "registration",
+            registration_state,
+            "licensed registration intelligence",
+            registration_count,
+        ));
+        Ok(records)
+    }
+
+    async fn wildcard_addresses(&self, root: &str) -> BTreeSet<IpAddr> {
+        let suffix = &hex_hash(root.as_bytes())[..12];
+        let first = self
+            .resolver
+            .resolve(&format!("cyberedge-nx-a-{suffix}.{root}"))
+            .await
+            .ok();
+        let second = self
+            .resolver
+            .resolve(&format!("cyberedge-nx-b-{suffix}.{root}"))
+            .await
+            .ok();
+        match (first, second) {
+            (Some(first), Some(second)) => {
+                let first = first.into_iter().collect::<BTreeSet<_>>();
+                let second = second.into_iter().collect::<BTreeSet<_>>();
+                if !first.is_empty() && first == second {
+                    first
+                } else {
+                    BTreeSet::new()
+                }
+            }
+            _ => BTreeSet::new(),
+        }
     }
 
     async fn discover_registrations(
@@ -1337,6 +1595,17 @@ impl DiscoveryWorker {
         scope_id: &str,
         target: &ScopeTarget,
     ) -> Vec<DiscoveryRecord> {
+        self.discover_active_target_on_ports(task_id, scope_id, target, &self.service_ports)
+            .await
+    }
+
+    async fn discover_active_target_on_ports(
+        &self,
+        task_id: &str,
+        scope_id: &str,
+        target: &ScopeTarget,
+        ports: &[u16],
+    ) -> Vec<DiscoveryRecord> {
         match TargetKind::try_from(target.kind).unwrap_or(TargetKind::Unspecified) {
             TargetKind::Ip => match target.value.parse::<IpAddr>() {
                 Ok(address) => {
@@ -1349,7 +1618,7 @@ impl DiscoveryWorker {
                         json!({"source": "authorized_scope", "value": target.value}),
                     )];
                     records.extend(
-                        self.discover_services(task_id, scope_id, address, &target.value)
+                        self.discover_services(task_id, scope_id, address, &target.value, ports)
                             .await,
                     );
                     records
@@ -1379,8 +1648,14 @@ impl DiscoveryWorker {
                     )];
                     for address in addresses {
                         records.extend(
-                            self.discover_services(task_id, scope_id, address, &target.value)
-                                .await,
+                            self.discover_services(
+                                task_id,
+                                scope_id,
+                                address,
+                                &target.value,
+                                ports,
+                            )
+                            .await,
                         );
                     }
                     records
@@ -1409,6 +1684,7 @@ impl DiscoveryWorker {
         scope_id: &str,
         address: IpAddr,
         server_name: &str,
+        ports: &[u16],
     ) -> Vec<DiscoveryRecord> {
         let Some(connector) = &self.port_connector else {
             return vec![record(
@@ -1421,11 +1697,11 @@ impl DiscoveryWorker {
             )];
         };
         let mut probes = tokio::task::JoinSet::new();
-        for port in self.service_ports.iter().copied() {
+        for port in ports.iter().copied() {
             let connector = connector.clone();
             probes.spawn(async move { (port, connector.connect(address, port).await) });
         }
-        let mut results = Vec::with_capacity(self.service_ports.len());
+        let mut results = Vec::with_capacity(ports.len());
         while let Some(result) = probes.join_next().await {
             match result {
                 Ok(result) => results.push(result),
@@ -1476,7 +1752,7 @@ impl DiscoveryWorker {
                 TargetKind::Ip,
                 &address.to_string(),
                 "tcp.no_open_ports",
-                json!({"address": address, "ports": self.service_ports}),
+                json!({"address": address, "ports": ports}),
             ));
         }
         records
@@ -3501,6 +3777,56 @@ fn service_hint(port: u16) -> &'static str {
 pub const BASELINE_SERVICE_PORTS: &[u16] = &[
     22, 25, 53, 80, 110, 143, 443, 445, 3306, 5432, 6379, 8080, 8443,
 ];
+
+const ASSESSMENT_DNS_LABELS: &[&str] = &[
+    "www", "api", "auth", "admin", "app", "dev", "test", "stage", "staging", "mail", "smtp", "vpn",
+    "sso", "portal", "docs", "git", "cdn", "static", "m", "monitor",
+];
+const MAX_ASSESSMENT_ACTIVE_TARGETS: usize = 64;
+
+fn thorough_service_ports() -> Vec<u16> {
+    let mut ports = (1..=1024).collect::<Vec<_>>();
+    ports.extend([
+        1433, 1521, 2375, 3000, 3306, 3389, 5432, 5601, 5672, 5900, 6379, 8080, 8443, 9000, 9090,
+        9200, 11211, 27017,
+    ]);
+    ports
+}
+
+fn adapter_state(records: &[DiscoveryRecord], error_type: &str, empty_type: &str) -> &'static str {
+    if records
+        .iter()
+        .any(|record| record.observation.observation_type == error_type)
+    {
+        "unavailable"
+    } else if records
+        .iter()
+        .any(|record| record.observation.observation_type == empty_type)
+    {
+        "partial"
+    } else {
+        "complete"
+    }
+}
+
+fn coverage_record(
+    task_id: &str,
+    scope_id: &str,
+    target: &ScopeTarget,
+    stage: &str,
+    state: &str,
+    detail: &str,
+    observations: usize,
+) -> DiscoveryRecord {
+    record(
+        task_id,
+        scope_id,
+        TargetKind::try_from(target.kind).unwrap_or(TargetKind::Unspecified),
+        &target.value,
+        "assessment.coverage",
+        json!({"stage": stage, "state": state, "detail": detail, "observations": observations}),
+    )
+}
 
 fn stable_id(prefix: &str, value: &[u8]) -> String {
     format!("{prefix}_{}", &hex_hash(value)[..32])

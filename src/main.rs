@@ -8,10 +8,10 @@ use std::{
 
 use cyberedge::{
     BASELINE_SERVICE_PORTS, CrtShSource, CyberEdgeService, DiscoveryWorker, NotificationDispatcher,
-    PostgresRepository, Repository, SocketCveProbe, SocketNucleiProbe, SocketPublicCodeProbe,
-    SocketRegistrationProbe, SocketScreenshotProbe, StaticAuthorizer, SystemCertificateProbe,
-    SystemDnsResolver, SystemPortConnector, SystemScreenshotProbe, SystemWebsiteProbe, WebAccess,
-    WebhookSink, serve_read_only_web,
+    PostgresRepository, Repository, RuntimeReadiness, SocketCveProbe, SocketNucleiProbe,
+    SocketPublicCodeProbe, SocketRegistrationProbe, SocketScreenshotProbe, StaticAuthorizer,
+    SystemCertificateProbe, SystemDnsResolver, SystemPortConnector, SystemScreenshotProbe,
+    SystemWebsiteProbe, WebAccess, WebhookSink, serve_read_only_web,
 };
 use tokio::{net::UnixListener, signal};
 use tokio_stream::wrappers::UnixListenerStream;
@@ -33,6 +33,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     })?;
     let repository = Arc::new(PostgresRepository::connect(&database_url).await?);
     let authorizer = Arc::new(StaticAuthorizer::load(policy_path)?);
+    let readiness = RuntimeReadiness {
+        screenshot: env::var_os("CYBEREDGE_SCREENSHOT_RENDERER_SOCKET").is_some()
+            || env::var("CYBEREDGE_SCREENSHOTS_ENABLED")
+                .is_ok_and(|value| value == "true" || value == "1"),
+        nuclei: env::var_os("CYBEREDGE_NUCLEI_ADAPTER_SOCKET").is_some(),
+        public_code: env::var_os("CYBEREDGE_PUBLIC_CODE_ADAPTER_SOCKET").is_some(),
+        cve: env::var_os("CYBEREDGE_CVE_ADAPTER_SOCKET").is_some(),
+        registration: env::var_os("CYBEREDGE_REGISTRATION_ADAPTER_SOCKET").is_some(),
+    };
     let mut discovery = DiscoveryWorker::new(repository.clone(), Arc::new(SystemDnsResolver))
         .with_certificate_source(Arc::new(CrtShSource::new()?))
         .with_port_connector(
@@ -126,7 +135,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(env::VarError::NotPresent) => None,
         Err(error) => return Err(error.into()),
     };
-    let service = CyberEdgeService::new(repository, authorizer).server();
+    let service = CyberEdgeService::new(repository, authorizer)
+        .with_readiness(readiness)
+        .server();
     if let Ok(value) = env::var("CYBEREDGE_RPC_ADDR") {
         let address = value.parse()?;
         let identity = Identity::from_pem(

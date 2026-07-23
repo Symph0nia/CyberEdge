@@ -22,7 +22,7 @@ pub use repository::{
     MemoryRepository, OutboxEvent, PostgresRepository, Repository, RepositoryError,
     WebReadRepository,
 };
-pub use service::CyberEdgeService;
+pub use service::{CyberEdgeService, RuntimeReadiness};
 pub use web::{OidcAccess, WebAccess, WebAccessError, read_only_router, serve_read_only_web};
 pub use worker::{
     BASELINE_SERVICE_PORTS, CertificateProbe, CertificateSource, CrtShSource, DiscoveryWorker,

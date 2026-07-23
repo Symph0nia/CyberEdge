@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "name": "cyberedge-assess-scope",
+  "version": "0.1.0",
+  "protocol": "cyberedge.v1.CyberEdge",
+  "capabilities": [
+    "system.read",
+    "scope.read",
+    "scan.assessment",
+    "task.read",
+    "task.cancel",
+    "asset.read",
+    "service.read",
+    "certificate.read",
+    "website.read",
+    "finding.read",
+    "evidence.read",
+    "report.read",
+    "audit.read"
+  ],
+  "rpc_allowlist": [
+    "GetReadiness",
+    "GetScope",
+    "StartAssessment",
+    "GetTask",
+    "WatchTask",
+    "CancelTask",
+    "SearchAssets",
+    "SearchServices",
+    "SearchCertificates",
+    "SearchWebsites",
+    "SearchFindings",
+    "SearchObservations",
+    "GetEvidence",
+    "GetTaskReport",
+    "SearchAudit"
+  ]
+}

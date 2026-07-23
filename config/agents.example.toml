@@ -1,5 +1,25 @@
 [[grants]]
 agent_id = "codex-main"
+skill_name = "cyberedge-assess-scope"
+skill_version = "0.1.0"
+capabilities = [
+  "system.read",
+  "scope.read",
+  "scan.assessment",
+  "task.read",
+  "task.cancel",
+  "asset.read",
+  "service.read",
+  "certificate.read",
+  "website.read",
+  "finding.read",
+  "evidence.read",
+  "report.read",
+  "audit.read",
+]
+
+[[grants]]
+agent_id = "codex-main"
 skill_name = "cyberedge-inspect-results"
 skill_version = "0.1.0"
 capabilities = [

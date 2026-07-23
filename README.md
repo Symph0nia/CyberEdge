@@ -26,7 +26,7 @@ cargo run
 
 The local RPC server listens on `unix:///tmp/cyberedge.sock` by default. Set `CYBEREDGE_RPC_SOCKET` to use another socket path.
 
-The implemented core includes PostgreSQL persistence, capability-gated Scope and Task RPCs, durable Tasks/Schedules/Monitors, passive DNS and Certificate Transparency discovery, a fixed active service baseline, TLS/HTTP/Website inventory, bounded crawling and isolated screenshots, a signed-template Nuclei adapter, isolated metadata-only GitHub public-code intelligence, exact CPE-backed NVD CVE correlation, licensed ICP/organization intelligence, evidence-backed Findings, change monitoring, reliable webhook delivery, deterministic reports, audit records, query-only and execution Skills, a JSON machine bridge, local UDS and remote mTLS transports, and an optional OIDC-protected strictly read-only Web projection.
+The implemented core includes PostgreSQL persistence, capability-gated Scope and Task RPCs, durable Tasks/Schedules/Monitors, and a one-call Assessment workflow inspired by ARL-Next's useful pipeline semantics: readiness check, passive discovery, bounded subdomain expansion, active inventory, TLS/HTTP/Website observation, vulnerability checks, public-code intelligence, exact CPE-backed CVE correlation, registration intelligence, and explicit per-stage coverage. A completed Task never hides an unavailable adapter. The system also includes evidence-backed Findings, change monitoring, reliable webhook delivery, deterministic reports, audit records, query-only and execution Skills, a JSON machine bridge, local UDS and remote mTLS transports, and an optional OIDC-protected strictly read-only Web projection.
 
 For a local self-hosted deployment:
 

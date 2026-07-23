@@ -56,6 +56,48 @@ async fn creates_normalized_scope() {
 }
 
 #[tokio::test]
+async fn starts_thorough_assessment_as_one_task() {
+    let service = service();
+    let scope = create_scope(&service).await;
+    let task = service
+        .start_assessment(Request::new(StartAssessmentRequest {
+            context: Some(context()),
+            scope_id: scope.id,
+            profile: AssessmentProfile::Thorough.into(),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_eq!(task.policy_id, "policy_assessment_thorough");
+    assert_eq!(task.state, TaskState::Queued as i32);
+}
+
+#[tokio::test]
+async fn reports_runtime_readiness_without_claiming_optional_adapters() {
+    let readiness = service()
+        .get_readiness(Request::new(GetReadinessRequest {
+            context: Some(context()),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert!(
+        readiness
+            .components
+            .iter()
+            .any(|item| item.component == "dns" && item.available)
+    );
+    assert!(
+        readiness
+            .components
+            .iter()
+            .any(|item| item.component == "vulnerability" && !item.available)
+    );
+}
+
+#[tokio::test]
 async fn scope_creation_is_idempotent() {
     let service = service();
     let first = create_scope(&service).await;

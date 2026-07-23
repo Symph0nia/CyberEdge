@@ -6,13 +6,13 @@ use std::{
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 use cyberedge::proto::{
-    CancelTaskRequest, CreateScheduleRequest, CreateScopeRequest, ErrorDetail, GetEvidenceRequest,
-    GetScopeRequest, GetTaskReportRequest, GetTaskRequest, InvocationContext, ReportFindingRequest,
-    ScopeTarget, SearchAssetChangesRequest, SearchAssetsRequest, SearchAuditRequest,
-    SearchCertificatesRequest, SearchExposureChangesRequest, SearchFindingsRequest,
-    SearchObservationsRequest, SearchSchedulesRequest, SearchServicesRequest,
-    SearchWebsitesRequest, StartScanRequest, TargetKind, WatchTaskRequest,
-    cyber_edge_client::CyberEdgeClient,
+    AssessmentProfile, CancelTaskRequest, CreateScheduleRequest, CreateScopeRequest, ErrorDetail,
+    GetEvidenceRequest, GetReadinessRequest, GetScopeRequest, GetTaskReportRequest, GetTaskRequest,
+    InvocationContext, ReportFindingRequest, ScopeTarget, SearchAssetChangesRequest,
+    SearchAssetsRequest, SearchAuditRequest, SearchCertificatesRequest,
+    SearchExposureChangesRequest, SearchFindingsRequest, SearchObservationsRequest,
+    SearchSchedulesRequest, SearchServicesRequest, SearchWebsitesRequest, StartAssessmentRequest,
+    StartScanRequest, TargetKind, WatchTaskRequest, cyber_edge_client::CyberEdgeClient,
 };
 use hyper_util::rt::TokioIo;
 use prost::Message;
@@ -52,6 +52,11 @@ enum Command {
         scope_id: String,
         policy_id: String,
     },
+    StartAssessment {
+        scope_id: String,
+        profile: String,
+    },
+    GetReadiness,
     GetTask {
         task_id: String,
     },
@@ -185,6 +190,36 @@ async fn run() -> Result<(), Value> {
                 .map_err(rpc_error)?
                 .into_inner();
             emit(task_json(value));
+        }
+        Command::StartAssessment { scope_id, profile } => {
+            let profile = match profile.as_str() {
+                "standard" => AssessmentProfile::Standard,
+                "thorough" => AssessmentProfile::Thorough,
+                _ => return Err(json!({"code": "ASSESSMENT_PROFILE_INVALID", "retryable": false})),
+            };
+            let value = client
+                .start_assessment(StartAssessmentRequest {
+                    context,
+                    scope_id,
+                    profile: profile.into(),
+                })
+                .await
+                .map_err(rpc_error)?
+                .into_inner();
+            emit(task_json(value));
+        }
+        Command::GetReadiness => {
+            let value = client
+                .get_readiness(GetReadinessRequest { context })
+                .await
+                .map_err(rpc_error)?
+                .into_inner();
+            emit(json!({
+                "assessment_profiles": value.assessment_profiles,
+                "components": value.components.into_iter().map(|item| json!({
+                    "component": item.component, "available": item.available, "detail": item.detail
+                })).collect::<Vec<_>>()
+            }));
         }
         Command::GetTask { task_id } => {
             let value = client
@@ -436,6 +471,10 @@ async fn run() -> Result<(), Value> {
                 "certificates": report.certificates.into_iter().map(certificate_json).collect::<Vec<_>>(),
                 "websites": report.websites.into_iter().map(website_json).collect::<Vec<_>>(),
                 "findings": report.findings.into_iter().map(finding_json).collect::<Vec<_>>(),
+                "coverage": report.coverage.into_iter().map(|entry| json!({
+                    "stage": entry.stage, "state": entry.state, "detail": entry.detail,
+                    "observations": entry.observations
+                })).collect::<Vec<_>>(),
                 "generated_at": timestamp_json(report.generated_at)
             }));
         }

@@ -19,6 +19,17 @@ printf '%s' '{"request_id":"req_health_scope","idempotency_key":"idem_health_sco
 
 The bridge accepts one JSON envelope on stdin and emits JSON Lines on stdout. It has no interactive mode.
 
+## End-to-end assessment
+
+The `cyberedge-assess-scope` Skill first calls `GetReadiness`, then starts one `StartAssessment` Task. `standard` uses the fixed baseline service ports. `thorough` uses the server-owned TCP `1-1024` profile plus selected high-value ports; callers still cannot provide ports, templates, flags, headers, paths, commands, or targets outside the Scope.
+
+The Task chains passive DNS and Certificate Transparency, a bounded in-domain DNS label set, active inventory, Host collision comparison, the reviewed Nuclei baseline, exact-domain public-code metadata, exact observed CPE-to-NVD correlation, and licensed registration intelligence. `GetTaskReport.coverage` reports each stage as `complete`, `partial`, `unavailable`, or `blocked`. Treat Task state `COMPLETED` only as “the workflow stopped normally,” never as proof that optional adapters ran.
+
+```bash
+printf '%s' '{"request_id":"req_assess_1","idempotency_key":"idem_assess_1","agent_id":"codex-main","skill_name":"cyberedge-assess-scope","skill_version":"0.1.0","action":"start_assessment","scope_id":"scope_...","profile":"thorough"}' \
+  | docker compose exec -T cyberedge cyberedge-agent
+```
+
 ## Active service baseline
 
 `policy_service_baseline` requires the separate `scan.active` capability and an existing Scope with a non-empty authorization reference. It performs TCP connect checks only against the server-owned baseline set `22,25,53,80,110,143,443,445,3306,5432,6379,8080,8443`; RPC callers cannot supply ports or expand the range. Probes run concurrently with a 750 ms per-port timeout. Service names are port-based hints, not banner-verified product identities.

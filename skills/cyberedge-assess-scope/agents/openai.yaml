@@ -1,0 +1,4 @@
+interface:
+  display_name: "CyberEdge Assess Scope"
+  short_description: "Run an authorized end-to-end CyberEdge assessment."
+  default_prompt: "Assess this authorized CyberEdge scope end to end, report readiness before execution, follow the Task to completion, and distinguish complete coverage from partial or unavailable stages."

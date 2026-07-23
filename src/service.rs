@@ -15,17 +15,18 @@ use tonic::{Code, Request, Response, Status};
 use uuid::Uuid;
 
 use crate::proto::{
-    AssetChange, CancelTaskRequest, CreateScheduleRequest, CreateScopeRequest, ErrorDetail,
-    Finding, FindingSeverity, FindingState, GetEvidenceRequest, GetScopeRequest,
-    GetTaskReportRequest, GetTaskRequest, HealthResponse, InvocationContext, ReportFindingRequest,
-    Schedule, Scope, ScopeTarget, SearchAssetChangesRequest, SearchAssetChangesResponse,
-    SearchAssetsRequest, SearchAssetsResponse, SearchAuditRequest, SearchAuditResponse,
-    SearchCertificatesRequest, SearchCertificatesResponse, SearchExposureChangesRequest,
-    SearchExposureChangesResponse, SearchFindingsRequest, SearchFindingsResponse,
-    SearchObservationsRequest, SearchObservationsResponse, SearchSchedulesRequest,
-    SearchSchedulesResponse, SearchServicesRequest, SearchServicesResponse, SearchWebsitesRequest,
-    SearchWebsitesResponse, StartScanRequest, TargetKind, Task, TaskEvent, TaskReport, TaskState,
-    WatchTaskRequest,
+    AssessmentProfile, AssetChange, CancelTaskRequest, ComponentReadiness, CoverageEntry,
+    CoverageState, CreateScheduleRequest, CreateScopeRequest, ErrorDetail, Finding,
+    FindingSeverity, FindingState, GetEvidenceRequest, GetReadinessRequest, GetScopeRequest,
+    GetTaskReportRequest, GetTaskRequest, HealthResponse, InvocationContext, ReadinessResponse,
+    ReportFindingRequest, Schedule, Scope, ScopeTarget, SearchAssetChangesRequest,
+    SearchAssetChangesResponse, SearchAssetsRequest, SearchAssetsResponse, SearchAuditRequest,
+    SearchAuditResponse, SearchCertificatesRequest, SearchCertificatesResponse,
+    SearchExposureChangesRequest, SearchExposureChangesResponse, SearchFindingsRequest,
+    SearchFindingsResponse, SearchObservationsRequest, SearchObservationsResponse,
+    SearchSchedulesRequest, SearchSchedulesResponse, SearchServicesRequest, SearchServicesResponse,
+    SearchWebsitesRequest, SearchWebsitesResponse, StartAssessmentRequest, StartScanRequest,
+    TargetKind, Task, TaskEvent, TaskReport, TaskState, WatchTaskRequest,
     cyber_edge_server::{CyberEdge, CyberEdgeServer},
 };
 use crate::{
@@ -37,6 +38,16 @@ use crate::{
 pub struct CyberEdgeService {
     repository: Arc<dyn Repository>,
     authorizer: Arc<dyn Authorizer>,
+    readiness: RuntimeReadiness,
+}
+
+#[derive(Clone, Default)]
+pub struct RuntimeReadiness {
+    pub screenshot: bool,
+    pub nuclei: bool,
+    pub public_code: bool,
+    pub cve: bool,
+    pub registration: bool,
 }
 
 impl CyberEdgeService {
@@ -44,7 +55,13 @@ impl CyberEdgeService {
         Self {
             repository,
             authorizer,
+            readiness: RuntimeReadiness::default(),
         }
+    }
+
+    pub fn with_readiness(mut self, readiness: RuntimeReadiness) -> Self {
+        self.readiness = readiness;
+        self
     }
 
     pub fn server(self) -> CyberEdgeServer<Self> {
@@ -158,6 +175,96 @@ impl CyberEdge for CyberEdgeService {
             .await
             .map_err(repository_status)?;
         Ok(Response::new(result.value))
+    }
+
+    async fn start_assessment(
+        &self,
+        request: Request<StartAssessmentRequest>,
+    ) -> Result<Response<Task>, Status> {
+        let request = request.into_inner();
+        let context = validate_context(request.context.as_ref())?;
+        self.authorize(context, "scan.assessment")?;
+        let policy_id = match AssessmentProfile::try_from(request.profile) {
+            Ok(AssessmentProfile::Standard) => "policy_assessment_standard",
+            Ok(AssessmentProfile::Thorough) => "policy_assessment_thorough",
+            _ => {
+                return Err(invalid(
+                    "ASSESSMENT_PROFILE_INVALID",
+                    "profile must be standard or thorough",
+                ));
+            }
+        };
+        let semantic_request = StartScanRequest {
+            context: None,
+            scope_id: request.scope_id.clone(),
+            policy_id: policy_id.to_owned(),
+        };
+        let mutation = Mutation {
+            operation: "assessment.start",
+            context: context.clone(),
+            fingerprint: semantic_request.encode_to_vec(),
+        };
+        let timestamp = now();
+        let task = Task {
+            id: new_id("task"),
+            scope_id: required("scope_id", &request.scope_id)?.to_owned(),
+            policy_id: policy_id.to_owned(),
+            state: TaskState::Queued.into(),
+            created_at: Some(timestamp),
+            updated_at: Some(timestamp),
+            schedule_id: String::new(),
+        };
+        let event = TaskEvent {
+            task_id: task.id.clone(),
+            sequence: 1,
+            event_type: "task.queued".to_owned(),
+            occurred_at: Some(timestamp),
+        };
+        let result = self
+            .repository
+            .create_task(&mutation, task, event)
+            .await
+            .map_err(repository_status)?;
+        Ok(Response::new(result.value))
+    }
+
+    async fn get_readiness(
+        &self,
+        request: Request<GetReadinessRequest>,
+    ) -> Result<Response<ReadinessResponse>, Status> {
+        let request = request.into_inner();
+        let context = validate_context(request.context.as_ref())?;
+        self.authorize(context, "system.read")?;
+        let component = |name: &str, available: bool, detail: &str| ComponentReadiness {
+            component: name.to_owned(),
+            available,
+            detail: detail.to_owned(),
+        };
+        Ok(Response::new(ReadinessResponse {
+            components: vec![
+                component("dns", true, "system resolver"),
+                component("tcp", true, "bounded server-owned port profiles"),
+                component("http_tls", true, "metadata and leaf certificate probes"),
+                component("screenshot", self.readiness.screenshot, "optional renderer"),
+                component(
+                    "vulnerability",
+                    self.readiness.nuclei,
+                    "reviewed Nuclei adapter",
+                ),
+                component(
+                    "public_code",
+                    self.readiness.public_code,
+                    "GitHub metadata adapter",
+                ),
+                component("cve", self.readiness.cve, "NVD adapter"),
+                component(
+                    "registration",
+                    self.readiness.registration,
+                    "licensed provider adapter",
+                ),
+            ],
+            assessment_profiles: vec!["standard".to_owned(), "thorough".to_owned()],
+        }))
     }
 
     async fn get_task(&self, request: Request<GetTaskRequest>) -> Result<Response<Task>, Status> {
@@ -633,6 +740,7 @@ impl CyberEdge for CyberEdgeService {
                 );
             }
         }
+        let coverage = observations.iter().filter_map(coverage_entry).collect();
         Ok(Response::new(TaskReport {
             task: Some(task),
             scope: Some(scope),
@@ -644,6 +752,7 @@ impl CyberEdge for CyberEdgeService {
             certificates,
             websites,
             findings,
+            coverage,
         }))
     }
 
@@ -807,13 +916,12 @@ fn validate_policy(policy_id: &str) -> Result<(), Status> {
             | "policy_public_code_intelligence"
             | "policy_cve_intelligence"
             | "policy_registration_intelligence"
+            | "policy_assessment_standard"
+            | "policy_assessment_thorough"
     ) {
         return Ok(());
     }
-    Err(invalid(
-        "POLICY_UNSUPPORTED",
-        "supported policies: policy_passive_dns, policy_passive_inventory, policy_service_baseline, policy_vulnerability_baseline, policy_public_code_intelligence, policy_cve_intelligence, policy_registration_intelligence",
-    ))
+    Err(invalid("POLICY_UNSUPPORTED", "unsupported policy"))
 }
 
 fn policy_capability(policy_id: &str) -> Result<&'static str, Status> {
@@ -824,7 +932,35 @@ fn policy_capability(policy_id: &str) -> Result<&'static str, Status> {
         "policy_public_code_intelligence" => "scan.intelligence",
         "policy_cve_intelligence" => "scan.intelligence",
         "policy_registration_intelligence" => "scan.intelligence",
+        "policy_assessment_standard" | "policy_assessment_thorough" => "scan.assessment",
         _ => "scan.passive",
+    })
+}
+
+fn coverage_entry(observation: &crate::proto::Observation) -> Option<CoverageEntry> {
+    if observation.observation_type != "assessment.coverage" {
+        return None;
+    }
+    let value: serde_json::Value = serde_json::from_str(&observation.value_json).ok()?;
+    let state = match value.get("state")?.as_str()? {
+        "complete" => CoverageState::Complete,
+        "partial" => CoverageState::Partial,
+        "unavailable" => CoverageState::Unavailable,
+        "blocked" => CoverageState::Blocked,
+        _ => CoverageState::Unspecified,
+    };
+    Some(CoverageEntry {
+        stage: value.get("stage")?.as_str()?.to_owned(),
+        state: state.into(),
+        detail: value
+            .get("detail")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default()
+            .to_owned(),
+        observations: value
+            .get("observations")
+            .and_then(|value| value.as_u64())
+            .unwrap_or_default(),
     })
 }
 
