@@ -7,6 +7,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use base64::{Engine, engine::general_purpose::STANDARD};
 use cyberedge::{
     Authorizer, CertificateProbe, CertificateSource, CyberEdgeService, DiscoveryWorker,
     DnsResolver, MemoryRepository, PortConnector, Repository, ScreenshotProbe,
@@ -108,6 +109,57 @@ struct CyclingExposureWebsite(AtomicUsize);
 struct BoundedCrawlerWebsite;
 struct ChangingWebsite(AtomicUsize);
 struct FailingWebsite(AtomicUsize);
+struct HostCollisionResolver;
+struct CyclingHostCollisionWebsite(AtomicUsize);
+
+#[async_trait]
+impl DnsResolver for HostCollisionResolver {
+    async fn resolve(&self, domain: &str) -> Result<Vec<IpAddr>, String> {
+        assert_eq!(domain, "example.com");
+        Ok(vec![IpAddr::V4(Ipv4Addr::new(192, 0, 2, 10))])
+    }
+}
+
+#[async_trait]
+impl WebsiteProbe for CyclingHostCollisionWebsite {
+    async fn fetch(
+        &self,
+        address: IpAddr,
+        port: u16,
+        server_name: &str,
+        path: &str,
+    ) -> Result<WebSnapshot, String> {
+        assert_eq!(path, "/");
+        let collision_candidate =
+            address == IpAddr::V4(Ipv4Addr::new(192, 0, 2, 20)) && server_name == "example.com";
+        let exposed = collision_candidate && self.0.fetch_add(1, Ordering::SeqCst) != 1;
+        let (title, body) = if exposed {
+            (
+                "Private Portal",
+                format!(
+                    "<html><title>Private Portal</title><body>{}</body></html>",
+                    "authorized host route ".repeat(10)
+                ),
+            )
+        } else {
+            (
+                "Default Site",
+                format!(
+                    "<html><title>Default Site</title><body>{}</body></html>",
+                    "default address response ".repeat(10)
+                ),
+            )
+        };
+        Ok(WebSnapshot {
+            url: format!("http://{server_name}:{port}/"),
+            status_code: 200,
+            title: title.to_owned(),
+            server: "test".to_owned(),
+            content_type: "text/html".to_owned(),
+            body: body.into_bytes(),
+        })
+    }
+}
 
 #[async_trait]
 impl CertificateProbe for TestCertificate {
@@ -1228,6 +1280,106 @@ async fn crawls_only_bounded_same_origin_paths_and_retains_evidence() {
             .iter()
             .any(|evidence| evidence.content == b"documentation evidence")
     );
+}
+
+#[tokio::test]
+async fn detects_resolves_and_reopens_host_collision_with_comparison_evidence() {
+    let repository: Arc<dyn Repository> = Arc::new(MemoryRepository::default());
+    let service = CyberEdgeService::new(repository.clone(), Arc::new(Allow));
+    let scope = service
+        .create_scope(Request::new(CreateScopeRequest {
+            context: Some(context("host-collision-scope")),
+            name: "Host collision lifecycle".to_owned(),
+            authorization_ref: "authorization:local-test".to_owned(),
+            targets: vec![
+                ScopeTarget {
+                    kind: TargetKind::Domain.into(),
+                    value: "example.com".to_owned(),
+                },
+                ScopeTarget {
+                    kind: TargetKind::Ip.into(),
+                    value: "192.0.2.20".to_owned(),
+                },
+            ],
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let worker = DiscoveryWorker::new(repository, Arc::new(HostCollisionResolver))
+        .with_port_connector(Arc::new(OpenPort), vec![80])
+        .with_website_probe(Arc::new(CyclingHostCollisionWebsite(AtomicUsize::new(0))));
+
+    let mut finding_id = String::new();
+    for (index, expected_state) in [
+        FindingState::Open,
+        FindingState::Resolved,
+        FindingState::Open,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let task = service
+            .start_scan(Request::new(StartScanRequest {
+                context: Some(context(&format!("host-collision-task-{index}"))),
+                scope_id: scope.id.clone(),
+                policy_id: "policy_service_baseline".to_owned(),
+            }))
+            .await
+            .unwrap()
+            .into_inner();
+        worker.run_once().await.unwrap();
+        let findings = service
+            .search_findings(Request::new(SearchFindingsRequest {
+                context: Some(context(&format!("host-collision-findings-{index}"))),
+                scope_id: scope.id.clone(),
+            }))
+            .await
+            .unwrap()
+            .into_inner()
+            .findings;
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].state, i32::from(expected_state));
+        assert_eq!(findings[0].rule_id, "http-host-collision-v1");
+        if finding_id.is_empty() {
+            finding_id = findings[0].id.clone();
+        } else {
+            assert_eq!(findings[0].id, finding_id);
+        }
+
+        let report = service
+            .get_task_report(Request::new(GetTaskReportRequest {
+                context: Some(context(&format!("host-collision-report-{index}"))),
+                task_id: task.id,
+            }))
+            .await
+            .unwrap()
+            .into_inner();
+        let collision_observations = report
+            .observations
+            .iter()
+            .filter(|item| item.observation_type == "http.host_collision_check")
+            .collect::<Vec<_>>();
+        assert_eq!(collision_observations.len(), 1);
+        let observation = collision_observations
+            .first()
+            .expect("host collision comparison observation");
+        let evidence = report
+            .evidence
+            .iter()
+            .find(|item| item.id == observation.evidence_id)
+            .expect("host collision comparison evidence");
+        let evidence: serde_json::Value = serde_json::from_slice(&evidence.content).unwrap();
+        let baseline = STANDARD
+            .decode(evidence["baseline"]["body_base64"].as_str().unwrap())
+            .unwrap();
+        assert!(String::from_utf8_lossy(&baseline).contains("default address response"));
+        if expected_state == FindingState::Open {
+            let candidate = STANDARD
+                .decode(evidence["candidate"]["body_base64"].as_str().unwrap())
+                .unwrap();
+            assert!(String::from_utf8_lossy(&candidate).contains("authorized host route"));
+        }
+    }
 }
 
 #[tokio::test]

@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     net::{IpAddr, SocketAddr},
     path::PathBuf,
     process::Stdio,
@@ -8,6 +8,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use base64::{Engine, engine::general_purpose::STANDARD};
 use rustls::{
     DigitallySignedStruct, SignatureScheme,
     client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
@@ -618,10 +619,154 @@ impl DiscoveryWorker {
                 );
             }
         }
+        if claimed.task.policy_id == "policy_service_baseline" {
+            records.extend(
+                self.discover_host_collisions(
+                    &claimed.task.id,
+                    &claimed.scope.id,
+                    &claimed.scope.targets,
+                    &records,
+                )
+                .await,
+            );
+        }
         self.repository
             .complete_task(&claimed.task.id, records, now())
             .await?;
         Ok(true)
+    }
+
+    async fn discover_host_collisions(
+        &self,
+        task_id: &str,
+        scope_id: &str,
+        targets: &[ScopeTarget],
+        task_records: &[DiscoveryRecord],
+    ) -> Vec<DiscoveryRecord> {
+        let Some(probe) = &self.website_probe else {
+            return Vec::new();
+        };
+        let domains = targets
+            .iter()
+            .filter(|target| TargetKind::try_from(target.kind) == Ok(TargetKind::Domain))
+            .map(|target| target.value.clone())
+            .take(MAX_HOST_COLLISION_DOMAINS)
+            .collect::<BTreeSet<_>>();
+        if domains.is_empty() {
+            return Vec::new();
+        }
+
+        let mut addresses = targets
+            .iter()
+            .filter(|target| TargetKind::try_from(target.kind) == Ok(TargetKind::Ip))
+            .filter_map(|target| target.value.parse::<IpAddr>().ok())
+            .collect::<BTreeSet<_>>();
+        let mut resolved = BTreeMap::new();
+        for record in task_records
+            .iter()
+            .filter(|record| record.observation.observation_type == "dns.addresses")
+        {
+            let Ok(payload) =
+                serde_json::from_str::<serde_json::Value>(&record.observation.value_json)
+            else {
+                continue;
+            };
+            let Some(domain) = payload.get("domain").and_then(serde_json::Value::as_str) else {
+                continue;
+            };
+            if !domains.contains(domain) {
+                continue;
+            }
+            let domain_addresses = payload
+                .get("addresses")
+                .and_then(serde_json::Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(serde_json::Value::as_str)
+                .filter_map(|address| address.parse::<IpAddr>().ok())
+                .collect::<BTreeSet<_>>();
+            addresses.extend(domain_addresses.iter().copied());
+            resolved.insert(domain.to_owned(), domain_addresses);
+        }
+
+        let open_web_endpoints = task_records
+            .iter()
+            .filter_map(|record| {
+                let service = record.service.as_ref()?;
+                let address = record.asset.value.parse::<IpAddr>().ok()?;
+                let port = u16::try_from(service.port).ok()?;
+                (addresses.contains(&address) && matches!(port, 80 | 443 | 8080 | 8443))
+                    .then_some((address, port))
+            })
+            .collect::<BTreeSet<_>>();
+        let mut candidates = BTreeSet::new();
+        for domain in domains {
+            for (address, port) in &open_web_endpoints {
+                if resolved
+                    .get(&domain)
+                    .is_some_and(|domain_addresses| domain_addresses.contains(address))
+                {
+                    continue;
+                }
+                candidates.insert((*address, *port, domain.clone()));
+                if candidates.len() == MAX_HOST_COLLISION_CANDIDATES {
+                    break;
+                }
+            }
+            if candidates.len() == MAX_HOST_COLLISION_CANDIDATES {
+                break;
+            }
+        }
+
+        let concurrency = Arc::new(tokio::sync::Semaphore::new(HOST_COLLISION_CONCURRENCY));
+        let mut probes = tokio::task::JoinSet::new();
+        for (address, port, domain) in candidates {
+            let probe = probe.clone();
+            let concurrency = concurrency.clone();
+            probes.spawn(async move {
+                let permit = concurrency.acquire_owned().await;
+                let (baseline, candidate) = match permit {
+                    Ok(_permit) => {
+                        let baseline = probe.fetch(address, port, &address.to_string(), "/").await;
+                        let candidate = probe.fetch(address, port, &domain, "/").await;
+                        (baseline, candidate)
+                    }
+                    Err(error) => (Err(error.to_string()), Err(error.to_string())),
+                };
+                (address, port, domain, baseline, candidate)
+            });
+        }
+
+        let mut records = Vec::new();
+        while let Some(result) = probes.join_next().await {
+            if let Ok((address, port, domain, baseline, candidate)) = result {
+                match (baseline, candidate) {
+                    (Ok(baseline), Ok(candidate)) => records.push(host_collision_record(
+                        task_id, scope_id, address, port, &domain, baseline, candidate,
+                    )),
+                    (baseline, candidate) => records.push(record(
+                        task_id,
+                        scope_id,
+                        TargetKind::Ip,
+                        &address.to_string(),
+                        "http.host_collision_error",
+                        json!({
+                            "address": address,
+                            "port": port,
+                            "host": domain,
+                            "baseline_error": baseline.err(),
+                            "candidate_error": candidate.err(),
+                        }),
+                    )),
+                }
+            }
+        }
+        records.sort_by(|left, right| {
+            left.observation
+                .value_json
+                .cmp(&right.observation.value_json)
+        });
+        records
     }
 
     async fn discover_active_target(
@@ -1422,6 +1567,156 @@ fn website_record(
     }
 }
 
+fn host_collision_record(
+    task_id: &str,
+    scope_id: &str,
+    address: IpAddr,
+    port: u16,
+    domain: &str,
+    baseline: WebSnapshot,
+    candidate: WebSnapshot,
+) -> DiscoveryRecord {
+    let timestamp = now();
+    let value = address.to_string();
+    let asset_id = stable_id(
+        "asset",
+        format!("{scope_id}:{}:{value}", i32::from(TargetKind::Ip)).as_bytes(),
+    );
+    let service_id = stable_id("service", format!("{asset_id}:tcp:{port}").as_bytes());
+    let baseline_sha256 = hex_hash(&baseline.body);
+    let candidate_sha256 = hex_hash(&candidate.body);
+    let matched = host_collision_matches(&baseline, &candidate);
+    let evidence_content = serde_json::to_vec(&json!({
+        "address": address,
+        "port": port,
+        "host": domain,
+        "baseline": {
+            "url": baseline.url,
+            "status_code": baseline.status_code,
+            "title": baseline.title,
+            "content_type": baseline.content_type,
+            "content_sha256": baseline_sha256,
+            "body_base64": STANDARD.encode(&baseline.body),
+        },
+        "candidate": {
+            "url": candidate.url,
+            "status_code": candidate.status_code,
+            "title": candidate.title,
+            "content_type": candidate.content_type,
+            "content_sha256": candidate_sha256,
+            "body_base64": STANDARD.encode(&candidate.body),
+        },
+        "matched": matched,
+    }))
+    .expect("host collision evidence is serializable");
+    let evidence_sha256 = hex_hash(&evidence_content);
+    let evidence_id = format!("evidence_{evidence_sha256}");
+    let observation_id = format!("observation_{}", Uuid::now_v7());
+    let detector = "cyberedge-http";
+    let rule_id = "http-host-collision-v1";
+    let fingerprint = hex_hash(format!("{rule_id}:{service_id}:{domain}").as_bytes());
+    let evaluation = FindingEvaluation {
+        asset_id: asset_id.clone(),
+        detector,
+        rule_id,
+        fingerprint: fingerprint.clone(),
+    };
+    let finding = matched.then(|| Finding {
+        id: stable_id(
+            "finding",
+            format!("{scope_id}:{detector}:{rule_id}:{asset_id}:{fingerprint}").as_bytes(),
+        ),
+        scope_id: scope_id.to_owned(),
+        task_id: task_id.to_owned(),
+        asset_id: asset_id.clone(),
+        observation_id: observation_id.clone(),
+        evidence_id: evidence_id.clone(),
+        detector: detector.to_owned(),
+        rule_id: rule_id.to_owned(),
+        title: "Host-routed website exposed on alternate scoped IP".to_owned(),
+        description: format!(
+            "Sending the authorized Host {domain} to {address}:{port} returned a materially different successful response than the address baseline."
+        ),
+        severity: FindingSeverity::Medium.into(),
+        state: FindingState::Open.into(),
+        fingerprint,
+        first_seen_at: Some(timestamp),
+        last_seen_at: Some(timestamp),
+    });
+    let observation_payload = json!({
+        "address": address,
+        "port": port,
+        "host": domain,
+        "baseline_status_code": baseline.status_code,
+        "baseline_content_sha256": baseline_sha256,
+        "candidate_status_code": candidate.status_code,
+        "candidate_content_sha256": candidate_sha256,
+        "matched": matched,
+    });
+    DiscoveryRecord {
+        asset: Asset {
+            id: asset_id.clone(),
+            scope_id: scope_id.to_owned(),
+            kind: TargetKind::Ip.into(),
+            value,
+            first_seen_at: Some(timestamp),
+            last_seen_at: Some(timestamp),
+        },
+        service: Some(Service {
+            id: service_id,
+            asset_id: asset_id.clone(),
+            transport: "tcp".to_owned(),
+            port: u32::from(port),
+            service_hint: service_hint(port).to_owned(),
+            first_seen_at: Some(timestamp),
+            last_seen_at: Some(timestamp),
+        }),
+        certificate: None,
+        website: None,
+        observation: Observation {
+            id: observation_id,
+            task_id: task_id.to_owned(),
+            asset_id,
+            observation_type: "http.host_collision_check".to_owned(),
+            value_json: observation_payload.to_string(),
+            evidence_id: evidence_id.clone(),
+            observed_at: Some(timestamp),
+        },
+        evidence: Evidence {
+            id: evidence_id,
+            media_type: "application/vnd.cyberedge.host-collision+json".to_owned(),
+            sha256: evidence_sha256,
+            content: evidence_content,
+            created_at: Some(timestamp),
+        },
+        finding_evaluations: vec![evaluation],
+        findings: finding.into_iter().collect(),
+    }
+}
+
+fn host_collision_matches(baseline: &WebSnapshot, candidate: &WebSnapshot) -> bool {
+    let content_type = candidate.content_type.to_ascii_lowercase();
+    let json_content = content_type.contains("json");
+    let useful_content = content_type.contains("text") || json_content;
+    let successful = matches!(candidate.status_code, 200 | 301 | 302);
+    let plausible_body = if json_content {
+        candidate.body.len() >= 32
+    } else {
+        candidate.body.len() >= 150 && candidate.body.contains(&b'<')
+    };
+    let materially_different = baseline.status_code != candidate.status_code
+        || baseline.content_type != candidate.content_type
+        || baseline.body.len().abs_diff(candidate.body.len()) > 20
+        || (!baseline.title.is_empty()
+            && !candidate.title.is_empty()
+            && baseline.title != candidate.title);
+    successful
+        && useful_content
+        && plausible_body
+        && baseline.body != candidate.body
+        && materially_different
+}
+
 fn technology_fingerprints(
     body: &[u8],
     evidence_id: &str,
@@ -1859,6 +2154,9 @@ fn directory_listing_detection(
 
 const MAX_WEB_BODY_BYTES: usize = 1_048_576;
 const MAX_SCREENSHOT_BYTES: usize = 10 * 1_048_576;
+const MAX_HOST_COLLISION_DOMAINS: usize = 16;
+const MAX_HOST_COLLISION_CANDIDATES: usize = 64;
+const HOST_COLLISION_CONCURRENCY: usize = 8;
 const HTTP_PROBE_PATHS: &[&str] = &["/", "/.git/HEAD", "/.DS_Store"];
 
 fn html_title(body: &[u8]) -> String {
@@ -2020,5 +2318,29 @@ mod detector_tests {
         assert!(!paths.iter().any(|path| path.contains("outside")));
         assert!(!paths.iter().any(|path| path.contains("admin")));
         assert!(!paths.contains(&"/.git/HEAD".to_owned()));
+    }
+
+    #[test]
+    fn host_collision_requires_material_response_difference() {
+        let snapshot = |title: &str, content_type: &str, body: Vec<u8>| WebSnapshot {
+            url: "http://192.0.2.1/".to_owned(),
+            status_code: 200,
+            title: title.to_owned(),
+            server: String::new(),
+            content_type: content_type.to_owned(),
+            body,
+        };
+        let baseline_body = format!("<title>Default</title>{}", "same-size ".repeat(20));
+        let dynamic_body = baseline_body.replace("same-size ", "time-vary ");
+        assert!(!host_collision_matches(
+            &snapshot("Default", "text/html", baseline_body.into_bytes()),
+            &snapshot("Default", "text/html", dynamic_body.into_bytes()),
+        ));
+
+        let json = br#"{"application":"private-api","route":"authorized-host"}"#.to_vec();
+        assert!(host_collision_matches(
+            &snapshot("Default", "text/html", b"default".to_vec()),
+            &snapshot("API", "application/json", json),
+        ));
     }
 }
