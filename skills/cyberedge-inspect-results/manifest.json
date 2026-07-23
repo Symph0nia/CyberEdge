@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "name": "cyberedge-inspect-results",
+  "version": "0.1.0",
+  "protocol": "cyberedge.v1.CyberEdge",
+  "capabilities": [
+    "scope.read",
+    "task.read",
+    "schedule.read",
+    "monitor.read",
+    "asset.read",
+    "service.read",
+    "certificate.read",
+    "website.read",
+    "finding.read",
+    "evidence.read",
+    "report.read",
+    "audit.read"
+  ],
+  "rpc_allowlist": [
+    "GetScope",
+    "GetTask",
+    "WatchTask",
+    "SearchSchedules",
+    "SearchAssetChanges",
+    "SearchExposureChanges",
+    "SearchAssets",
+    "SearchServices",
+    "SearchCertificates",
+    "SearchWebsites",
+    "SearchFindings",
+    "SearchObservations",
+    "GetEvidence",
+    "GetTaskReport",
+    "SearchAudit"
+  ]
+}

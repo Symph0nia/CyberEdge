@@ -1,0 +1,4 @@
+interface:
+  display_name: "CyberEdge Result Inspection"
+  short_description: "Inspect task results, evidence, findings, and audit provenance"
+  default_prompt: "Use $cyberedge-inspect-results to inspect a CyberEdge task and explain its evidence-backed results."
