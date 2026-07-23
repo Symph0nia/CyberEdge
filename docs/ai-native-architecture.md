@@ -2,7 +2,7 @@
 
 状态：Accepted baseline
 
-实现状态：当前 vertical slice 已覆盖 Scope、passive DNS/Certificate Transparency Task、受控 TCP service baseline、独立授权的 signed-template Nuclei vulnerability baseline、metadata-only GitHub public-code intelligence、exact CPE-backed NVD CVE correlation、licensed ICP/Organization intelligence、TLS leaf Certificate、bounded Website/HTTP observation、same-origin depth-1 crawler、offline screenshot Evidence、evidence-bound Website technology fingerprint、Asset/Service/Certificate/Website/Observation/Evidence、Evidence-backed Finding、HTTP directory-listing/Git/DS_Store/Host collision 与 TLS validity detectors、确定性 TaskReport、Agent mutation audit、持久化 Schedule 生成普通 Task、Monitor 资产及服务/网站变化、UDS/mTLS、AI machine bridge，以及带 OIDC JWT 验证、Evidence 分级角色和敏感字段投影控制的只读 Web。独立事件投影属于后续阶段，本文中的完整产品条目不表示已经实现。
+实现状态：当前 vertical slice 已覆盖 Scope、passive DNS/Certificate Transparency Task、受控 TCP service baseline、独立授权的 signed-template Nuclei vulnerability baseline、metadata-only GitHub public-code intelligence、exact CPE-backed NVD CVE correlation、licensed ICP/Organization intelligence、TLS leaf Certificate、bounded Website/HTTP observation、same-origin depth-1 crawler、offline screenshot Evidence、evidence-bound Website technology fingerprint、Asset/Service/Certificate/Website/Observation/Evidence、Evidence-backed Finding、HTTP directory-listing/Git/DS_Store/Host collision 与 TLS validity detectors、确定性 TaskReport、Agent mutation audit、持久化 Schedule 生成普通 Task、Monitor 资产及服务/网站变化、UDS/mTLS、AI machine bridge，以及带 OIDC JWT 验证、Evidence 分级角色、敏感字段投影控制、全局搜索、筛选、本地保存视图、资产关系、Observation 时间线和只读导出的企业 Web。独立事件投影属于后续阶段，本文中的完整产品条目不表示已经实现。
 
 ## 1. 产品定义
 
