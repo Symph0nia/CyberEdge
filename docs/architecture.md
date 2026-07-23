@@ -20,7 +20,7 @@ Tasks are claimed with `FOR UPDATE SKIP LOCKED`. State changes, task events, dis
 
 Scanner tools run behind adapters with explicit timeouts, resource limits, and normalized output. Raw tool output is evidence, never the domain model.
 
-The initial passive adapter uses the system DNS resolver. It records domain answers, discovered IP assets, lookup failures, and empty answers as immutable JSON evidence. Active probing is not implemented.
+The passive adapters collect system DNS and Certificate Transparency observations. The capability-gated active baseline performs a fixed TCP connect set, TLS leaf collection, bounded HTTP/path/crawl observation, offline screenshots, technology fingerprints, exposure detectors, and Host collision comparison. Callers cannot provide ports, URLs, paths, headers, templates, or commands. Every result or coverage error becomes immutable Evidence before it affects inventory or Findings.
 
 Local Agent calls use a Unix Domain Socket. Remote calls use HTTP/2 with mandatory mutual TLS. `cyberedge-agent` is a JSON stdin/stdout bridge intended for Skills, not a human command interface.
 
