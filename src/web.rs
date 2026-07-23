@@ -1,12 +1,15 @@
-use std::{net::SocketAddr, path::PathBuf, sync::Arc};
+use std::{env, net::SocketAddr, path::PathBuf, sync::Arc};
 
 use axum::{
     Json, Router,
-    extract::{Path, State},
-    http::{HeaderName, HeaderValue, StatusCode},
+    extract::{Path, Request, State},
+    http::{HeaderName, HeaderValue, StatusCode, header},
+    middleware::{self, Next},
+    response::{IntoResponse, Response},
     routing::{any, get},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
+use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode, decode_header, jwk::JwkSet};
 use serde_json::{Value, json};
 use tower_http::{
     services::{ServeDir, ServeFile},
@@ -26,17 +29,139 @@ struct WebState {
     repository: Arc<dyn Repository>,
 }
 
+#[derive(Clone)]
+pub enum WebAccess {
+    InsecureLocal,
+    Oidc(Arc<OidcAccess>),
+}
+
+#[derive(Clone)]
+pub struct OidcAccess {
+    issuer: String,
+    audience: String,
+    role_claim: String,
+    read_role: String,
+    evidence_role: String,
+    jwks: JwkSet,
+}
+
+#[derive(Clone)]
+struct WebPrincipal {
+    roles: Vec<String>,
+}
+
+struct WebAuthFailure {
+    status: StatusCode,
+    message: &'static str,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum WebAccessError {
+    #[error(
+        "OIDC Web access requires CYBEREDGE_WEB_OIDC_ISSUER, CYBEREDGE_WEB_OIDC_AUDIENCE, and CYBEREDGE_WEB_OIDC_JWKS_URL"
+    )]
+    IncompleteOidc,
+    #[error(
+        "unauthenticated Web access requires a loopback bind and CYBEREDGE_WEB_ALLOW_INSECURE_LOCAL=true"
+    )]
+    UnsafeLocal,
+    #[error("OIDC JWKS URL must use HTTPS")]
+    InsecureJwks,
+    #[error("failed to fetch OIDC JWKS: {0}")]
+    JwksFetch(#[from] reqwest::Error),
+    #[error("OIDC JWKS exceeds 1 MiB")]
+    JwksTooLarge,
+    #[error("invalid OIDC JWKS: {0}")]
+    InvalidJwks(#[from] serde_json::Error),
+}
+
+impl WebAccess {
+    pub async fn from_env(address: SocketAddr) -> Result<Self, WebAccessError> {
+        let issuer = env::var("CYBEREDGE_WEB_OIDC_ISSUER").ok();
+        let audience = env::var("CYBEREDGE_WEB_OIDC_AUDIENCE").ok();
+        let jwks_url = env::var("CYBEREDGE_WEB_OIDC_JWKS_URL").ok();
+        if issuer.is_some() || audience.is_some() || jwks_url.is_some() {
+            let (Some(issuer), Some(audience), Some(jwks_url)) = (issuer, audience, jwks_url)
+            else {
+                return Err(WebAccessError::IncompleteOidc);
+            };
+            if !jwks_url.starts_with("https://") {
+                return Err(WebAccessError::InsecureJwks);
+            }
+            let client = reqwest::Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .timeout(std::time::Duration::from_secs(10))
+                .build()?;
+            let mut response = client.get(jwks_url).send().await?.error_for_status()?;
+            if response
+                .content_length()
+                .is_some_and(|size| size > 1024 * 1024)
+            {
+                return Err(WebAccessError::JwksTooLarge);
+            }
+            let mut bytes = Vec::new();
+            while let Some(chunk) = response.chunk().await? {
+                if bytes.len() + chunk.len() > 1024 * 1024 {
+                    return Err(WebAccessError::JwksTooLarge);
+                }
+                bytes.extend_from_slice(&chunk);
+            }
+            return Ok(Self::Oidc(Arc::new(OidcAccess::new(
+                issuer,
+                audience,
+                env::var("CYBEREDGE_WEB_ROLE_CLAIM").unwrap_or_else(|_| "roles".to_owned()),
+                env::var("CYBEREDGE_WEB_READ_ROLE").unwrap_or_else(|_| "cyberedge.read".to_owned()),
+                env::var("CYBEREDGE_WEB_EVIDENCE_ROLE")
+                    .unwrap_or_else(|_| "cyberedge.evidence.read".to_owned()),
+                serde_json::from_slice(&bytes)?,
+            ))));
+        }
+        if address.ip().is_loopback()
+            && env::var("CYBEREDGE_WEB_ALLOW_INSECURE_LOCAL")
+                .is_ok_and(|value| value == "true" || value == "1")
+        {
+            return Ok(Self::InsecureLocal);
+        }
+        Err(WebAccessError::UnsafeLocal)
+    }
+}
+
+impl OidcAccess {
+    pub fn new(
+        issuer: String,
+        audience: String,
+        role_claim: String,
+        read_role: String,
+        evidence_role: String,
+        jwks: JwkSet,
+    ) -> Self {
+        Self {
+            issuer,
+            audience,
+            role_claim,
+            read_role,
+            evidence_role,
+            jwks,
+        }
+    }
+}
+
 pub async fn serve_read_only_web(
     repository: Arc<dyn Repository>,
     address: SocketAddr,
     dist: PathBuf,
+    access: WebAccess,
 ) -> std::io::Result<()> {
-    let app = read_only_router(repository, dist);
+    let app = read_only_router(repository, dist, access);
     let listener = tokio::net::TcpListener::bind(address).await?;
     axum::serve(listener, app).await
 }
 
-pub fn read_only_router(repository: Arc<dyn Repository>, dist: PathBuf) -> Router {
+pub fn read_only_router(
+    repository: Arc<dyn Repository>,
+    dist: PathBuf,
+    access: WebAccess,
+) -> Router {
     let index = dist.join("index.html");
     Router::new()
         .route("/api/v1/overview", get(overview))
@@ -62,7 +187,105 @@ pub fn read_only_router(repository: Arc<dyn Repository>, dist: PathBuf) -> Route
             HeaderName::from_static("referrer-policy"),
             HeaderValue::from_static("no-referrer"),
         ))
+        .layer(middleware::from_fn_with_state(access, authorize_web))
         .with_state(WebState { repository })
+}
+
+async fn authorize_web(
+    State(access): State<WebAccess>,
+    mut request: Request,
+    next: Next,
+) -> Response {
+    let principal = match access {
+        WebAccess::InsecureLocal => WebPrincipal {
+            roles: vec![
+                "cyberedge.read".to_owned(),
+                "cyberedge.evidence.read".to_owned(),
+            ],
+        },
+        WebAccess::Oidc(ref config) => match oidc_principal(&request, config) {
+            Ok(principal) => principal,
+            Err(error) => return web_auth_error(error.status, error.message),
+        },
+    };
+    let (read_role, evidence_role) = match &access {
+        WebAccess::Oidc(config) => (config.read_role.as_str(), config.evidence_role.as_str()),
+        WebAccess::InsecureLocal => ("cyberedge.read", "cyberedge.evidence.read"),
+    };
+    if !principal.roles.iter().any(|role| role == read_role) {
+        return web_auth_error(StatusCode::FORBIDDEN, "required read-only role is missing");
+    }
+    if request.uri().path().starts_with("/api/v1/evidence/")
+        && !principal.roles.iter().any(|role| role == evidence_role)
+    {
+        return web_auth_error(StatusCode::FORBIDDEN, "required Evidence role is missing");
+    }
+    request.extensions_mut().insert(principal);
+    next.run(request).await
+}
+
+fn oidc_principal(request: &Request, config: &OidcAccess) -> Result<WebPrincipal, WebAuthFailure> {
+    let value = request
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .ok_or(WebAuthFailure {
+            status: StatusCode::UNAUTHORIZED,
+            message: "Bearer token is required",
+        })?;
+    let header = decode_header(value)
+        .map_err(|_| auth_failure(StatusCode::UNAUTHORIZED, "invalid token header"))?;
+    if header.alg != Algorithm::RS256 {
+        return Err(auth_failure(
+            StatusCode::UNAUTHORIZED,
+            "only RS256 tokens are accepted",
+        ));
+    }
+    let kid = header
+        .kid
+        .as_deref()
+        .ok_or_else(|| auth_failure(StatusCode::UNAUTHORIZED, "token key id is required"))?;
+    let jwk = config
+        .jwks
+        .find(kid)
+        .ok_or_else(|| auth_failure(StatusCode::UNAUTHORIZED, "token key id is unknown"))?;
+    let key = DecodingKey::from_jwk(jwk)
+        .map_err(|_| auth_failure(StatusCode::UNAUTHORIZED, "token key is invalid"))?;
+    let mut validation = Validation::new(Algorithm::RS256);
+    validation.set_audience(&[&config.audience]);
+    validation.set_issuer(&[&config.issuer]);
+    validation.set_required_spec_claims(&["exp", "iss", "aud", "sub"]);
+    validation.validate_nbf = true;
+    let claims = decode::<Value>(value, &key, &validation)
+        .map_err(|_| auth_failure(StatusCode::UNAUTHORIZED, "token validation failed"))?
+        .claims;
+    let roles = claim_strings(claims.get(&config.role_claim)).ok_or_else(|| {
+        auth_failure(
+            StatusCode::FORBIDDEN,
+            "token role claim is missing or invalid",
+        )
+    })?;
+    Ok(WebPrincipal { roles })
+}
+
+fn auth_failure(status: StatusCode, message: &'static str) -> WebAuthFailure {
+    WebAuthFailure { status, message }
+}
+
+fn claim_strings(value: Option<&Value>) -> Option<Vec<String>> {
+    match value? {
+        Value::String(value) => Some(vec![value.clone()]),
+        Value::Array(values) => values
+            .iter()
+            .map(|value| value.as_str().map(str::to_owned))
+            .collect(),
+        _ => None,
+    }
+}
+
+fn web_auth_error(status: StatusCode, message: &'static str) -> Response {
+    (status, Json(json!({"error": message}))).into_response()
 }
 
 async fn api_not_found() -> (StatusCode, Json<Value>) {

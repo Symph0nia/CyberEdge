@@ -23,12 +23,8 @@ services:
       DATABASE_URL: postgres://cyberedge:${CYBEREDGE_DB_PASSWORD:-cyberedge}@postgres/cyberedge
       CYBEREDGE_AGENT_POLICY: /etc/cyberedge/agents.toml
       CYBEREDGE_RPC_SOCKET: /tmp/cyberedge.sock
-      CYBEREDGE_WEB_BIND: 0.0.0.0:8080
-      CYBEREDGE_WEB_DIST: /opt/cyberedge/web
     volumes:
       - ./config/agents.example.toml:/etc/cyberedge/agents.toml:ro
-    ports:
-      - 127.0.0.1:8080:8080
     restart: unless-stopped
 
 volumes:

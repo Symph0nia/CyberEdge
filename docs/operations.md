@@ -6,10 +6,9 @@ CyberEdge requires PostgreSQL and an explicit Agent capability policy. The defau
 
 ```bash
 docker compose up --build -d
-curl --fail http://127.0.0.1:8080/api/v1/overview
 ```
 
-The Compose port is bound to loopback. Put it behind an authenticated reverse proxy before exposing it to a network. The Web server implements GET and static file routes only; mutation methods return `405`.
+The base deployment does not start or publish the optional Web projection.
 
 Run the AI bridge inside the service container so it can access the local socket:
 
@@ -109,6 +108,24 @@ Optional read-only Web:
 
 - `CYBEREDGE_WEB_BIND`, for example `127.0.0.1:8080`
 - `CYBEREDGE_WEB_DIST`, default `web/dist`
+
+The Web has no mutation routes, but read-only does not mean public. Network-bound deployments require all of:
+
+- `CYBEREDGE_WEB_OIDC_ISSUER`
+- `CYBEREDGE_WEB_OIDC_AUDIENCE`
+- `CYBEREDGE_WEB_OIDC_JWKS_URL`, HTTPS only
+
+CyberEdge validates the Bearer JWT signature against the configured JWKS and requires `exp`, `iss`, `aud`, and `sub`. Only `RS256` is accepted. Redirects are disabled while fetching JWKS, the request times out after ten seconds, and the document is capped at 1 MiB. Keys are loaded at startup; restart CyberEdge after an IdP signing-key rotation.
+
+The role claim defaults to `roles`. `cyberedge.read` grants the read-only UI and inventory APIs; raw Evidence additionally requires `cyberedge.evidence.read`. Override these names with `CYBEREDGE_WEB_ROLE_CLAIM`, `CYBEREDGE_WEB_READ_ROLE`, and `CYBEREDGE_WEB_EVIDENCE_ROLE`. A reverse proxy may perform the browser login flow, but it must forward the signed token as `Authorization: Bearer`; unsigned identity headers are never trusted.
+
+Start the authenticated container projection with:
+
+```bash
+docker compose -f compose.yaml -f compose.web.yaml up -d --build
+```
+
+For a native developer preview only, bind to a loopback address and set `CYBEREDGE_WEB_ALLOW_INSECURE_LOCAL=true`. This escape hatch is rejected for wildcard and non-loopback binds.
 
 ## Remote mTLS transport
 

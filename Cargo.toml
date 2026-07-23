@@ -11,6 +11,7 @@ async-trait = "0.1.91"
 axum = "0.8.8"
 base64 = "0.22.1"
 hyper-util = { version = "0.1.17", features = ["tokio"] }
+jsonwebtoken = { version = "10.4.0", default-features = false, features = ["rust_crypto"] }
 bytes = "1"
 prost = "0.14.4"
 prost-types = "0.14.4"
@@ -37,7 +38,9 @@ protoc-bin-vendored = "3.2.0"
 tonic-prost-build = "0.14.6"
 
 [dev-dependencies]
+rand = "0.8.5"
 rcgen = "0.14.7"
+rsa = "0.9.10"
 
 [profile.release]
 lto = "thin"

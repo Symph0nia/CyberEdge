@@ -10,8 +10,8 @@ use cyberedge::{
     BASELINE_SERVICE_PORTS, CrtShSource, CyberEdgeService, DiscoveryWorker, NotificationDispatcher,
     PostgresRepository, Repository, SocketCveProbe, SocketNucleiProbe, SocketPublicCodeProbe,
     SocketRegistrationProbe, SocketScreenshotProbe, StaticAuthorizer, SystemCertificateProbe,
-    SystemDnsResolver, SystemPortConnector, SystemScreenshotProbe, SystemWebsiteProbe, WebhookSink,
-    serve_read_only_web,
+    SystemDnsResolver, SystemPortConnector, SystemScreenshotProbe, SystemWebsiteProbe, WebAccess,
+    WebhookSink, serve_read_only_web,
 };
 use tokio::{net::UnixListener, signal};
 use tokio_stream::wrappers::UnixListenerStream;
@@ -112,12 +112,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let web = match env::var("CYBEREDGE_WEB_BIND") {
         Ok(value) => {
             let address = value.parse()?;
+            let access = WebAccess::from_env(address).await?;
             let dist = PathBuf::from(
                 env::var("CYBEREDGE_WEB_DIST").unwrap_or_else(|_| "web/dist".to_owned()),
             );
             let repository = repository.clone();
             Some(tokio::spawn(async move {
-                if let Err(error) = serve_read_only_web(repository, address, dist).await {
+                if let Err(error) = serve_read_only_web(repository, address, dist, access).await {
                     eprintln!("read-only web error: {error}");
                 }
             }))
