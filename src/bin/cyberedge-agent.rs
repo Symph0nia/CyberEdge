@@ -571,7 +571,8 @@ fn website_json(value: cyberedge::proto::Website) -> Value {
         "fingerprints": value.fingerprints.into_iter().map(|fingerprint| json!({
             "id": fingerprint.id, "name": fingerprint.name, "version": fingerprint.version,
             "detector": fingerprint.detector, "rule_id": fingerprint.rule_id,
-            "evidence_id": fingerprint.evidence_id})).collect::<Vec<_>>(),
+            "evidence_id": fingerprint.evidence_id, "cpe_name": fingerprint.cpe_name,
+            "cpe_source": fingerprint.cpe_source})).collect::<Vec<_>>(),
         "discovered_paths": value.discovered_paths,
         "screenshot_evidence_id": value.screenshot_evidence_id,
         "first_seen_at": timestamp_json(value.first_seen_at),

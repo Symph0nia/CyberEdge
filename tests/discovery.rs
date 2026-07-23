@@ -9,7 +9,7 @@ use std::{
 use async_trait::async_trait;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use cyberedge::{
-    Authorizer, CertificateProbe, CertificateSource, CyberEdgeService, DiscoveryWorker,
+    Authorizer, CertificateProbe, CertificateSource, CveProbe, CyberEdgeService, DiscoveryWorker,
     DnsResolver, MemoryRepository, NucleiProbe, PortConnector, PublicCodeProbe, Repository,
     ScreenshotProbe, SystemCertificateProbe, SystemPortConnector, SystemWebsiteProbe, WebSnapshot,
     WebsiteProbe,
@@ -114,6 +114,7 @@ struct HostCollisionResolver;
 struct CyclingHostCollisionWebsite(AtomicUsize);
 struct CyclingNuclei(AtomicUsize);
 struct CyclingPublicCode(AtomicUsize);
+struct CyclingCve(AtomicUsize);
 
 #[async_trait]
 impl DnsResolver for HostCollisionResolver {
@@ -203,6 +204,34 @@ impl PublicCodeProbe for CyclingPublicCode {
             "name": "config.yaml",
             "blob_sha": "0123456789abcdef0123456789abcdef01234567",
             "html_url": "https://github.com/example/public-config/blob/main/deploy/config.yaml"
+        }]))
+        .map_err(|error| error.to_string())
+    }
+}
+
+#[async_trait]
+impl CveProbe for CyclingCve {
+    async fn query(&self, cpe_names: &[String]) -> Result<Vec<u8>, String> {
+        assert_eq!(
+            cpe_names,
+            ["cpe:2.3:a:wordpress:wordpress:6.8:*:*:*:*:*:*:*"]
+        );
+        if self.0.fetch_add(1, Ordering::SeqCst) == 1 {
+            return Ok(b"[]".to_vec());
+        }
+        serde_json::to_vec(&serde_json::json!([{
+            "cpe_name": cpe_names[0],
+            "cve_id": "CVE-2099-1234",
+            "source_identifier": "security@example.test",
+            "published": "2099-01-01T00:00:00.000",
+            "last_modified": "2099-01-02T00:00:00.000",
+            "vuln_status": "Analyzed",
+            "description": "Evidence-backed test CVE.",
+            "cvss_version": "3.1",
+            "cvss_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+            "base_score": 9.8,
+            "base_severity": "CRITICAL",
+            "references": ["https://example.test/CVE-2099-1234"]
         }]))
         .map_err(|error| error.to_string())
     }
@@ -1619,6 +1648,107 @@ async fn public_code_policy_retains_metadata_and_tracks_candidate_lifecycle() {
 }
 
 #[tokio::test]
+async fn cve_policy_uses_exact_observed_cpe_and_tracks_finding_lifecycle() {
+    let repository: Arc<dyn Repository> = Arc::new(MemoryRepository::default());
+    let service = CyberEdgeService::new(repository.clone(), Arc::new(Allow));
+    let scope = service
+        .create_scope(Request::new(CreateScopeRequest {
+            context: Some(context("cve-scope")),
+            name: "CVE lifecycle".to_owned(),
+            authorization_ref: "authorization:local-test".to_owned(),
+            targets: vec![ScopeTarget {
+                kind: TargetKind::Ip.into(),
+                value: "127.0.0.1".to_owned(),
+            }],
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let worker = DiscoveryWorker::new(repository, Arc::new(Resolver))
+        .with_port_connector(Arc::new(OpenPort), vec![443])
+        .with_website_probe(Arc::new(TestWebsite))
+        .with_cve_probe(Arc::new(CyclingCve(AtomicUsize::new(0))));
+    service
+        .start_scan(Request::new(StartScanRequest {
+            context: Some(context("cve-inventory")),
+            scope_id: scope.id.clone(),
+            policy_id: "policy_service_baseline".to_owned(),
+        }))
+        .await
+        .unwrap();
+    worker.run_once().await.unwrap();
+
+    let mut finding_id = String::new();
+    for (index, expected_state) in [
+        FindingState::Open,
+        FindingState::Resolved,
+        FindingState::Open,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let task = service
+            .start_scan(Request::new(StartScanRequest {
+                context: Some(context(&format!("cve-task-{index}"))),
+                scope_id: scope.id.clone(),
+                policy_id: "policy_cve_intelligence".to_owned(),
+            }))
+            .await
+            .unwrap()
+            .into_inner();
+        worker.run_once().await.unwrap();
+        let findings = service
+            .search_findings(Request::new(SearchFindingsRequest {
+                context: Some(context(&format!("cve-findings-{index}"))),
+                scope_id: scope.id.clone(),
+            }))
+            .await
+            .unwrap()
+            .into_inner()
+            .findings;
+        let finding = findings
+            .iter()
+            .find(|finding| finding.detector == "nvd-cve")
+            .expect("NVD CVE finding");
+        assert_eq!(finding.rule_id, "CVE-2099-1234");
+        assert_eq!(finding.severity, i32::from(FindingSeverity::Critical));
+        assert_eq!(finding.state, i32::from(expected_state));
+        if finding_id.is_empty() {
+            finding_id = finding.id.clone();
+        } else {
+            assert_eq!(finding.id, finding_id);
+        }
+        let report = service
+            .get_task_report(Request::new(GetTaskReportRequest {
+                context: Some(context(&format!("cve-report-{index}"))),
+                task_id: task.id,
+            }))
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(
+            report
+                .observations
+                .iter()
+                .any(|item| item.observation_type == "nvd.cve.coverage")
+        );
+        if expected_state == FindingState::Open {
+            let evidence = report
+                .evidence
+                .iter()
+                .find(|item| String::from_utf8_lossy(&item.content).contains("CVE-2099-1234"))
+                .expect("normalized CVE evidence");
+            let evidence: serde_json::Value = serde_json::from_slice(&evidence.content).unwrap();
+            assert_eq!(
+                evidence["cpe_name"],
+                "cpe:2.3:a:wordpress:wordpress:6.8:*:*:*:*:*:*:*"
+            );
+            assert!(evidence.get("configurations").is_none());
+        }
+    }
+}
+
+#[tokio::test]
 async fn retains_tls_certificate_as_inventory_and_der_evidence() {
     let certificate = rcgen::generate_simple_self_signed(vec!["localhost".to_owned()]).unwrap();
     let der = certificate.cert.der().to_vec();
@@ -1682,6 +1812,14 @@ async fn retains_tls_certificate_as_inventory_and_der_evidence() {
     assert_eq!(websites[0].fingerprints.len(), 1);
     assert_eq!(websites[0].fingerprints[0].name, "WordPress");
     assert_eq!(websites[0].fingerprints[0].version, "6.8");
+    assert_eq!(
+        websites[0].fingerprints[0].cpe_name,
+        "cpe:2.3:a:wordpress:wordpress:6.8:*:*:*:*:*:*:*"
+    );
+    assert_eq!(
+        websites[0].fingerprints[0].cpe_source,
+        "cyberedge-cpe-map:http-wordpress-v1"
+    );
     assert!(!websites[0].screenshot_evidence_id.is_empty());
     let report = service
         .get_task_report(Request::new(GetTaskReportRequest {

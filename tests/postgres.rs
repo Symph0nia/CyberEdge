@@ -8,9 +8,9 @@ use std::{
 
 use async_trait::async_trait;
 use cyberedge::{
-    Authorizer, CertificateProbe, CyberEdgeService, DiscoveryWorker, DnsResolver, NucleiProbe,
-    PortConnector, PostgresRepository, PublicCodeProbe, Repository, ScreenshotProbe, WebSnapshot,
-    WebsiteProbe,
+    Authorizer, CertificateProbe, CveProbe, CyberEdgeService, DiscoveryWorker, DnsResolver,
+    NucleiProbe, PortConnector, PostgresRepository, PublicCodeProbe, Repository, ScreenshotProbe,
+    WebSnapshot, WebsiteProbe,
     proto::{
         AssetChangeKind, CreateScheduleRequest, CreateScopeRequest, ExposureChangeKind,
         FindingSeverity, FindingState, GetTaskReportRequest, GetTaskRequest, InvocationContext,
@@ -36,6 +36,7 @@ struct ChangingWebsite(AtomicUsize);
 struct CyclingDirectoryWebsite(AtomicUsize);
 struct CyclingNuclei(AtomicUsize);
 struct CyclingPublicCode(AtomicUsize);
+struct CyclingCve(AtomicUsize);
 
 #[async_trait]
 impl DnsResolver for Resolver {
@@ -193,6 +194,20 @@ impl PublicCodeProbe for CyclingPublicCode {
     }
 }
 
+#[async_trait]
+impl CveProbe for CyclingCve {
+    async fn query(&self, cpe_names: &[String]) -> Result<Vec<u8>, String> {
+        assert_eq!(
+            cpe_names,
+            ["cpe:2.3:a:wordpress:wordpress:6.8:*:*:*:*:*:*:*"]
+        );
+        if self.0.fetch_add(1, Ordering::SeqCst) == 1 {
+            return Ok(b"[]".to_vec());
+        }
+        Ok(br#"[{"cpe_name":"cpe:2.3:a:wordpress:wordpress:6.8:*:*:*:*:*:*:*","cve_id":"CVE-2099-1234","source_identifier":"security@example.test","published":"2099-01-01T00:00:00.000","last_modified":"2099-01-02T00:00:00.000","vuln_status":"Analyzed","description":"Evidence-backed test CVE.","cvss_version":"3.1","cvss_vector":"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H","base_score":9.8,"base_severity":"CRITICAL","references":["https://example.test/CVE-2099-1234"]}]"#.to_vec())
+    }
+}
+
 impl Authorizer for TestAuthorizer {
     fn authorize(&self, _context: &InvocationContext, _capability: &str) -> bool {
         true
@@ -334,6 +349,10 @@ async fn persists_scope_task_events_audit_and_outbox() {
     assert_eq!(websites[0].title, "Index of /");
     assert_eq!(websites[0].fingerprints[0].name, "WordPress");
     assert_eq!(websites[0].fingerprints[0].version, "6.8");
+    assert_eq!(
+        websites[0].fingerprints[0].cpe_name,
+        "cpe:2.3:a:wordpress:wordpress:6.8:*:*:*:*:*:*:*"
+    );
     assert_eq!(websites[0].discovered_paths, ["/about"]);
     assert!(!websites[0].screenshot_evidence_id.is_empty());
     let service_report = service
@@ -646,7 +665,7 @@ async fn persists_scope_task_events_audit_and_outbox() {
         .unwrap()
         .into_inner();
     let public_code_worker =
-        DiscoveryWorker::new(repository, Arc::new(Resolver(AtomicUsize::new(0))))
+        DiscoveryWorker::new(repository.clone(), Arc::new(Resolver(AtomicUsize::new(0))))
             .with_public_code_probe(Arc::new(CyclingPublicCode(AtomicUsize::new(0))));
     for (index, expected_state) in [
         FindingState::Open,
@@ -678,6 +697,41 @@ async fn persists_scope_task_events_audit_and_outbox() {
             .iter()
             .find(|finding| finding.detector == "github-public-code")
             .expect("persisted public code finding");
+        assert_eq!(finding.state, i32::from(expected_state));
+    }
+
+    let cve_worker = DiscoveryWorker::new(repository, Arc::new(Resolver(AtomicUsize::new(0))))
+        .with_cve_probe(Arc::new(CyclingCve(AtomicUsize::new(0))));
+    for (index, expected_state) in [
+        FindingState::Open,
+        FindingState::Resolved,
+        FindingState::Open,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        restarted
+            .start_scan(Request::new(StartScanRequest {
+                context: Some(context(&format!("cve-task-{index}"))),
+                scope_id: scope.id.clone(),
+                policy_id: "policy_cve_intelligence".to_owned(),
+            }))
+            .await
+            .unwrap();
+        cve_worker.run_once().await.unwrap();
+        let findings = restarted
+            .search_findings(Request::new(SearchFindingsRequest {
+                context: Some(context(&format!("cve-search-{index}"))),
+                scope_id: scope.id.clone(),
+            }))
+            .await
+            .unwrap()
+            .into_inner()
+            .findings;
+        let finding = findings
+            .iter()
+            .find(|finding| finding.detector == "nvd-cve")
+            .expect("persisted NVD CVE finding");
         assert_eq!(finding.state, i32::from(expected_state));
     }
 }

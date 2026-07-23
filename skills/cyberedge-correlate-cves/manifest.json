@@ -1,0 +1,16 @@
+{
+  "name": "cyberedge-correlate-cves",
+  "version": "0.1.0",
+  "entrypoint": "cyberedge-agent",
+  "transport": "grpc-json-bridge",
+  "capabilities": [
+    "scope.read",
+    "scan.intelligence",
+    "task.read",
+    "website.read",
+    "finding.read",
+    "evidence.read",
+    "report.read",
+    "audit.read"
+  ]
+}

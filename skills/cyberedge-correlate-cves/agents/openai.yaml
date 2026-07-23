@@ -1,0 +1,4 @@
+interface:
+  display_name: "Correlate CVEs"
+  short_description: "Correlate exact observed CPE identities with NVD CVEs"
+  default_prompt: "Use $cyberedge-correlate-cves to correlate evidence-backed exact CPE identities in an authorized CyberEdge scope with normalized NVD CVE records."

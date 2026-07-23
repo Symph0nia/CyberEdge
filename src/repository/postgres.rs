@@ -1918,7 +1918,8 @@ fn technology_fingerprints_json(values: &[TechnologyFingerprint]) -> serde_json:
             .map(|value| {
                 json!({"id": value.id, "name": value.name, "version": value.version,
                     "detector": value.detector, "rule_id": value.rule_id,
-                    "evidence_id": value.evidence_id})
+                    "evidence_id": value.evidence_id, "cpe_name": value.cpe_name,
+                    "cpe_source": value.cpe_source})
             })
             .collect(),
     )
@@ -1937,6 +1938,16 @@ fn technology_fingerprints_from_row(row: &sqlx::postgres::PgRow) -> Vec<Technolo
                 detector: value.get("detector")?.as_str()?.to_owned(),
                 rule_id: value.get("rule_id")?.as_str()?.to_owned(),
                 evidence_id: value.get("evidence_id")?.as_str()?.to_owned(),
+                cpe_name: value
+                    .get("cpe_name")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default()
+                    .to_owned(),
+                cpe_source: value
+                    .get("cpe_source")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default()
+                    .to_owned(),
             })
         })
         .collect()

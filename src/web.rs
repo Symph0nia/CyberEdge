@@ -265,7 +265,8 @@ fn website_json(website: Website) -> Value {
         "fingerprints": website.fingerprints.into_iter().map(|fingerprint| json!({
             "id": fingerprint.id, "name": fingerprint.name, "version": fingerprint.version,
             "detector": fingerprint.detector, "rule_id": fingerprint.rule_id,
-            "evidence_id": fingerprint.evidence_id})).collect::<Vec<_>>(),
+            "evidence_id": fingerprint.evidence_id, "cpe_name": fingerprint.cpe_name,
+            "cpe_source": fingerprint.cpe_source})).collect::<Vec<_>>(),
         "discovered_paths": website.discovered_paths,
         "screenshot_evidence_id": website.screenshot_evidence_id,
         "first_seen_at": timestamp(website.first_seen_at),

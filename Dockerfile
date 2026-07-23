@@ -18,7 +18,7 @@ RUN --mount=type=cache,id=cyberedge-cargo-registry,target=/usr/local/cargo/regis
     --mount=type=cache,id=cyberedge-cargo-target,target=/build/target \
     cargo build --release --bins \
     && mkdir -p /out \
-    && cp target/release/cyberedge target/release/cyberedge-agent target/release/cyberedge-renderer target/release/cyberedge-nuclei-adapter target/release/cyberedge-public-code-adapter /out/
+    && cp target/release/cyberedge target/release/cyberedge-agent target/release/cyberedge-renderer target/release/cyberedge-nuclei-adapter target/release/cyberedge-public-code-adapter target/release/cyberedge-cve-adapter /out/
 
 FROM debian:bookworm-slim AS renderer
 RUN apt-get -o Acquire::Retries=5 update \
@@ -55,6 +55,15 @@ COPY --from=rust-builder /out/cyberedge-public-code-adapter /usr/local/bin/cyber
 USER 65532:65532
 ENTRYPOINT ["cyberedge-public-code-adapter"]
 
+FROM debian:bookworm-slim AS cve-adapter
+RUN apt-get -o Acquire::Retries=5 update \
+    && apt-get -o Acquire::Retries=5 install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && install -d -o 65532 -g 65532 /run/cyberedge-cve
+COPY --from=rust-builder /out/cyberedge-cve-adapter /usr/local/bin/cyberedge-cve-adapter
+USER 65532:65532
+ENTRYPOINT ["cyberedge-cve-adapter"]
+
 FROM debian:bookworm-slim AS core
 RUN apt-get -o Acquire::Retries=5 update \
     && apt-get -o Acquire::Retries=5 install -y --no-install-recommends ca-certificates \
@@ -62,6 +71,7 @@ RUN apt-get -o Acquire::Retries=5 update \
 RUN install -d -o 65532 -g 65532 /run/cyberedge-renderer
 RUN install -d -o 65532 -g 65532 /run/cyberedge-nuclei
 RUN install -d -o 65532 -g 65532 /run/cyberedge-public-code
+RUN install -d -o 65532 -g 65532 /run/cyberedge-cve
 WORKDIR /opt/cyberedge
 COPY --from=rust-builder /out/cyberedge /usr/local/bin/cyberedge
 COPY --from=rust-builder /out/cyberedge-agent /usr/local/bin/cyberedge-agent

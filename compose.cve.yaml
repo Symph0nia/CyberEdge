@@ -1,0 +1,48 @@
+services:
+  cyberedge:
+    depends_on:
+      cve-adapter:
+        condition: service_healthy
+    environment:
+      CYBEREDGE_CVE_ADAPTER_SOCKET: /run/cyberedge-cve/adapter.sock
+    volumes:
+      - cve-socket:/run/cyberedge-cve
+
+  cve-adapter:
+    build:
+      context: .
+      target: cve-adapter
+    environment:
+      CYBEREDGE_CVE_SOCKET: /run/cyberedge-cve/adapter.sock
+      NVD_API_KEY_FILE: /run/secrets/nvd_api_key
+    secrets:
+      - nvd_api_key
+    volumes:
+      - cve-socket:/run/cyberedge-cve
+    networks:
+      - cve-egress
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD-SHELL", "test -S /run/cyberedge-cve/adapter.sock"]
+      interval: 2s
+      timeout: 1s
+      retries: 30
+    restart: unless-stopped
+
+volumes:
+  cve-socket:
+
+networks:
+  cve-egress:
+
+secrets:
+  nvd_api_key:
+    file: ${CYBEREDGE_NVD_API_KEY_FILE:-/dev/null}

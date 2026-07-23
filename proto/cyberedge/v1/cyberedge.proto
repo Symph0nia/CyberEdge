@@ -270,6 +270,8 @@ message TechnologyFingerprint {
   string detector = 4;
   string rule_id = 5;
   string evidence_id = 6;
+  string cpe_name = 7;
+  string cpe_source = 8;
 }
 
 message SearchWebsitesRequest {

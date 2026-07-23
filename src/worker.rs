@@ -25,7 +25,7 @@ use uuid::Uuid;
 use x509_parser::{extensions::GeneralName, parse_x509_certificate};
 
 use crate::{
-    intelligence::PublicCodeProbe,
+    intelligence::{CveProbe, PublicCodeProbe},
     nuclei::NucleiProbe,
     proto::{
         Asset, Certificate, Evidence, Finding, FindingSeverity, FindingState, Observation,
@@ -544,6 +544,7 @@ pub struct DiscoveryWorker {
     screenshot_probe: Option<Arc<dyn ScreenshotProbe>>,
     nuclei_probe: Option<Arc<dyn NucleiProbe>>,
     public_code_probe: Option<Arc<dyn PublicCodeProbe>>,
+    cve_probe: Option<Arc<dyn CveProbe>>,
     service_ports: Vec<u16>,
 }
 
@@ -559,6 +560,7 @@ impl DiscoveryWorker {
             screenshot_probe: None,
             nuclei_probe: None,
             public_code_probe: None,
+            cve_probe: None,
             service_ports: Vec::new(),
         }
     }
@@ -588,6 +590,11 @@ impl DiscoveryWorker {
         self
     }
 
+    pub fn with_cve_probe(mut self, probe: Arc<dyn CveProbe>) -> Self {
+        self.cve_probe = Some(probe);
+        self
+    }
+
     pub fn with_port_connector(
         mut self,
         connector: Arc<dyn PortConnector>,
@@ -614,6 +621,7 @@ impl DiscoveryWorker {
                 | "policy_service_baseline"
                 | "policy_vulnerability_baseline"
                 | "policy_public_code_intelligence"
+                | "policy_cve_intelligence"
         ) {
             self.repository.fail_task(&claimed.task.id, now()).await?;
             return Ok(true);
@@ -626,6 +634,15 @@ impl DiscoveryWorker {
                     &claimed.scope.id,
                     &claimed.scope.targets,
                 )
+                .await?;
+            self.repository
+                .complete_task(&claimed.task.id, records, now())
+                .await?;
+            return Ok(true);
+        }
+        if claimed.task.policy_id == "policy_cve_intelligence" {
+            let records = self
+                .discover_cve_findings(&claimed.task.id, &claimed.scope.id)
                 .await?;
             self.repository
                 .complete_task(&claimed.task.id, records, now())
@@ -685,6 +702,156 @@ impl DiscoveryWorker {
             .complete_task(&claimed.task.id, records, now())
             .await?;
         Ok(true)
+    }
+
+    async fn discover_cve_findings(
+        &self,
+        task_id: &str,
+        scope_id: &str,
+    ) -> Result<Vec<DiscoveryRecord>, RepositoryError> {
+        let assets = self
+            .repository
+            .search_assets(scope_id)
+            .await?
+            .into_iter()
+            .map(|asset| (asset.id.clone(), asset))
+            .collect::<BTreeMap<_, _>>();
+        let services = self
+            .repository
+            .search_services(scope_id)
+            .await?
+            .into_iter()
+            .map(|service| (service.id.clone(), service))
+            .collect::<BTreeMap<_, _>>();
+        let mut targets = BTreeMap::<String, Vec<Asset>>::new();
+        for website in self.repository.search_websites(scope_id).await? {
+            let Some(service) = services.get(&website.service_id) else {
+                continue;
+            };
+            let Some(asset) = assets.get(&service.asset_id) else {
+                continue;
+            };
+            for fingerprint in website.fingerprints {
+                if exact_cpe_name(&fingerprint.cpe_name)
+                    && fingerprint.cpe_source.starts_with("cyberedge-cpe-map:")
+                {
+                    targets
+                        .entry(fingerprint.cpe_name)
+                        .or_default()
+                        .push(asset.clone());
+                }
+            }
+        }
+        for values in targets.values_mut() {
+            values.sort_by(|left, right| left.id.cmp(&right.id));
+            values.dedup_by(|left, right| left.id == right.id);
+        }
+        if targets.is_empty() {
+            return Ok(vec![record(
+                task_id,
+                scope_id,
+                TargetKind::Unspecified,
+                "scope",
+                "nvd.cve.no_targets",
+                json!({"reason": "no exact evidence-backed CPE identities"}),
+            )]);
+        }
+        let Some(probe) = &self.cve_probe else {
+            return Ok(vec![record(
+                task_id,
+                scope_id,
+                TargetKind::Unspecified,
+                "scope",
+                "nvd.cve.error",
+                json!({"error": "CVE adapter unavailable"}),
+            )]);
+        };
+        let cpe_names = targets
+            .keys()
+            .take(MAX_CVE_CPE_NAMES)
+            .cloned()
+            .collect::<Vec<_>>();
+        let output = match probe.query(&cpe_names).await {
+            Ok(output) => output,
+            Err(error) => {
+                return Ok(vec![record(
+                    task_id,
+                    scope_id,
+                    TargetKind::Unspecified,
+                    "scope",
+                    "nvd.cve.error",
+                    json!({"error": error, "cpe_count": cpe_names.len()}),
+                )]);
+            }
+        };
+        let results = match parse_cve_output(&output, &cpe_names) {
+            Ok(results) => results,
+            Err(error) => {
+                return Ok(vec![record(
+                    task_id,
+                    scope_id,
+                    TargetKind::Unspecified,
+                    "scope",
+                    "nvd.cve.error",
+                    json!({"error": error, "cpe_count": cpe_names.len()}),
+                )]);
+            }
+        };
+        let previous = self.repository.search_findings(scope_id).await?;
+        let mut present = BTreeSet::new();
+        let mut records = Vec::new();
+        for result in results
+            .into_iter()
+            .filter(|result| !result.vuln_status.eq_ignore_ascii_case("rejected"))
+        {
+            for asset in targets.get(&result.cpe_name).into_iter().flatten() {
+                let fingerprint = cve_fingerprint(&result.cpe_name, &result.cve_id);
+                if present.insert((asset.id.clone(), result.cve_id.clone(), fingerprint.clone())) {
+                    records.push(cve_result_record(
+                        task_id,
+                        scope_id,
+                        asset.clone(),
+                        result.clone(),
+                        fingerprint,
+                    ));
+                }
+            }
+        }
+        for cpe_name in &cpe_names {
+            for asset in targets.get(cpe_name).into_iter().flatten() {
+                let evaluations = previous
+                    .iter()
+                    .filter(|finding| finding.detector == "nvd-cve" && finding.asset_id == asset.id)
+                    .filter(|finding| {
+                        cve_fingerprint(cpe_name, &finding.rule_id) == finding.fingerprint
+                    })
+                    .filter(|finding| {
+                        !present.contains(&(
+                            asset.id.clone(),
+                            finding.rule_id.clone(),
+                            finding.fingerprint.clone(),
+                        ))
+                    })
+                    .map(|finding| FindingEvaluation {
+                        asset_id: finding.asset_id.clone(),
+                        detector: finding.detector.clone(),
+                        rule_id: finding.rule_id.clone(),
+                        fingerprint: finding.fingerprint.clone(),
+                    })
+                    .collect();
+                let mut coverage = record(
+                    task_id,
+                    scope_id,
+                    TargetKind::try_from(asset.kind).unwrap_or(TargetKind::Unspecified),
+                    &asset.value,
+                    "nvd.cve.coverage",
+                    json!({"cpe_name": cpe_name, "completed": true}),
+                );
+                coverage.finding_evaluations = evaluations;
+                records.push(coverage);
+            }
+        }
+        Ok(records)
     }
 
     async fn discover_public_code_references(
@@ -1932,6 +2099,187 @@ struct PublicCodeReference {
     html_url: String,
 }
 
+#[derive(Clone, Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+struct CveResult {
+    cpe_name: String,
+    cve_id: String,
+    source_identifier: String,
+    published: String,
+    last_modified: String,
+    vuln_status: String,
+    description: String,
+    cvss_version: String,
+    cvss_vector: String,
+    base_score: Option<f64>,
+    base_severity: String,
+    references: Vec<String>,
+}
+
+fn parse_cve_output(output: &[u8], cpe_names: &[String]) -> Result<Vec<CveResult>, String> {
+    if output.len() > MAX_CVE_OUTPUT_BYTES {
+        return Err("CVE output exceeds evidence limit".to_owned());
+    }
+    let results: Vec<CveResult> =
+        serde_json::from_slice(output).map_err(|error| format!("invalid CVE JSON: {error}"))?;
+    if results.len() > MAX_CVE_RESULTS {
+        return Err("CVE result count exceeds limit".to_owned());
+    }
+    let cpe_names = cpe_names.iter().collect::<BTreeSet<_>>();
+    for result in &results {
+        if !cpe_names.contains(&result.cpe_name)
+            || !exact_cpe_name(&result.cpe_name)
+            || !valid_cve_identifier(&result.cve_id)
+            || result.description.len() > 4096
+            || result.source_identifier.len() > 256
+            || result.published.len() > 64
+            || result.last_modified.len() > 64
+            || result.vuln_status.len() > 64
+            || result.cvss_version.len() > 16
+            || result.cvss_vector.len() > 256
+            || result
+                .base_score
+                .is_some_and(|score| !(0.0..=10.0).contains(&score))
+            || !matches!(
+                result.base_severity.to_ascii_uppercase().as_str(),
+                "UNKNOWN" | "NONE" | "LOW" | "MEDIUM" | "HIGH" | "CRITICAL"
+            )
+            || result.references.len() > 10
+            || result.references.iter().any(|reference| {
+                reference.len() > 2048
+                    || reqwest::Url::parse(reference).is_err()
+                    || !reference.starts_with("https://") && !reference.starts_with("http://")
+            })
+        {
+            return Err("CVE result violates the adapter profile".to_owned());
+        }
+    }
+    Ok(results)
+}
+
+fn exact_cpe_name(value: &str) -> bool {
+    let components = value.split(':').collect::<Vec<_>>();
+    components.len() == 13
+        && components[0] == "cpe"
+        && components[1] == "2.3"
+        && matches!(components[2], "a" | "o" | "h")
+        && components[3..=5]
+            .iter()
+            .all(|component| !component.is_empty() && !matches!(*component, "*" | "-"))
+        && value.len() <= 1024
+        && !value.chars().any(char::is_control)
+}
+
+fn valid_cve_identifier(value: &str) -> bool {
+    let mut parts = value.split('-');
+    parts.next() == Some("CVE")
+        && parts
+            .next()
+            .is_some_and(|year| year.len() == 4 && year.bytes().all(|byte| byte.is_ascii_digit()))
+        && parts.next().is_some_and(|number| {
+            number.len() >= 4 && number.bytes().all(|byte| byte.is_ascii_digit())
+        })
+        && parts.next().is_none()
+}
+
+fn cve_fingerprint(cpe_name: &str, cve_id: &str) -> String {
+    hex_hash(format!("{cpe_name}:{cve_id}").as_bytes())
+}
+
+fn cve_severity(result: &CveResult) -> FindingSeverity {
+    match result.base_severity.to_ascii_uppercase().as_str() {
+        "LOW" => FindingSeverity::Low,
+        "MEDIUM" => FindingSeverity::Medium,
+        "HIGH" => FindingSeverity::High,
+        "CRITICAL" => FindingSeverity::Critical,
+        _ => FindingSeverity::Info,
+    }
+}
+
+fn cve_result_record(
+    task_id: &str,
+    scope_id: &str,
+    asset: Asset,
+    result: CveResult,
+    fingerprint: String,
+) -> DiscoveryRecord {
+    let timestamp = now();
+    let content = serde_json::to_vec(&result).expect("validated CVE result is serializable");
+    let evidence_sha256 = hex_hash(&content);
+    let evidence_id = format!("evidence_{evidence_sha256}");
+    let observation_id = format!("observation_{}", Uuid::now_v7());
+    let evaluation = FindingEvaluation {
+        asset_id: asset.id.clone(),
+        detector: "nvd-cve".to_owned(),
+        rule_id: result.cve_id.clone(),
+        fingerprint: fingerprint.clone(),
+    };
+    let description = format!(
+        "NVD associates {} with the exact evidence-backed CPE {}. {}",
+        result.cve_id,
+        result.cpe_name,
+        result.description.trim()
+    )
+    .chars()
+    .take(4096)
+    .collect::<String>();
+    let finding = Finding {
+        id: stable_id(
+            "finding",
+            format!(
+                "{scope_id}:nvd-cve:{}:{}:{fingerprint}",
+                result.cve_id, asset.id
+            )
+            .as_bytes(),
+        ),
+        scope_id: scope_id.to_owned(),
+        task_id: task_id.to_owned(),
+        asset_id: asset.id.clone(),
+        observation_id: observation_id.clone(),
+        evidence_id: evidence_id.clone(),
+        detector: "nvd-cve".to_owned(),
+        rule_id: result.cve_id.clone(),
+        title: format!("{} applies to observed product identity", result.cve_id),
+        description,
+        severity: cve_severity(&result).into(),
+        state: FindingState::Open.into(),
+        fingerprint,
+        first_seen_at: Some(timestamp),
+        last_seen_at: Some(timestamp),
+    };
+    DiscoveryRecord {
+        asset,
+        service: None,
+        certificate: None,
+        website: None,
+        observation: Observation {
+            id: observation_id,
+            task_id: task_id.to_owned(),
+            asset_id: finding.asset_id.clone(),
+            observation_type: "nvd.cve.result".to_owned(),
+            value_json: json!({
+                "cpe_name": result.cpe_name,
+                "cve_id": result.cve_id,
+                "base_score": result.base_score,
+                "base_severity": result.base_severity,
+                "vuln_status": result.vuln_status,
+            })
+            .to_string(),
+            evidence_id: evidence_id.clone(),
+            observed_at: Some(timestamp),
+        },
+        evidence: Evidence {
+            id: evidence_id,
+            media_type: "application/json".to_owned(),
+            sha256: evidence_sha256,
+            content,
+            created_at: Some(timestamp),
+        },
+        finding_evaluations: vec![evaluation],
+        findings: vec![finding],
+    }
+}
+
 fn parse_public_code_output(
     output: &[u8],
     domains: &[String],
@@ -2398,16 +2746,18 @@ fn technology_fingerprints(
         let version = wordpress_generator
             .and_then(|tag| product_version(tag, "wordpress"))
             .unwrap_or_default();
-        matches.push(("WordPress", version, "http-wordpress-v1"));
+        let cpe_name = (!version.is_empty())
+            .then(|| format!("cpe:2.3:a:wordpress:wordpress:{version}:*:*:*:*:*:*:*"));
+        matches.push(("WordPress", version, "http-wordpress-v1", cpe_name));
     }
     let grafana = body.contains("window.grafanabootdata")
         && (body.contains("public/build/") || body.contains("<title>grafana"));
     if grafana {
-        matches.push(("Grafana", String::new(), "http-grafana-v1"));
+        matches.push(("Grafana", String::new(), "http-grafana-v1", None));
     }
     matches
         .into_iter()
-        .map(|(name, version, rule_id)| TechnologyFingerprint {
+        .map(|(name, version, rule_id, cpe_name)| TechnologyFingerprint {
             id: stable_id(
                 "fingerprint",
                 format!("{rule_id}:{content_sha256}").as_bytes(),
@@ -2417,6 +2767,11 @@ fn technology_fingerprints(
             detector: "cyberedge-http".to_owned(),
             rule_id: rule_id.to_owned(),
             evidence_id: evidence_id.to_owned(),
+            cpe_source: cpe_name
+                .as_ref()
+                .map(|_| "cyberedge-cpe-map:http-wordpress-v1".to_owned())
+                .unwrap_or_default(),
+            cpe_name: cpe_name.unwrap_or_default(),
         })
         .collect()
 }
@@ -2828,6 +3183,9 @@ const MAX_NUCLEI_TARGETS: usize = 64;
 const MAX_PUBLIC_CODE_DOMAINS: usize = 8;
 const MAX_PUBLIC_CODE_RESULTS: usize = 160;
 const MAX_PUBLIC_CODE_OUTPUT_BYTES: usize = 1_048_576;
+const MAX_CVE_CPE_NAMES: usize = 16;
+const MAX_CVE_RESULTS: usize = 5_000;
+const MAX_CVE_OUTPUT_BYTES: usize = 10 * 1_048_576;
 const MAX_NUCLEI_RESULTS: usize = 1_000;
 const MAX_NUCLEI_RESULT_BYTES: usize = 1_048_576;
 const MAX_NUCLEI_OUTPUT_BYTES: usize = 10 * 1_048_576;
@@ -2968,10 +3326,15 @@ mod detector_tests {
         let wordpress = detect(b"<meta name=\"generator\" content=\"WordPress 6.8.1\">");
         assert_eq!(wordpress[0].name, "WordPress");
         assert_eq!(wordpress[0].version, "6.8.1");
+        assert_eq!(
+            wordpress[0].cpe_name,
+            "cpe:2.3:a:wordpress:wordpress:6.8.1:*:*:*:*:*:*:*"
+        );
         assert_eq!(wordpress[0].evidence_id, "evidence");
 
         let grafana = detect(b"<title>Grafana</title><script>window.grafanaBootData={}</script>");
         assert_eq!(grafana[0].name, "Grafana");
+        assert!(grafana[0].cpe_name.is_empty());
     }
 
     #[test]

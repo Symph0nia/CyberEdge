@@ -805,12 +805,13 @@ fn validate_policy(policy_id: &str) -> Result<(), Status> {
             | "policy_service_baseline"
             | "policy_vulnerability_baseline"
             | "policy_public_code_intelligence"
+            | "policy_cve_intelligence"
     ) {
         return Ok(());
     }
     Err(invalid(
         "POLICY_UNSUPPORTED",
-        "supported policies: policy_passive_dns, policy_passive_inventory, policy_service_baseline, policy_vulnerability_baseline, policy_public_code_intelligence",
+        "supported policies: policy_passive_dns, policy_passive_inventory, policy_service_baseline, policy_vulnerability_baseline, policy_public_code_intelligence, policy_cve_intelligence",
     ))
 }
 
@@ -820,6 +821,7 @@ fn policy_capability(policy_id: &str) -> Result<&'static str, Status> {
         "policy_service_baseline" => "scan.active",
         "policy_vulnerability_baseline" => "scan.vulnerability",
         "policy_public_code_intelligence" => "scan.intelligence",
+        "policy_cve_intelligence" => "scan.intelligence",
         _ => "scan.passive",
     })
 }

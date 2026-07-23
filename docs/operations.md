@@ -54,7 +54,15 @@ Write the GitHub token to a root-readable deployment secret file, set `CYBEREDGE
 
 `policy_public_code_intelligence` requires `scan.intelligence`. It derives at most eight exact domain names from the authorized Scope and performs one quoted GitHub code search per domain with at most 20 results. The adapter retains only query domain, public repository, path, file name, blob SHA, and GitHub URL. It deliberately discards response fragments and never fetches source content. Each accepted item creates `github.code.reference` Evidence and an `Info` Finding explicitly classified as a review candidate, while `github.code.coverage` drives resolution. Provider errors and malformed/out-of-scope output never resolve prior candidates.
 
-This is not GitHub Secret Scanning and does not prove a credential leak. Exact CPE-backed CVE correlation is intentionally deferred until CyberEdge has an authoritative product-to-CPE mapping; guessing CPEs from banner names would create misleading vulnerability results.
+This is not GitHub Secret Scanning and does not prove a credential leak.
+
+## Exact CPE and NVD CVE adapter
+
+Layer `compose.cve.yaml` over `compose.yaml`. Anonymous NVD access works with the default empty secret; for production rate limits, write an NVD API key to a deployment secret file and set `CYBEREDGE_NVD_API_KEY_FILE` to its absolute path. Compose mounts it read-only only inside `cve-adapter`. The core receives no NVD credentials and communicates through `/run/cyberedge-cve/adapter.sock`.
+
+`policy_cve_intelligence` requires `scan.intelligence`. The core derives at most 16 CPE 2.3 names from persisted Website TechnologyFingerprint records. A CPE candidate is eligible only when vendor, product, and version are exact and `cpe_source` records the versioned CyberEdge mapping rule. The sidecar first requires an exact match from the official NVD CPE Dictionary API and only then queries CVEs. Current strong WordPress generator detection can produce a candidate when an explicit version is present; unversioned Grafana detection deliberately produces no CPE and therefore no provider query.
+
+The adapter queries NVD CVE API 2.0 by exact `cpeName`, then retains only normalized CVE identity, dates/status, English description, preferred CVSS metadata, and at most ten references. Raw configurations and applicability trees are discarded. Each association produces `nvd.cve.result` Evidence and a lifecycle-managed Finding. `nvd.cve.coverage` resolves a missing prior association for that exact CPE and Asset; provider errors or missing CPE identity never resolve prior Findings. An NVD association is not proof that the deployed path is reachable or exploitable.
 
 The service baseline also runs the built-in `cyberedge-http/http-directory-listing-v1` detector. It requires a successful HTTP response with both a directory-index title and a listing marker, and stores the raw response body as the referenced Evidence. Built-in findings are committed in the same transaction as their Observation and Evidence. A later successful evaluation resolves a missing condition; recurrence reopens the same deterministic Finding. Probe errors do not resolve findings because coverage is unknown.
 
