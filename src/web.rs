@@ -1,4 +1,10 @@
-use std::{env, net::SocketAddr, path::PathBuf, sync::Arc};
+use std::{
+    env,
+    net::SocketAddr,
+    path::PathBuf,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use axum::{
     Json, Router,
@@ -11,6 +17,7 @@ use axum::{
 use base64::{Engine, engine::general_purpose::STANDARD};
 use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode, decode_header, jwk::JwkSet};
 use serde_json::{Value, json};
+use tokio::sync::RwLock;
 use tower_http::{
     services::{ServeDir, ServeFile},
     set_header::SetResponseHeaderLayer,
@@ -35,7 +42,6 @@ pub enum WebAccess {
     Oidc(Arc<OidcAccess>),
 }
 
-#[derive(Clone)]
 pub struct OidcAccess {
     issuer: String,
     audience: String,
@@ -43,7 +49,18 @@ pub struct OidcAccess {
     read_role: String,
     evidence_role: String,
     sensitive_role: String,
-    jwks: JwkSet,
+    jwks: RwLock<JwkCache>,
+    refresh: Option<JwksRefresh>,
+}
+
+struct JwkCache {
+    set: JwkSet,
+    fetched_at: Instant,
+}
+
+struct JwksRefresh {
+    client: reqwest::Client,
+    url: String,
 }
 
 #[derive(Clone)]
@@ -52,6 +69,7 @@ struct WebPrincipal {
     sensitive: bool,
 }
 
+#[derive(Debug)]
 struct WebAuthFailure {
     status: StatusCode,
     message: &'static str,
@@ -90,35 +108,23 @@ impl WebAccess {
             if !jwks_url.starts_with("https://") {
                 return Err(WebAccessError::InsecureJwks);
             }
-            let client = reqwest::Client::builder()
-                .redirect(reqwest::redirect::Policy::none())
-                .timeout(std::time::Duration::from_secs(10))
-                .build()?;
-            let mut response = client.get(jwks_url).send().await?.error_for_status()?;
-            if response
-                .content_length()
-                .is_some_and(|size| size > 1024 * 1024)
-            {
-                return Err(WebAccessError::JwksTooLarge);
-            }
-            let mut bytes = Vec::new();
-            while let Some(chunk) = response.chunk().await? {
-                if bytes.len() + chunk.len() > 1024 * 1024 {
-                    return Err(WebAccessError::JwksTooLarge);
-                }
-                bytes.extend_from_slice(&chunk);
-            }
-            return Ok(Self::Oidc(Arc::new(OidcAccess::new(
-                issuer,
-                audience,
-                env::var("CYBEREDGE_WEB_ROLE_CLAIM").unwrap_or_else(|_| "roles".to_owned()),
-                env::var("CYBEREDGE_WEB_READ_ROLE").unwrap_or_else(|_| "cyberedge.read".to_owned()),
-                env::var("CYBEREDGE_WEB_EVIDENCE_ROLE")
-                    .unwrap_or_else(|_| "cyberedge.evidence.read".to_owned()),
-                env::var("CYBEREDGE_WEB_SENSITIVE_ROLE")
-                    .unwrap_or_else(|_| "cyberedge.sensitive.read".to_owned()),
-                serde_json::from_slice(&bytes)?,
-            ))));
+            let client = web_http_client()?;
+            let jwks = fetch_jwks(&client, &jwks_url).await?;
+            return Ok(Self::Oidc(Arc::new(
+                OidcAccess::new(
+                    issuer,
+                    audience,
+                    env::var("CYBEREDGE_WEB_ROLE_CLAIM").unwrap_or_else(|_| "roles".to_owned()),
+                    env::var("CYBEREDGE_WEB_READ_ROLE")
+                        .unwrap_or_else(|_| "cyberedge.read".to_owned()),
+                    env::var("CYBEREDGE_WEB_EVIDENCE_ROLE")
+                        .unwrap_or_else(|_| "cyberedge.evidence.read".to_owned()),
+                    env::var("CYBEREDGE_WEB_SENSITIVE_ROLE")
+                        .unwrap_or_else(|_| "cyberedge.sensitive.read".to_owned()),
+                    jwks,
+                )
+                .with_refresh(client, jwks_url),
+            )));
         }
         if address.ip().is_loopback()
             && env::var("CYBEREDGE_WEB_ALLOW_INSECURE_LOCAL")
@@ -128,6 +134,14 @@ impl WebAccess {
         }
         Err(WebAccessError::UnsafeLocal)
     }
+}
+
+fn web_http_client() -> Result<reqwest::Client, reqwest::Error> {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_secs(10))
+        .build()
 }
 
 impl OidcAccess {
@@ -147,9 +161,60 @@ impl OidcAccess {
             read_role,
             evidence_role,
             sensitive_role,
-            jwks,
+            jwks: RwLock::new(JwkCache {
+                set: jwks,
+                fetched_at: Instant::now(),
+            }),
+            refresh: None,
         }
     }
+
+    fn with_refresh(mut self, client: reqwest::Client, url: String) -> Self {
+        self.refresh = Some(JwksRefresh { client, url });
+        self
+    }
+
+    async fn key(&self, kid: &str) -> Result<Option<jsonwebtoken::jwk::Jwk>, WebAccessError> {
+        const MAX_AGE: Duration = Duration::from_secs(15 * 60);
+        {
+            let cache = self.jwks.read().await;
+            if cache.fetched_at.elapsed() < MAX_AGE
+                && let Some(key) = cache.set.find(kid)
+            {
+                return Ok(Some(key.clone()));
+            }
+        }
+        let Some(refresh) = &self.refresh else {
+            return Ok(self.jwks.read().await.set.find(kid).cloned());
+        };
+        let mut cache = self.jwks.write().await;
+        if cache.fetched_at.elapsed() < MAX_AGE
+            && let Some(key) = cache.set.find(kid)
+        {
+            return Ok(Some(key.clone()));
+        }
+        cache.set = fetch_jwks(&refresh.client, &refresh.url).await?;
+        cache.fetched_at = Instant::now();
+        Ok(cache.set.find(kid).cloned())
+    }
+}
+
+async fn fetch_jwks(client: &reqwest::Client, url: &str) -> Result<JwkSet, WebAccessError> {
+    let mut response = client.get(url).send().await?.error_for_status()?;
+    if response
+        .content_length()
+        .is_some_and(|size| size > 1024 * 1024)
+    {
+        return Err(WebAccessError::JwksTooLarge);
+    }
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await? {
+        if bytes.len() + chunk.len() > 1024 * 1024 {
+            return Err(WebAccessError::JwksTooLarge);
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(serde_json::from_slice(&bytes)?)
 }
 
 pub async fn serve_read_only_web(
@@ -211,8 +276,11 @@ async fn authorize_web(
             ],
             sensitive: true,
         },
-        WebAccess::Oidc(ref config) => match oidc_principal(&request, config) {
-            Ok(principal) => principal,
+        WebAccess::Oidc(ref config) => match bearer_token(&request) {
+            Ok(token) => match oidc_principal(&token, config).await {
+                Ok(principal) => principal,
+                Err(error) => return web_auth_error(error.status, error.message),
+            },
             Err(error) => return web_auth_error(error.status, error.message),
         },
     };
@@ -241,16 +309,20 @@ async fn authorize_web(
     next.run(request).await
 }
 
-fn oidc_principal(request: &Request, config: &OidcAccess) -> Result<WebPrincipal, WebAuthFailure> {
-    let value = request
+fn bearer_token(request: &Request) -> Result<String, WebAuthFailure> {
+    request
         .headers()
         .get(header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "))
+        .map(str::to_owned)
         .ok_or(WebAuthFailure {
             status: StatusCode::UNAUTHORIZED,
             message: "Bearer token is required",
-        })?;
+        })
+}
+
+async fn oidc_principal(value: &str, config: &OidcAccess) -> Result<WebPrincipal, WebAuthFailure> {
     let header = decode_header(value)
         .map_err(|_| auth_failure(StatusCode::UNAUTHORIZED, "invalid token header"))?;
     if header.alg != Algorithm::RS256 {
@@ -264,17 +336,18 @@ fn oidc_principal(request: &Request, config: &OidcAccess) -> Result<WebPrincipal
         .as_deref()
         .ok_or_else(|| auth_failure(StatusCode::UNAUTHORIZED, "token key id is required"))?;
     let jwk = config
-        .jwks
-        .find(kid)
+        .key(kid)
+        .await
+        .map_err(|_| auth_failure(StatusCode::SERVICE_UNAVAILABLE, "OIDC key refresh failed"))?
         .ok_or_else(|| auth_failure(StatusCode::UNAUTHORIZED, "token key id is unknown"))?;
-    let key = DecodingKey::from_jwk(jwk)
+    let key = DecodingKey::from_jwk(&jwk)
         .map_err(|_| auth_failure(StatusCode::UNAUTHORIZED, "token key is invalid"))?;
     let mut validation = Validation::new(Algorithm::RS256);
     validation.set_audience(&[&config.audience]);
     validation.set_issuer(&[&config.issuer]);
     validation.set_required_spec_claims(&["exp", "iss", "aud", "sub"]);
     validation.validate_nbf = true;
-    let claims = decode::<Value>(value, &key, &validation)
+    let claims = decode::<Value>(&value, &key, &validation)
         .map_err(|_| auth_failure(StatusCode::UNAUTHORIZED, "token validation failed"))?
         .claims;
     let roles = claim_strings(claims.get(&config.role_claim)).ok_or_else(|| {
@@ -591,7 +664,16 @@ impl axum::response::IntoResponse for WebError {
 
 #[cfg(test)]
 mod tests {
-    use super::{audit_json, scope_json};
+    use std::sync::Arc;
+
+    use axum::{Json, Router, extract::State, routing::get};
+    use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+    use jsonwebtoken::{Algorithm, EncodingKey, Header, encode, jwk::JwkSet};
+    use rsa::{RsaPrivateKey, pkcs1::EncodeRsaPrivateKey, traits::PublicKeyParts};
+    use serde_json::json;
+    use tokio::sync::RwLock;
+
+    use super::{OidcAccess, audit_json, oidc_principal, scope_json, web_http_client};
     use crate::proto::{AuditEvent, Scope, ScopeTarget, TargetKind};
 
     #[test]
@@ -630,5 +712,58 @@ mod tests {
             "change-secret"
         );
         assert_eq!(audit_json(audit, true)["agent_id"], "agent-secret");
+    }
+
+    #[tokio::test]
+    async fn unknown_kid_refreshes_the_bounded_jwks_cache() {
+        let first = RsaPrivateKey::new(&mut rand::thread_rng(), 2048).unwrap();
+        let second = RsaPrivateKey::new(&mut rand::thread_rng(), 2048).unwrap();
+        let initial = jwks("first", &first);
+        let current = Arc::new(RwLock::new(jwks("second", &second)));
+        let app = Router::new()
+            .route("/jwks", get(serve_jwks))
+            .with_state(current);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let config = OidcAccess::new(
+            "https://identity.example".to_owned(),
+            "cyberedge-web".to_owned(),
+            "roles".to_owned(),
+            "cyberedge.read".to_owned(),
+            "cyberedge.evidence.read".to_owned(),
+            "cyberedge.sensitive.read".to_owned(),
+            initial,
+        )
+        .with_refresh(web_http_client().unwrap(), format!("http://{address}/jwks"));
+        let mut header = Header::new(Algorithm::RS256);
+        header.kid = Some("second".to_owned());
+        let token = encode(
+            &header,
+            &json!({
+                "iss": "https://identity.example", "aud": "cyberedge-web",
+                "sub": "viewer", "exp": jsonwebtoken::get_current_timestamp() + 300,
+                "roles": ["cyberedge.read"]
+            }),
+            &EncodingKey::from_rsa_der(second.to_pkcs1_der().unwrap().as_bytes()),
+        )
+        .unwrap();
+
+        let principal = oidc_principal(&token, &config).await.unwrap();
+        assert_eq!(principal.roles, vec!["cyberedge.read"]);
+        assert!(config.jwks.read().await.set.find("second").is_some());
+    }
+
+    async fn serve_jwks(State(jwks): State<Arc<RwLock<JwkSet>>>) -> Json<JwkSet> {
+        Json(jwks.read().await.clone())
+    }
+
+    fn jwks(kid: &str, key: &RsaPrivateKey) -> JwkSet {
+        serde_json::from_value(json!({"keys": [{
+            "kty": "RSA", "alg": "RS256", "use": "sig", "kid": kid,
+            "n": URL_SAFE_NO_PAD.encode(key.n().to_bytes_be()),
+            "e": URL_SAFE_NO_PAD.encode(key.e().to_bytes_be())
+        }]}))
+        .unwrap()
     }
 }
