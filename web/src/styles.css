@@ -15,7 +15,8 @@ code, .metric strong, .evidence-number { font-family: "IBM Plex Mono", ui-monosp
 
 .cds--header { border-bottom: 1px solid var(--ce-border); }
 .mobile-nav { display: none; }
-.read-only-mark { margin-left: auto; margin-right: 1rem; color: var(--ce-muted); font: 500 .75rem/1 "IBM Plex Mono", ui-monospace, monospace; letter-spacing: .08em; }
+.read-only-mark { margin-left: auto; color: var(--ce-muted); font: 500 .75rem/1 "IBM Plex Mono", ui-monospace, monospace; letter-spacing: .08em; }
+.locale-switch { flex: 0 0 auto; min-width: 3.5rem; margin-right: .5rem; white-space: nowrap; }
 .cds--side-nav { border-right: 1px solid var(--ce-border); }
 .cds--content { min-height: 100dvh; margin-left: 16rem; padding: 4.5rem 2rem 4rem; background: #161616; }
 main { width: min(100%, 100rem); margin: 0 auto; }

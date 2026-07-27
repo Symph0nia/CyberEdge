@@ -33,6 +33,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     })?;
     let repository = Arc::new(PostgresRepository::connect(&database_url).await?);
     let authorizer = Arc::new(StaticAuthorizer::load(policy_path)?);
+    let execution_enabled = !env::var("CYBEREDGE_EXECUTION_ENABLED")
+        .is_ok_and(|value| value == "false" || value == "0");
     let readiness = RuntimeReadiness {
         screenshot: env::var_os("CYBEREDGE_SCREENSHOT_RENDERER_SOCKET").is_some()
             || env::var("CYBEREDGE_SCREENSHOTS_ENABLED")
@@ -73,33 +75,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             discovery.with_registration_probe(Arc::new(SocketRegistrationProbe::new(socket)));
     }
     let scheduler_repository = repository.clone();
-    let scheduler = tokio::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
-        loop {
-            interval.tick().await;
-            let duration = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("system time must be after Unix epoch");
-            let timestamp = Timestamp {
-                seconds: duration.as_secs() as i64,
-                nanos: duration.subsec_nanos() as i32,
-            };
-            if let Err(error) = scheduler_repository.enqueue_due_schedules(timestamp).await {
-                eprintln!("schedule worker error: {error}");
+    let scheduler = execution_enabled.then(|| {
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
+            loop {
+                interval.tick().await;
+                let duration = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("system time must be after Unix epoch");
+                let timestamp = Timestamp {
+                    seconds: duration.as_secs() as i64,
+                    nanos: duration.subsec_nanos() as i32,
+                };
+                if let Err(error) = scheduler_repository.enqueue_due_schedules(timestamp).await {
+                    eprintln!("schedule worker error: {error}");
+                }
             }
-        }
+        })
     });
-    let worker = tokio::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_millis(500));
-        loop {
-            interval.tick().await;
-            if let Err(error) = discovery.run_once().await {
-                eprintln!("discovery worker error: {error}");
+    let worker = execution_enabled.then(|| {
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_millis(500));
+            loop {
+                interval.tick().await;
+                if let Err(error) = discovery.run_once().await {
+                    eprintln!("discovery worker error: {error}");
+                }
             }
-        }
+        })
     });
-    let notification = match env::var("CYBEREDGE_WEBHOOK_URL") {
-        Ok(url) => {
+    let notification = match (execution_enabled, env::var("CYBEREDGE_WEBHOOK_URL")) {
+        (false, _) => None,
+        (true, Ok(url)) => {
             let sink = Arc::new(WebhookSink::new(
                 &url,
                 env::var("CYBEREDGE_WEBHOOK_BEARER_TOKEN").ok(),
@@ -115,8 +122,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }))
         }
-        Err(env::VarError::NotPresent) => None,
-        Err(error) => return Err(error.into()),
+        (true, Err(env::VarError::NotPresent)) => None,
+        (true, Err(error)) => return Err(error.into()),
     };
     let web = match env::var("CYBEREDGE_WEB_BIND") {
         Ok(value) => {
@@ -166,8 +173,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .serve_with_incoming_shutdown(UnixListenerStream::new(listener), shutdown_signal())
             .await?;
     }
-    worker.abort();
-    scheduler.abort();
+    if let Some(worker) = worker {
+        worker.abort();
+    }
+    if let Some(scheduler) = scheduler {
+        scheduler.abort();
+    }
     if let Some(notification) = notification {
         notification.abort();
     }

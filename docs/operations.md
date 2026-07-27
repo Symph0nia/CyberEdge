@@ -142,6 +142,8 @@ docker compose -f compose.yaml -f compose.web.yaml up -d --build
 
 For a native developer preview only, bind to a loopback address and set `CYBEREDGE_WEB_ALLOW_INSECURE_LOCAL=true`. This escape hatch is rejected for wildcard and non-loopback binds.
 
+Set `CYBEREDGE_EXECUTION_ENABLED=false` for a Web-only observer process. This prevents that process from starting the scheduler, discovery worker, or notification dispatcher while leaving the read-only Web and RPC query surface available. Execution remains enabled by default for normal deployments.
+
 The observer uses URL-addressable top-level views for overview, inventory, findings, Tasks, monitoring, and audit. Search spans the loaded read projections; Finding severity and Task state filters can be saved locally in the browser without creating server-side state. Asset and Finding inspectors expose relationships, Task inspectors load their Observation timeline, and Evidence content is fetched only on explicit inspection. JSON export is generated from the current read-only snapshot. None of these interactions call a mutation route.
 
 ## Remote mTLS transport
