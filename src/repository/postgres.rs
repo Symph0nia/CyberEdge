@@ -979,8 +979,8 @@ impl Repository for PostgresRepository {
                       screenshot_evidence_id, first_seen_at_seconds, first_seen_at_nanos,
                       last_seen_at_seconds, last_seen_at_nanos)
                      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-                     ON CONFLICT (service_id) DO UPDATE SET
-                       url = EXCLUDED.url, status_code = EXCLUDED.status_code,
+                     ON CONFLICT (service_id, url) DO UPDATE SET
+                       id = EXCLUDED.id, status_code = EXCLUDED.status_code,
                        title = EXCLUDED.title, server = EXCLUDED.server,
                        content_type = EXCLUDED.content_type,
                        content_sha256 = EXCLUDED.content_sha256,

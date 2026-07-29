@@ -295,11 +295,15 @@ fn exposure_snapshot<'a>(
                 }
                 "http.response" => {
                     let port = value.get("port")?.as_u64()?;
+                    let url = value.get("url")?.as_str()?;
                     let service_id = content_id(
                         "service",
                         format!("{}:tcp:{port}", observation.asset_id).as_bytes(),
                     );
-                    ("website", content_id("website", service_id.as_bytes()))
+                    (
+                        "website",
+                        content_id("website", format!("{service_id}:{url}").as_bytes()),
+                    )
                 }
                 _ => return None,
             };

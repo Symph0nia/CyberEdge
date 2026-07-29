@@ -1,11 +1,14 @@
 [[grants]]
 agent_id = "codex-main"
 skill_name = "cyberedge-assess-scope"
-skill_version = "0.1.0"
+skill_version = "0.2.0"
 capabilities = [
   "system.read",
   "scope.read",
   "scan.assessment",
+  "schedule.manage",
+  "schedule.read",
+  "monitor.read",
   "task.read",
   "task.cancel",
   "asset.read",

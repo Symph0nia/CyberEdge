@@ -525,9 +525,22 @@ async fn connect() -> Result<Channel, Value> {
             .await
             .map_err(local_error);
     }
+    if let Ok(endpoint) = env::var("CYBEREDGE_RPC_LOCAL_ENDPOINT") {
+        return Endpoint::from_shared(endpoint)
+            .map_err(local_error)?
+            .connect()
+            .await
+            .map_err(local_error);
+    }
     let socket = PathBuf::from(
         env::var("CYBEREDGE_RPC_SOCKET").unwrap_or_else(|_| "/tmp/cyberedge.sock".to_owned()),
     );
+    if !socket.exists() {
+        return Endpoint::from_static("http://127.0.0.1:50051")
+            .connect()
+            .await
+            .map_err(local_error);
+    }
     Endpoint::try_from("http://[::]:50051")
         .map_err(local_error)?
         .connect_with_connector(service_fn(move |_: Uri| {

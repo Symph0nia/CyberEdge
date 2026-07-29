@@ -23,14 +23,20 @@ The bridge accepts one JSON envelope on stdin and emits JSON Lines on stdout. It
 
 ## End-to-end assessment
 
-The `cyberedge-assess-scope` Skill first calls `GetReadiness`, then starts one `StartAssessment` Task. `standard` uses the fixed baseline service ports. `thorough` uses the server-owned TCP `1-1024` profile plus selected high-value ports; callers still cannot provide ports, templates, flags, headers, paths, commands, or targets outside the Scope.
+The `cyberedge-assess-scope` Skill first calls `GetReadiness`, then starts one `StartAssessment` Task. `standard` uses the fixed baseline service ports. `thorough` uses the server-owned TCP `1-1024` profile plus selected high-value ports; callers still cannot provide ports, templates, flags, headers, paths, commands, or targets outside the Scope. Expanded targets are processed in bounded batches of 64 rather than discarded after the first batch.
+
+`CYBEREDGE_SCAN_VANTAGE` is mandatory-by-default policy expressed as `external`, `internal`, or `mixed`. The runtime defaults to `external`; addresses outside the selected class remain evidenced as `scan.vantage_excluded` but are not actively connected. Run separate external and internal deployments when both views are required—do not merge them into one ambiguous inventory.
+
+Thorough TCP profiles are executed with at most 128 simultaneous connect attempts per target. Domain observations may share an IP and its normalized Service records, while Website identities include both Service and origin URL so name-based virtual hosts cannot overwrite each other.
 
 The Task chains passive DNS and Certificate Transparency, a bounded in-domain DNS label set, active inventory, Host collision comparison, the reviewed Nuclei baseline, exact-domain public-code metadata, exact observed CPE-to-NVD correlation, and licensed registration intelligence. `GetTaskReport.coverage` reports each stage as `complete`, `partial`, `unavailable`, or `blocked`. Treat Task state `COMPLETED` only as “the workflow stopped normally,” never as proof that optional adapters ran.
 
 Certificate Transparency discovery queries `crt.sh` first and falls back to the Cert Spotter issuance API when the primary request fails. The fallback is bounded to one page of unexpired issuances, requests DNS names only, and uses the same root-domain normalization and wildcard filtering as the primary source.
 
+Deployments that require an outbound HTTP proxy can set `CYBEREDGE_OUTBOUND_PROXY`. The core applies it only to Certificate Transparency intelligence, so active inventory preserves its configured scan vantage; the isolated public-code adapter also receives it for GitHub API traffic.
+
 ```bash
-printf '%s' '{"request_id":"req_assess_1","idempotency_key":"idem_assess_1","agent_id":"codex-main","skill_name":"cyberedge-assess-scope","skill_version":"0.1.0","action":"start_assessment","scope_id":"scope_...","profile":"thorough"}' \
+printf '%s' '{"request_id":"req_assess_1","idempotency_key":"idem_assess_1","agent_id":"codex-main","skill_name":"cyberedge-assess-scope","skill_version":"0.2.0","action":"start_assessment","scope_id":"scope_...","profile":"thorough"}' \
   | docker compose exec -T cyberedge cyberedge-agent
 ```
 
@@ -50,15 +56,15 @@ Finding adapters use `ReportFinding` and require `finding.report`. A Finding mus
 
 ## Vulnerability baseline
 
-`policy_vulnerability_baseline` requires the separate `scan.vulnerability` capability. It first executes the fixed active inventory baseline, then sends at most 64 successfully observed, credential-free Website origins to the Nuclei adapter over a Unix socket. AI callers cannot provide targets, templates, tags, severity filters, flags, headers, variables, or commands.
+`policy_vulnerability_baseline` requires the separate `scan.vulnerability` capability. It first executes the fixed active inventory baseline, then sends all successfully observed, credential-free Website origins to the Nuclei adapter in bounded batches of 64 over a Unix socket. A failed batch is retained as a typed coverage error and does not resolve findings belonging to that batch. AI callers cannot provide targets, templates, tags, severity filters, flags, headers, variables, or commands.
 
-Populate `config/nuclei-templates/` with a reviewed, signed allowlist before enabling the adapter, or set `CYBEREDGE_NUCLEI_TEMPLATES_DIR` to an absolute operator-managed directory. Template lifecycle is an operator-controlled release process; the runtime never downloads or updates templates. Start the deployment with:
+Populate `config/nuclei-templates/` with a reviewed, signed allowlist before enabling the adapter, or set `CYBEREDGE_NUCLEI_TEMPLATES_DIR` to an absolute operator-managed directory. `scripts/sync-nuclei-templates.sh` builds the pinned release in `config/nuclei-templates.lock` from the official HTTP CVE, exposure, misconfiguration, technology, vulnerability, and SSL categories. Template lifecycle is an operator-controlled release process; the runtime never downloads or updates templates. Start the deployment with:
 
 ```bash
 docker compose -f compose.yaml -f compose.nuclei.yaml up -d --build
 ```
 
-The adapter image pins Nuclei v3.11.0 by digest and has no database credentials. It runs on a separate egress network with a read-only root filesystem, all capabilities dropped, `no-new-privileges`, bounded memory/PIDs, and temporary working storage. Its fixed profile permits signed HTTP/SSL templates only; it disables unsigned templates, automatic updates, redirects, Interactsh/OAST, code, headless, fuzz/DAST, DoS tags, stdin, raw request/response output, and embedded template output. Rate is capped at 20 requests/second with concurrency and bulk size five, a five-second request timeout, one retry, and a nine-minute process deadline.
+The adapter image pins Nuclei v3.11.0 by digest and has no database credentials. It runs on a separate egress network with a read-only root filesystem, all capabilities dropped, `no-new-privileges`, bounded memory/PIDs, and temporary working storage. Its fixed risk-prioritized profile selects official `kev`, `vkev`, `exposure`, and `misconfig` tags from the pinned release and permits signed HTTP/SSL templates only. It disables unsigned templates, automatic updates, redirects, Interactsh/OAST, code, headless, fuzz/DAST, DoS tags, stdin, raw request/response output, and embedded template output. The global rate is capped at 50 requests/second with concurrency and bulk size ten, a five-second request timeout, one retry, and a 59-minute per-batch process deadline.
 
 Each accepted JSONL match is schema-checked and normalized before becoming immutable `application/x-ndjson` Evidence: raw request/response, embedded templates and interaction records are rejected, while Nuclei's generated `curl-command` is removed and replaced by the SHA-256 of the original source line. The result creates a `nuclei.result` Observation and a Finding keyed by template ID, matcher, matched location, and Asset. A successful target evaluation emits `nuclei.coverage`, allowing missing prior matches to resolve and later recurrence to reopen the same Finding. Adapter errors, malformed/out-of-scope output, and missing targets emit `nuclei.error` or `nuclei.no_targets` and never resolve existing Findings.
 
@@ -92,7 +98,9 @@ The system HTTP adapter additionally probes only `/.git/HEAD` and `/.DS_Store`. 
 
 Website `fingerprints` are structured, versioned detector projections tied to the root response Evidence. Current rules require an explicit WordPress generator or both WordPress asset families, and Grafana boot data plus a build/title marker. The `server` response header remains an unverified hint and is never promoted into this list by itself.
 
-The system crawler follows at most 16 root-page links at depth one. Only same-origin absolute paths without queries, traversal segments, encoded traversal, or control characters are accepted. Fixed exposure-probe paths are excluded from crawler input. Each fetched page becomes an `http.crawl` Observation with bounded response Evidence; failed pages become `http.crawl_error` and do not widen Scope.
+The system crawler follows at most 64 root-page paths at depth one. It extracts same-origin `href`, `src`, and quoted absolute paths so JavaScript bundles and API-shaped paths are observable without accepting caller-controlled paths. Only paths without queries, traversal segments, encoded traversal, or control characters are accepted. Fixed exposure-probe paths are excluded from crawler input. Each fetched page becomes an `http.crawl` Observation with bounded response Evidence; failed pages become `http.crawl_error` and do not widen Scope.
+
+Open TCP services receive a bounded, read-only banner probe. At most 512 printable bytes are retained as `service.banner` Evidence and may refine a generic port hint; no protocol command, credential, or exploit payload is sent.
 
 When an active Scope contains domains and alternate IP assets, the baseline performs bounded Host collision checks across at most 16 domains and 64 domain/IP/port candidates with concurrency eight. A domain is never tested against its own current DNS addresses. Detection requires a successful text-like response with a plausible body that differs materially from the direct-address baseline; a changed hash alone is insufficient. The comparison Evidence retains both bounded response bodies and their hashes. Successful negative evaluations resolve an existing `http-host-collision-v1` Finding, while `http.host_collision_error` preserves failed coverage without resolving it.
 
@@ -118,6 +126,9 @@ Required:
 Optional local transport:
 
 - `CYBEREDGE_RPC_SOCKET`, default `/tmp/cyberedge.sock`
+- `CYBEREDGE_RPC_LOCAL_ADDR`, local plaintext transport intended only behind a loopback-only container port publication
+- `CYBEREDGE_RPC_LOCAL_ENDPOINT`, optional agent-side endpoint; when no Unix socket exists the agent falls back to `http://127.0.0.1:50051`
+- `CYBEREDGE_SCAN_VANTAGE`, `external` by default; also accepts `internal` or `mixed`
 
 Optional read-only Web:
 

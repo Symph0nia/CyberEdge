@@ -1,6 +1,4 @@
-# syntax=docker/dockerfile:1
-
-FROM node:24-bookworm-slim AS web-builder
+FROM node:24-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d AS web-builder
 WORKDIR /build/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
@@ -8,6 +6,7 @@ COPY web/ ./
 RUN npm run build
 
 FROM rust:1.97-bookworm AS rust-builder
+ENV RUSTUP_TOOLCHAIN=1.97.1-x86_64-unknown-linux-gnu
 WORKDIR /build
 COPY Cargo.toml Cargo.lock build.rs rust-toolchain.toml ./
 COPY proto/ proto/

@@ -18,7 +18,7 @@ use rustls::{
 use serde::Deserialize;
 use serde_json::json;
 use sha2::{Digest, Sha256};
-use tokio::net::lookup_host;
+use tokio::{io::AsyncReadExt, net::lookup_host};
 use tokio::{net::TcpStream, time::timeout};
 use tokio_rustls::TlsConnector;
 use uuid::Uuid;
@@ -85,6 +85,70 @@ impl PortConnector for SystemPortConnector {
             }
             Ok(Err(error)) => Err(error.to_string()),
             Err(_) => Ok(false),
+        }
+    }
+}
+
+#[async_trait]
+pub trait ServiceProbe: Send + Sync {
+    async fn banner(&self, address: IpAddr, port: u16) -> Result<Vec<u8>, String>;
+}
+
+pub struct SystemServiceProbe;
+
+#[async_trait]
+impl ServiceProbe for SystemServiceProbe {
+    async fn banner(&self, address: IpAddr, port: u16) -> Result<Vec<u8>, String> {
+        let mut stream = timeout(
+            std::time::Duration::from_secs(2),
+            TcpStream::connect((address, port)),
+        )
+        .await
+        .map_err(|_| "banner connect timed out".to_owned())?
+        .map_err(|error| error.to_string())?;
+        let mut banner = vec![0; MAX_SERVICE_BANNER_BYTES];
+        let length = timeout(
+            std::time::Duration::from_millis(1200),
+            stream.read(&mut banner),
+        )
+        .await
+        .map_err(|_| "banner read timed out".to_owned())?
+        .map_err(|error| error.to_string())?;
+        banner.truncate(length);
+        Ok(banner)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ScanVantage {
+    External,
+    Internal,
+    Mixed,
+}
+
+impl ScanVantage {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "external" => Some(Self::External),
+            "internal" => Some(Self::Internal),
+            "mixed" => Some(Self::Mixed),
+            _ => None,
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::External => "external",
+            Self::Internal => "internal",
+            Self::Mixed => "mixed",
+        }
+    }
+
+    fn permits(self, address: IpAddr) -> bool {
+        match self {
+            Self::External => is_public_address(address),
+            Self::Internal => !is_public_address(address),
+            Self::Mixed => true,
         }
     }
 }
@@ -486,12 +550,19 @@ pub struct CrtShSource {
 
 impl CrtShSource {
     pub fn new() -> Result<Self, reqwest::Error> {
+        Self::with_proxy(None)
+    }
+
+    pub fn with_proxy(proxy: Option<&str>) -> Result<Self, reqwest::Error> {
         install_crypto_provider();
+        let mut builder = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(15))
+            .user_agent("CyberEdge/0.1 passive-inventory");
+        if let Some(proxy) = proxy {
+            builder = builder.proxy(reqwest::Proxy::all(proxy)?);
+        }
         Ok(Self {
-            client: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(15))
-                .user_agent("CyberEdge/0.1 passive-inventory")
-                .build()?,
+            client: builder.build()?,
         })
     }
 }
@@ -590,6 +661,8 @@ pub struct DiscoveryWorker {
     public_code_probe: Option<Arc<dyn PublicCodeProbe>>,
     cve_probe: Option<Arc<dyn CveProbe>>,
     registration_probe: Option<Arc<dyn RegistrationProbe>>,
+    service_probe: Option<Arc<dyn ServiceProbe>>,
+    scan_vantage: ScanVantage,
     service_ports: Vec<u16>,
 }
 
@@ -607,6 +680,8 @@ impl DiscoveryWorker {
             public_code_probe: None,
             cve_probe: None,
             registration_probe: None,
+            service_probe: None,
+            scan_vantage: ScanVantage::Mixed,
             service_ports: Vec::new(),
         }
     }
@@ -643,6 +718,16 @@ impl DiscoveryWorker {
 
     pub fn with_registration_probe(mut self, probe: Arc<dyn RegistrationProbe>) -> Self {
         self.registration_probe = Some(probe);
+        self
+    }
+
+    pub fn with_service_probe(mut self, probe: Arc<dyn ServiceProbe>) -> Self {
+        self.service_probe = Some(probe);
+        self
+    }
+
+    pub fn with_scan_vantage(mut self, vantage: ScanVantage) -> Self {
+        self.scan_vantage = vantage;
         self
     }
 
@@ -693,6 +778,11 @@ impl DiscoveryWorker {
                     claimed.task.policy_id == "policy_assessment_thorough",
                 )
                 .await?;
+            if self.repository.get_task(&claimed.task.id).await?.state
+                == i32::from(crate::proto::TaskState::Canceled)
+            {
+                return Ok(true);
+            }
             self.repository
                 .complete_task(&claimed.task.id, records, now())
                 .await?;
@@ -714,7 +804,7 @@ impl DiscoveryWorker {
         }
         if claimed.task.policy_id == "policy_cve_intelligence" {
             let records = self
-                .discover_cve_findings(&claimed.task.id, &claimed.scope.id)
+                .discover_cve_findings(&claimed.task.id, &claimed.scope.id, &[])
                 .await?;
             self.repository
                 .complete_task(&claimed.task.id, records, now())
@@ -861,20 +951,33 @@ impl DiscoveryWorker {
         active_targets.sort_by(|left, right| left.value.cmp(&right.value));
         active_targets.dedup_by(|left, right| left.kind == right.kind && left.value == right.value);
         let discovered_total = active_targets.len().saturating_sub(scope_targets.len());
-        let expansion_state = if active_targets.len() > MAX_ASSESSMENT_ACTIVE_TARGETS {
-            active_targets.truncate(MAX_ASSESSMENT_ACTIVE_TARGETS);
-            "partial"
-        } else {
-            "complete"
-        };
+        let active_batches = active_targets
+            .len()
+            .div_ceil(ASSESSMENT_ACTIVE_TARGET_BATCH_SIZE);
         records.push(coverage_record(
             task_id,
             scope_id,
             &fallback,
             "subdomain_expansion",
-            expansion_state,
-            "bounded DNS labels plus CT names with wildcard filtering; active targets capped at 64",
+            "complete",
+            &format!(
+                "bounded DNS labels plus CT names with wildcard filtering; {} active targets in {} bounded batches",
+                active_targets.len(),
+                active_batches
+            ),
             discovered_total,
+        ));
+        records.push(coverage_record(
+            task_id,
+            scope_id,
+            &fallback,
+            "scan_vantage",
+            "complete",
+            &format!(
+                "{} vantage; addresses outside this network class are retained but not actively probed",
+                self.scan_vantage.name()
+            ),
+            active_targets.len(),
         ));
 
         let ports = if thorough {
@@ -883,21 +986,39 @@ impl DiscoveryWorker {
             self.service_ports.clone()
         };
         let active_start = records.len();
-        for target in &active_targets {
-            records.extend(
-                self.discover_active_target_on_ports(task_id, scope_id, target, &ports)
-                    .await,
-            );
+        for batch in active_targets.chunks(ASSESSMENT_ACTIVE_TARGET_BATCH_SIZE) {
+            for target in batch {
+                if self.repository.get_task(task_id).await?.state
+                    == i32::from(crate::proto::TaskState::Canceled)
+                {
+                    return Ok(records);
+                }
+                records.extend(
+                    self.discover_active_target_on_ports(task_id, scope_id, target, &ports)
+                        .await,
+                );
+            }
         }
         records.extend(
             self.discover_host_collisions(task_id, scope_id, &active_targets, &records)
                 .await,
         );
         let active_records = records.len() - active_start;
-        let active_state = if self.port_connector.is_some() {
-            "complete"
-        } else {
+        let active_errors = records[active_start..]
+            .iter()
+            .filter(|record| {
+                matches!(
+                    record.observation.observation_type.as_str(),
+                    "tcp.error" | "dns.error"
+                )
+            })
+            .count();
+        let active_state = if self.port_connector.is_none() {
             "unavailable"
+        } else if active_errors > 0 {
+            "partial"
+        } else {
+            "complete"
         };
         records.push(coverage_record(
             task_id,
@@ -910,6 +1031,28 @@ impl DiscoveryWorker {
             } else {
                 "baseline service ports"
             },
+            active_records,
+        ));
+        let collection_errors = records[active_start..]
+            .iter()
+            .filter(|record| {
+                record.observation.observation_type.ends_with("_error")
+                    || record.observation.observation_type.ends_with(".error")
+            })
+            .count();
+        records.push(coverage_record(
+            task_id,
+            scope_id,
+            &fallback,
+            "collection_quality",
+            if collection_errors == 0 {
+                "complete"
+            } else {
+                "partial"
+            },
+            &format!(
+                "{collection_errors} typed collection errors retained separately from security findings"
+            ),
             active_records,
         ));
 
@@ -953,7 +1096,9 @@ impl DiscoveryWorker {
             public_code_count,
         ));
 
-        let cve = self.discover_cve_findings(task_id, scope_id).await?;
+        let cve = self
+            .discover_cve_findings(task_id, scope_id, &records)
+            .await?;
         let cve_state = if self.cve_probe.is_none() {
             "unavailable"
         } else {
@@ -1128,23 +1273,42 @@ impl DiscoveryWorker {
         &self,
         task_id: &str,
         scope_id: &str,
+        task_records: &[DiscoveryRecord],
     ) -> Result<Vec<DiscoveryRecord>, RepositoryError> {
-        let assets = self
+        let mut assets = self
             .repository
             .search_assets(scope_id)
             .await?
             .into_iter()
             .map(|asset| (asset.id.clone(), asset))
             .collect::<BTreeMap<_, _>>();
-        let services = self
+        let mut services = self
             .repository
             .search_services(scope_id)
             .await?
             .into_iter()
             .map(|service| (service.id.clone(), service))
             .collect::<BTreeMap<_, _>>();
+        for record in task_records {
+            assets.insert(record.asset.id.clone(), record.asset.clone());
+            if let Some(service) = &record.service {
+                services.insert(service.id.clone(), service.clone());
+            }
+        }
         let mut targets = BTreeMap::<String, Vec<Asset>>::new();
-        for website in self.repository.search_websites(scope_id).await? {
+        let mut websites = self
+            .repository
+            .search_websites(scope_id)
+            .await?
+            .into_iter()
+            .map(|website| (website.id.clone(), website))
+            .collect::<BTreeMap<_, _>>();
+        for record in task_records {
+            if let Some(website) = &record.website {
+                websites.insert(website.id.clone(), website.clone());
+            }
+        }
+        for website in websites.into_values() {
             let Some(service) = services.get(&website.service_id) else {
                 continue;
             };
@@ -1425,52 +1589,78 @@ impl DiscoveryWorker {
             .values()
             .map(|target| target.url.clone())
             .collect::<Vec<_>>();
-        let output = match probe.scan(&urls).await {
-            Ok(output) => output,
-            Err(error) => {
-                return Ok(vec![record(
-                    task_id,
-                    scope_id,
-                    fallback.0,
-                    fallback.1,
-                    "nuclei.error",
-                    json!({"error": error, "target_count": urls.len()}),
-                )]);
-            }
-        };
-        let parsed = match parse_nuclei_output(&output, &targets) {
-            Ok(parsed) => parsed,
-            Err(error) => {
-                return Ok(vec![record(
-                    task_id,
-                    scope_id,
-                    fallback.0,
-                    fallback.1,
-                    "nuclei.error",
-                    json!({"error": error, "target_count": urls.len()}),
-                )]);
-            }
-        };
         let previous = self.repository.search_findings(scope_id).await?;
         let mut present = BTreeSet::new();
+        let mut completed = BTreeSet::new();
         let mut records = Vec::new();
-        for result in parsed {
-            let key = (
-                result.target.asset.id.clone(),
-                result.event.template_id.clone(),
-                nuclei_fingerprint(&result.event),
-            );
-            if present.insert(key) {
-                records.push(nuclei_result_record(
-                    task_id,
-                    scope_id,
-                    result.target,
-                    result.event,
-                    result.raw,
-                ));
+        for batch in urls.chunks(MAX_NUCLEI_TARGETS) {
+            let batch_targets = batch
+                .iter()
+                .filter_map(|url| targets.get(url).map(|target| (url.clone(), target.clone())))
+                .collect::<BTreeMap<_, _>>();
+            let output = match probe.scan(batch).await {
+                Ok(output) => output,
+                Err(error) => {
+                    records.push(record(
+                        task_id,
+                        scope_id,
+                        fallback.0,
+                        fallback.1,
+                        "nuclei.error",
+                        json!({"error": error, "target_count": batch.len(), "batch_size": MAX_NUCLEI_TARGETS}),
+                    ));
+                    continue;
+                }
+            };
+            let parsed = match parse_nuclei_output(&output, &batch_targets) {
+                Ok(parsed) => parsed,
+                Err(error) => {
+                    records.push(record(
+                        task_id,
+                        scope_id,
+                        fallback.0,
+                        fallback.1,
+                        "nuclei.error",
+                        json!({"error": error, "target_count": batch.len(), "batch_size": MAX_NUCLEI_TARGETS}),
+                    ));
+                    continue;
+                }
+            };
+            completed.extend(batch.iter().cloned());
+            for result in parsed {
+                let key = (
+                    result.target.asset.id.clone(),
+                    result.event.template_id.clone(),
+                    nuclei_fingerprint(&result.event),
+                );
+                if present.insert(key) {
+                    records.push(nuclei_result_record(
+                        task_id,
+                        scope_id,
+                        result.target,
+                        result.event,
+                        result.raw,
+                    ));
+                }
             }
         }
+        if completed.is_empty() {
+            if records.is_empty() {
+                records.push(record(
+                    task_id,
+                    scope_id,
+                    fallback.0,
+                    fallback.1,
+                    "nuclei.error",
+                    json!({"error": "all Nuclei batches failed", "target_count": urls.len()}),
+                ));
+            }
+            return Ok(records);
+        }
         for target in targets.values() {
+            if !completed.contains(&target.url) {
+                continue;
+            }
             let evaluations = previous
                 .iter()
                 .filter(|finding| {
@@ -1661,6 +1851,16 @@ impl DiscoveryWorker {
                         "scope.seed",
                         json!({"source": "authorized_scope", "value": target.value}),
                     )];
+                    if !self.scan_vantage.permits(address) {
+                        records.push(vantage_skip_record(
+                            task_id,
+                            scope_id,
+                            address,
+                            self.scan_vantage,
+                            &target.value,
+                        ));
+                        return records;
+                    }
                     records.extend(
                         self.discover_services(task_id, scope_id, address, &target.value, ports)
                             .await,
@@ -1691,6 +1891,16 @@ impl DiscoveryWorker {
                         json!({"domain": target.value, "addresses": values}),
                     )];
                     for address in addresses {
+                        if !self.scan_vantage.permits(address) {
+                            records.push(vantage_skip_record(
+                                task_id,
+                                scope_id,
+                                address,
+                                self.scan_vantage,
+                                &target.value,
+                            ));
+                            continue;
+                        }
                         records.extend(
                             self.discover_services(
                                 task_id,
@@ -1740,16 +1950,18 @@ impl DiscoveryWorker {
                 json!({"address": address, "error": "port connector unavailable"}),
             )];
         };
-        let mut probes = tokio::task::JoinSet::new();
-        for port in ports.iter().copied() {
-            let connector = connector.clone();
-            probes.spawn(async move { (port, connector.connect(address, port).await) });
-        }
         let mut results = Vec::with_capacity(ports.len());
-        while let Some(result) = probes.join_next().await {
-            match result {
-                Ok(result) => results.push(result),
-                Err(error) => results.push((0, Err(error.to_string()))),
+        for ports in ports.chunks(SERVICE_SCAN_CONCURRENCY) {
+            let mut probes = tokio::task::JoinSet::new();
+            for port in ports.iter().copied() {
+                let connector = connector.clone();
+                probes.spawn(async move { (port, connector.connect(address, port).await) });
+            }
+            while let Some(result) = probes.join_next().await {
+                match result {
+                    Ok(result) => results.push(result),
+                    Err(error) => results.push((0, Err(error.to_string()))),
+                }
             }
         }
         results.sort_by_key(|(port, _)| *port);
@@ -1758,7 +1970,35 @@ impl DiscoveryWorker {
         for (port, result) in results {
             match result {
                 Ok(true) => {
-                    records.push(service_record(task_id, scope_id, address, port));
+                    let mut open = service_record(task_id, scope_id, address, port);
+                    if let Some(probe) = &self.service_probe
+                        && supports_read_first_banner(port)
+                    {
+                        match probe.banner(address, port).await {
+                            Ok(banner) if !banner.is_empty() => {
+                                let hint = identify_banner_service(&banner, port);
+                                if let Some(service) = open.service.as_mut() {
+                                    service.service_hint = hint.to_owned();
+                                }
+                                records.push(service_banner_record(
+                                    task_id, scope_id, address, port, hint, banner,
+                                ));
+                            }
+                            Ok(_) => {}
+                            Err(error) if error != "banner read timed out" => {
+                                records.push(record(
+                                    task_id,
+                                    scope_id,
+                                    TargetKind::Ip,
+                                    &address.to_string(),
+                                    "service.banner_error",
+                                    json!({"address": address, "port": port, "error": error}),
+                                ));
+                            }
+                            Err(_) => {}
+                        }
+                    }
+                    records.push(open);
                     if matches!(port, 443 | 8443) {
                         records.push(
                             self.discover_certificate(
@@ -2171,6 +2411,119 @@ fn service_record(task_id: &str, scope_id: &str, address: IpAddr, port: u16) -> 
     record
 }
 
+fn service_banner_record(
+    task_id: &str,
+    scope_id: &str,
+    address: IpAddr,
+    port: u16,
+    service_hint: &str,
+    banner: Vec<u8>,
+) -> DiscoveryRecord {
+    let sanitized = banner
+        .into_iter()
+        .filter(|byte| byte.is_ascii_graphic() || byte.is_ascii_whitespace())
+        .take(MAX_SERVICE_BANNER_BYTES)
+        .collect::<Vec<_>>();
+    let text = String::from_utf8_lossy(&sanitized).trim().to_owned();
+    record(
+        task_id,
+        scope_id,
+        TargetKind::Ip,
+        &address.to_string(),
+        "service.banner",
+        json!({
+            "address": address,
+            "port": port,
+            "service_hint": service_hint,
+            "banner": text,
+        }),
+    )
+}
+
+fn identify_banner_service(banner: &[u8], port: u16) -> &'static str {
+    let value = String::from_utf8_lossy(banner).to_ascii_lowercase();
+    if value.starts_with("ssh-") {
+        "ssh"
+    } else if value.contains("smtp") {
+        "smtp"
+    } else if value.starts_with("+ok") && value.contains("pop") {
+        "pop3"
+    } else if value.starts_with("* ok") && value.contains("imap") {
+        "imap"
+    } else if value.contains("redis") {
+        "redis"
+    } else {
+        service_hint(port)
+    }
+}
+
+fn supports_read_first_banner(port: u16) -> bool {
+    !matches!(
+        port,
+        53 | 80
+            | 443
+            | 445
+            | 1433
+            | 1521
+            | 2375
+            | 3000
+            | 3306
+            | 5432
+            | 5601
+            | 5672
+            | 6379
+            | 8080
+            | 8443
+            | 9090
+            | 9200
+            | 11211
+            | 27017
+    )
+}
+
+fn vantage_skip_record(
+    task_id: &str,
+    scope_id: &str,
+    address: IpAddr,
+    vantage: ScanVantage,
+    source: &str,
+) -> DiscoveryRecord {
+    record(
+        task_id,
+        scope_id,
+        TargetKind::Ip,
+        &address.to_string(),
+        "scan.vantage_excluded",
+        json!({
+            "address": address,
+            "source": source,
+            "vantage": vantage.name(),
+            "reason": "address class is outside the configured scan vantage",
+        }),
+    )
+}
+
+fn is_public_address(address: IpAddr) -> bool {
+    match address {
+        IpAddr::V4(address) => {
+            !address.is_private()
+                && !address.is_loopback()
+                && !address.is_link_local()
+                && !address.is_broadcast()
+                && !address.is_documentation()
+                && !address.is_unspecified()
+                && !address.is_multicast()
+        }
+        IpAddr::V6(address) => {
+            !address.is_loopback()
+                && !address.is_unique_local()
+                && !address.is_unicast_link_local()
+                && !address.is_unspecified()
+                && !address.is_multicast()
+        }
+    }
+}
+
 fn certificate_record(
     task_id: &str,
     scope_id: &str,
@@ -2378,7 +2731,10 @@ fn website_record(
     let evidence_id = format!("evidence_{content_sha256}");
     let observation_id = format!("observation_{}", Uuid::now_v7());
     let website = Website {
-        id: stable_id("website", service_id.as_bytes()),
+        id: stable_id(
+            "website",
+            format!("{service_id}:{}", snapshot.url).as_bytes(),
+        ),
         service_id: service_id.clone(),
         url: snapshot.url.clone(),
         status_code: u32::from(snapshot.status_code),
@@ -2388,7 +2744,12 @@ fn website_record(
         content_sha256: content_sha256.clone(),
         first_seen_at: Some(timestamp),
         last_seen_at: Some(timestamp),
-        fingerprints: technology_fingerprints(&snapshot.body, &evidence_id, &content_sha256),
+        fingerprints: technology_fingerprints(
+            &snapshot.body,
+            &snapshot.server,
+            &evidence_id,
+            &content_sha256,
+        ),
         discovered_paths: discovered_paths(&snapshot.body),
         screenshot_evidence_id: String::new(),
     };
@@ -2507,7 +2868,6 @@ fn nuclei_targets(records: &[DiscoveryRecord]) -> BTreeMap<String, NucleiTarget>
                 },
             ))
         })
-        .take(MAX_NUCLEI_TARGETS)
         .collect()
 }
 
@@ -3321,6 +3681,7 @@ fn host_collision_matches(baseline: &WebSnapshot, candidate: &WebSnapshot) -> bo
 
 fn technology_fingerprints(
     body: &[u8],
+    server: &str,
     evidence_id: &str,
     content_sha256: &str,
 ) -> Vec<TechnologyFingerprint> {
@@ -3342,6 +3703,14 @@ fn technology_fingerprints(
     if grafana {
         matches.push(("Grafana", String::new(), "http-grafana-v1", None));
     }
+    if let Some(version) = exact_server_version(server, "nginx") {
+        matches.push((
+            "nginx",
+            version.clone(),
+            "http-server-nginx-v1",
+            Some(format!("cpe:2.3:a:f5:nginx:{version}:*:*:*:*:*:*:*")),
+        ));
+    }
     matches
         .into_iter()
         .map(|(name, version, rule_id, cpe_name)| TechnologyFingerprint {
@@ -3356,11 +3725,25 @@ fn technology_fingerprints(
             evidence_id: evidence_id.to_owned(),
             cpe_source: cpe_name
                 .as_ref()
-                .map(|_| "cyberedge-cpe-map:http-wordpress-v1".to_owned())
+                .map(|_| format!("cyberedge-cpe-map:{rule_id}"))
                 .unwrap_or_default(),
             cpe_name: cpe_name.unwrap_or_default(),
         })
         .collect()
+}
+
+fn exact_server_version(server: &str, product: &str) -> Option<String> {
+    let value = server.trim();
+    let (name, version) = value.split_once('/')?;
+    if !name.eq_ignore_ascii_case(product)
+        || version.is_empty()
+        || !version
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || byte == b'.')
+    {
+        return None;
+    }
+    Some(version.chars().take(32).collect())
 }
 
 fn generator_tag<'a>(body: &'a str, product: &str) -> Option<&'a str> {
@@ -3384,44 +3767,63 @@ fn product_version(body: &str, product: &str) -> Option<String> {
 }
 
 fn discovered_paths(body: &[u8]) -> Vec<String> {
-    const MAX_CRAWL_PATHS: usize = 16;
+    const MAX_CRAWL_PATHS: usize = 64;
     let html = String::from_utf8_lossy(body);
     let lowered = html.to_ascii_lowercase();
     let mut paths = BTreeSet::new();
-    let mut offset = 0;
-    while let Some(relative) = lowered[offset..].find("href") {
-        let start = offset + relative + "href".len();
-        let suffix = &html[start..];
-        let Some(equals) = suffix.find('=') else {
-            break;
-        };
-        if !suffix[..equals].chars().all(char::is_whitespace) {
-            offset = start;
-            continue;
-        }
-        let value = suffix[equals + 1..].trim_start();
-        let Some(quote) = value
-            .chars()
-            .next()
-            .filter(|value| matches!(value, '\'' | '"'))
-        else {
-            offset = start + equals + 1;
-            continue;
-        };
-        let value = &value[quote.len_utf8()..];
-        let Some(end) = value.find(quote) else {
-            break;
-        };
-        let path = value[..end].split('#').next().unwrap_or_default();
-        if safe_crawl_path(path) && path != "/" && !HTTP_PROBE_PATHS.contains(&path) {
-            paths.insert(path.to_owned());
-            if paths.len() == MAX_CRAWL_PATHS {
+    for attribute in ["href", "src"] {
+        let mut offset = 0;
+        while let Some(relative) = lowered[offset..].find(attribute) {
+            let start = offset + relative + attribute.len();
+            let suffix = &html[start..];
+            let Some(equals) = suffix.find('=') else {
                 break;
+            };
+            if !suffix[..equals].chars().all(char::is_whitespace) {
+                offset = start;
+                continue;
             }
+            let value = suffix[equals + 1..].trim_start();
+            let Some(quote) = value
+                .chars()
+                .next()
+                .filter(|value| matches!(value, '\'' | '"'))
+            else {
+                offset = start + equals + 1;
+                continue;
+            };
+            let value = &value[quote.len_utf8()..];
+            let Some(end) = value.find(quote) else {
+                break;
+            };
+            insert_crawl_path(&mut paths, &value[..end], MAX_CRAWL_PATHS);
+            if paths.len() == MAX_CRAWL_PATHS {
+                return paths.into_iter().collect();
+            }
+            offset = html.len() - value.len() + end + quote.len_utf8();
         }
-        offset = html.len() - value.len() + end + quote.len_utf8();
+    }
+
+    for value in html
+        .split(['\'', '"'])
+        .filter(|value| value.starts_with('/'))
+    {
+        insert_crawl_path(&mut paths, value, MAX_CRAWL_PATHS);
+        if paths.len() == MAX_CRAWL_PATHS {
+            break;
+        }
     }
     paths.into_iter().collect()
+}
+
+fn insert_crawl_path(paths: &mut BTreeSet<String>, value: &str, limit: usize) {
+    if paths.len() == limit {
+        return;
+    }
+    let path = value.split('#').next().unwrap_or_default();
+    if safe_crawl_path(path) && path != "/" && !HTTP_PROBE_PATHS.contains(&path) {
+        paths.insert(path.to_owned());
+    }
 }
 
 fn safe_crawl_path(path: &str) -> bool {
@@ -3762,6 +4164,8 @@ fn directory_listing_detection(
 }
 
 const MAX_WEB_BODY_BYTES: usize = 1_048_576;
+const MAX_SERVICE_BANNER_BYTES: usize = 512;
+const SERVICE_SCAN_CONCURRENCY: usize = 128;
 const MAX_SCREENSHOT_BYTES: usize = 10 * 1_048_576;
 const MAX_HOST_COLLISION_DOMAINS: usize = 16;
 const MAX_HOST_COLLISION_CANDIDATES: usize = 64;
@@ -3843,7 +4247,7 @@ const ASSESSMENT_DNS_LABELS: &[&str] = &[
     "www", "api", "auth", "admin", "app", "dev", "test", "stage", "staging", "mail", "smtp", "vpn",
     "sso", "portal", "docs", "git", "cdn", "static", "m", "monitor",
 ];
-const MAX_ASSESSMENT_ACTIVE_TARGETS: usize = 64;
+const ASSESSMENT_ACTIVE_TARGET_BATCH_SIZE: usize = 64;
 
 fn thorough_service_ports() -> Vec<u16> {
     let mut ports = (1..=1024).collect::<Vec<_>>();
@@ -3956,7 +4360,7 @@ mod detector_tests {
 
     #[test]
     fn requires_strong_technology_signatures() {
-        let detect = |body: &[u8]| technology_fingerprints(body, "evidence", "hash");
+        let detect = |body: &[u8]| technology_fingerprints(body, "", "evidence", "hash");
         assert!(detect(b"WordPress consulting and Grafana dashboards").is_empty());
         assert!(detect(b"/wp-content/theme.css").is_empty());
         assert!(
@@ -3975,6 +4379,44 @@ mod detector_tests {
         let grafana = detect(b"<title>Grafana</title><script>window.grafanaBootData={}</script>");
         assert_eq!(grafana[0].name, "Grafana");
         assert!(grafana[0].cpe_name.is_empty());
+
+        let nginx = technology_fingerprints(b"", "nginx/1.27.5", "evidence", "hash");
+        assert_eq!(nginx[0].version, "1.27.5");
+        assert_eq!(nginx[0].cpe_name, "cpe:2.3:a:f5:nginx:1.27.5:*:*:*:*:*:*:*");
+        assert!(technology_fingerprints(b"", "nginx", "evidence", "hash").is_empty());
+    }
+
+    #[test]
+    fn separates_scan_vantages_and_identifies_read_only_banners() {
+        let private = IpAddr::V4(std::net::Ipv4Addr::new(10, 1, 1, 100));
+        let public = IpAddr::V4(std::net::Ipv4Addr::new(8, 8, 8, 8));
+        assert!(!ScanVantage::External.permits(private));
+        assert!(ScanVantage::Internal.permits(private));
+        assert!(!ScanVantage::Internal.permits(public));
+        assert_eq!(identify_banner_service(b"SSH-2.0-OpenSSH_9.9", 602), "ssh");
+    }
+
+    #[test]
+    fn retains_more_than_one_nuclei_target_batch() {
+        let records = (0..65)
+            .map(|index| {
+                website_record(
+                    "task",
+                    "scope",
+                    IpAddr::V4(std::net::Ipv4Addr::new(192, 0, 2, 1)),
+                    10_000 + index,
+                    WebSnapshot {
+                        url: format!("http://host-{index}.example:{}", 10_000 + index),
+                        status_code: 200,
+                        title: String::new(),
+                        server: String::new(),
+                        content_type: "text/html".to_owned(),
+                        body: Vec::new(),
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(nuclei_targets(&records).len(), 65);
     }
 
     #[test]
@@ -3988,10 +4430,15 @@ mod detector_tests {
         for index in 0..20 {
             html.push_str(&format!(r#"<a href="/page/{index}">page</a>"#));
         }
+        html.push_str(
+            r#"<script src="/assets/app.js"></script><script>fetch("/api/v1/me")</script>"#,
+        );
         let paths = discovered_paths(html.as_bytes());
-        assert_eq!(paths.len(), 16);
+        assert_eq!(paths.len(), 24);
         assert!(paths.contains(&"/login".to_owned()));
         assert!(paths.contains(&"/docs/start".to_owned()));
+        assert!(paths.contains(&"/assets/app.js".to_owned()));
+        assert!(paths.contains(&"/api/v1/me".to_owned()));
         assert!(!paths.iter().any(|path| path.contains("outside")));
         assert!(!paths.iter().any(|path| path.contains("admin")));
         assert!(!paths.contains(&"/.git/HEAD".to_owned()));

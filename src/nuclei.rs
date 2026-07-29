@@ -83,7 +83,7 @@ impl NucleiProbe for SocketNucleiProbe {
                 Err(String::from_utf8_lossy(&payload).into_owned())
             }
         };
-        tokio::time::timeout(std::time::Duration::from_secs(10 * 60), exchange)
+        tokio::time::timeout(std::time::Duration::from_secs(60 * 60), exchange)
             .await
             .map_err(|_| "nuclei adapter IPC timed out".to_owned())?
     }
@@ -136,6 +136,8 @@ impl NucleiProbe for SystemNucleiProbe {
                 "http,ssl",
                 "-severity",
                 "info,low,medium,high,critical",
+                "-tags",
+                "kev,vkev,exposure,misconfig",
                 "-exclude-tags",
                 "fuzz,dos,headless,code",
                 "-disable-unsigned-templates",
@@ -149,11 +151,11 @@ impl NucleiProbe for SystemNucleiProbe {
                 "-omit-raw",
                 "-omit-template",
                 "-rate-limit",
-                "20",
+                "50",
                 "-bulk-size",
-                "5",
+                "10",
                 "-concurrency",
-                "5",
+                "10",
                 "-timeout",
                 "5",
                 "-retries",
@@ -162,7 +164,7 @@ impl NucleiProbe for SystemNucleiProbe {
                 "10",
             ])
             .output();
-        let result = tokio::time::timeout(std::time::Duration::from_secs(9 * 60), command)
+        let result = tokio::time::timeout(std::time::Duration::from_secs(59 * 60), command)
             .await
             .map_err(|_| "nuclei scan timed out".to_owned())
             .and_then(|result| result.map_err(|error| error.to_string()));
@@ -239,7 +241,8 @@ case " $* " in *" -disable-unsigned-templates "*) ;; *) exit 20;; esac
 case " $* " in *" -disable-update-check "*) ;; *) exit 21;; esac
 case " $* " in *" -no-interactsh "*) ;; *) exit 22;; esac
 case " $* " in *" -type http,ssl "*) ;; *) exit 23;; esac
-case " $* " in *" -rate-limit 20 "*) ;; *) exit 24;; esac
+case " $* " in *" -rate-limit 50 "*) ;; *) exit 24;; esac
+case " $* " in *" -tags kev,vkev,exposure,misconfig "*) ;; *) exit 25;; esac
 printf '%s' '{"template-id":"profile-test","type":"http","host":"https://example.com/","matched-at":"https://example.com/","info":{"severity":"low"}}'
 "#,
         )

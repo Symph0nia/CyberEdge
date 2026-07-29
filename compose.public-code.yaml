@@ -15,6 +15,7 @@ services:
     environment:
       CYBEREDGE_PUBLIC_CODE_SOCKET: /run/cyberedge-public-code/adapter.sock
       GITHUB_TOKEN_FILE: /run/secrets/github_token
+      HTTPS_PROXY: ${CYBEREDGE_OUTBOUND_PROXY:-}
     secrets:
       - github_token
     volumes:

@@ -8,10 +8,11 @@ use std::{
 
 use cyberedge::{
     BASELINE_SERVICE_PORTS, CrtShSource, CyberEdgeService, DiscoveryWorker, NotificationDispatcher,
-    PostgresRepository, Repository, RuntimeReadiness, SocketCveProbe, SocketNucleiProbe,
-    SocketPublicCodeProbe, SocketRegistrationProbe, SocketScreenshotProbe, StaticAuthorizer,
-    SystemCertificateProbe, SystemDnsResolver, SystemPortConnector, SystemScreenshotProbe,
-    SystemWebsiteProbe, WebAccess, WebhookSink, serve_read_only_web,
+    PostgresRepository, Repository, RuntimeReadiness, ScanVantage, SocketCveProbe,
+    SocketNucleiProbe, SocketPublicCodeProbe, SocketRegistrationProbe, SocketScreenshotProbe,
+    StaticAuthorizer, SystemCertificateProbe, SystemDnsResolver, SystemPortConnector,
+    SystemScreenshotProbe, SystemServiceProbe, SystemWebsiteProbe, WebAccess, WebhookSink,
+    serve_read_only_web,
 };
 use tokio::{net::UnixListener, signal};
 use tokio_stream::wrappers::UnixListenerStream;
@@ -44,12 +45,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         cve: env::var_os("CYBEREDGE_CVE_ADAPTER_SOCKET").is_some(),
         registration: env::var_os("CYBEREDGE_REGISTRATION_ADAPTER_SOCKET").is_some(),
     };
+    let scan_vantage = env::var("CYBEREDGE_SCAN_VANTAGE").unwrap_or_else(|_| "external".to_owned());
+    let scan_vantage = ScanVantage::parse(&scan_vantage).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "CYBEREDGE_SCAN_VANTAGE must be external, internal, or mixed",
+        )
+    })?;
+    let intelligence_proxy = env::var("CYBEREDGE_INTELLIGENCE_PROXY").ok();
     let mut discovery = DiscoveryWorker::new(repository.clone(), Arc::new(SystemDnsResolver))
-        .with_certificate_source(Arc::new(CrtShSource::new()?))
+        .with_certificate_source(Arc::new(CrtShSource::with_proxy(
+            intelligence_proxy.as_deref(),
+        )?))
         .with_port_connector(
             Arc::new(SystemPortConnector),
             BASELINE_SERVICE_PORTS.to_vec(),
         )
+        .with_scan_vantage(scan_vantage)
+        .with_service_probe(Arc::new(SystemServiceProbe))
         .with_certificate_probe(Arc::new(SystemCertificateProbe::new()))
         .with_website_probe(Arc::new(SystemWebsiteProbe));
     if let Ok(socket) = env::var("CYBEREDGE_SCREENSHOT_RENDERER_SOCKET") {
@@ -159,6 +172,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .identity(identity)
                     .client_ca_root(client_ca),
             )?
+            .add_service(service)
+            .serve_with_shutdown(address, shutdown_signal())
+            .await?;
+    } else if let Ok(value) = env::var("CYBEREDGE_RPC_LOCAL_ADDR") {
+        let address: std::net::SocketAddr = value.parse()?;
+        println!("CyberEdge RPC listening on local transport http://{address}");
+        Server::builder()
             .add_service(service)
             .serve_with_shutdown(address, shutdown_signal())
             .await?;

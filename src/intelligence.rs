@@ -339,19 +339,49 @@ impl PublicCodeProbe for GitHubPublicCodeProbe {
         let mut normalized = Vec::new();
         for domain in domains {
             let query = format!("\"{domain}\"");
-            let response = self
-                .client
-                .get(endpoint.clone())
-                .bearer_auth(&self.token)
-                .header("Accept", "application/vnd.github+json")
-                .header("X-GitHub-Api-Version", "2026-03-10")
-                .query(&[("q", query.as_str()), ("per_page", "20")])
-                .send()
-                .await
-                .map_err(|error| error.to_string())?;
-            if !response.status().is_success() {
-                return Err(format!("GitHub code search returned {}", response.status()));
-            }
+            let response = {
+                let mut result = None;
+                for attempt in 0..3 {
+                    match self
+                        .client
+                        .get(endpoint.clone())
+                        .bearer_auth(&self.token)
+                        .header("Accept", "application/vnd.github+json")
+                        .header("X-GitHub-Api-Version", "2026-03-10")
+                        .query(&[("q", query.as_str()), ("per_page", "20")])
+                        .send()
+                        .await
+                    {
+                        Ok(response) if response.status().is_success() => {
+                            result = Some(Ok(response));
+                            break;
+                        }
+                        Ok(response)
+                            if attempt < 2
+                                && (response.status().is_server_error()
+                                    || response.status().as_u16() == 429) => {}
+                        Ok(response) => {
+                            result = Some(Err(format!(
+                                "GitHub code search returned {}",
+                                response.status()
+                            )));
+                            break;
+                        }
+                        Err(error) if attempt < 2 => {
+                            result = Some(Err(error.to_string()));
+                        }
+                        Err(error) => {
+                            result = Some(Err(error.to_string()));
+                            break;
+                        }
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(
+                        250 * (attempt + 1) as u64,
+                    ))
+                    .await;
+                }
+                result.expect("bounded retry loop produces a result")?
+            };
             let body = response.bytes().await.map_err(|error| error.to_string())?;
             if body.len() > MAX_RESPONSE_BYTES {
                 return Err("GitHub code search response exceeds limit".to_owned());
@@ -814,6 +844,33 @@ mod tests {
         assert_eq!(output[0]["repository"], "example/repo");
         assert!(output[0].get("text_matches").is_none());
         assert!(!output.to_string().contains("must never be retained"));
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn github_probe_retries_transient_provider_failures() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            for status in ["503 Service Unavailable", "200 OK"] {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut request = vec![0; 4096];
+                let _ = stream.read(&mut request).await.unwrap();
+                let body = r#"{"items":[]}"#;
+                let response = format!(
+                    "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                stream.write_all(response.as_bytes()).await.unwrap();
+            }
+        });
+        let probe =
+            GitHubPublicCodeProbe::with_api_base("test-token", &format!("http://{address}/"))
+                .unwrap();
+        assert_eq!(
+            probe.search(&["example.com".to_owned()]).await.unwrap(),
+            b"[]"
+        );
         server.await.unwrap();
     }
 

@@ -1,6 +1,6 @@
 ---
 name: cyberedge-assess-scope
-description: Run one complete, evidence-backed CyberEdge assessment workflow for an explicitly authorized Scope. Use when an AI operator must check runtime readiness, expand domain assets, inventory services and websites, run bounded vulnerability and intelligence stages, follow one Task, and report exact stage coverage without claiming unavailable adapters were completed.
+description: Run or continuously monitor one evidence-backed CyberEdge assessment workflow for an explicitly authorized Scope. Use when an AI operator must check readiness, expand domain assets, inventory services and websites, run bounded vulnerability and intelligence stages, follow one Task, create an explicitly requested recurring assessment, inspect exposure changes, and report exact coverage without claiming unavailable adapters were completed.
 ---
 
 # CyberEdge Assess Scope
@@ -19,12 +19,14 @@ Use `cyberedge-agent` as the JSON machine bridge. This is the umbrella workflow 
 6. Call `GetTaskReport`. Treat its `coverage` entries as authoritative for workflow completeness.
 7. Summarize assets, services, websites, certificates, and findings. For every stage, preserve `complete`, `partial`, `unavailable`, or `blocked`; a completed Task does not mean every stage had coverage.
 8. Retrieve Evidence only for material claims that need inspection. Keep hashes and provenance in the report.
+9. When the human explicitly requests continuous monitoring, call `CreateSchedule` with the same assessment policy and an interval of at least 3600 seconds. On later runs, use `SearchAssetChanges` and `SearchExposureChanges`; distinguish the first baseline from subsequent no-change results.
 
 ## Safety Boundaries
 
 - Never accept an arbitrary port list, URL, header, template, flag, command, CPE, organization search term, or provider query from the caller.
 - Never expand outside the authorized root domains or addresses. Discovered names remain bounded to those roots.
 - Never evade target throttling, WAF behavior policy, authentication, or provider limits. Mark the affected stage `blocked` or `partial`.
+- Never create a recurring Schedule unless the human explicitly requested monitoring or continuous coverage.
 - Never infer a product version or vulnerability without retained evidence.
 - On `CAPABILITY_DENIED`, report the missing capability; do not change identity or fall back to direct shell scanners.
 - Do not call the low-level policy Skills to make an unavailable assessment stage look complete.

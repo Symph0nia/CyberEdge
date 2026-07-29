@@ -22,9 +22,13 @@ services:
     environment:
       DATABASE_URL: postgres://cyberedge:${CYBEREDGE_DB_PASSWORD:-cyberedge}@postgres/cyberedge
       CYBEREDGE_AGENT_POLICY: /etc/cyberedge/agents.toml
-      CYBEREDGE_RPC_SOCKET: /tmp/cyberedge.sock
+      CYBEREDGE_RPC_LOCAL_ADDR: 0.0.0.0:50051
+      CYBEREDGE_SCAN_VANTAGE: ${CYBEREDGE_SCAN_VANTAGE:-external}
+      CYBEREDGE_INTELLIGENCE_PROXY: ${CYBEREDGE_OUTBOUND_PROXY:-}
     volumes:
       - ./config/agents.example.toml:/etc/cyberedge/agents.toml:ro
+    ports:
+      - 127.0.0.1:50051:50051
     restart: unless-stopped
 
 volumes:
